@@ -1,0 +1,12 @@
+[package]
+name = "rquery-postgres"
+description = "PostgreSQL renderer for rquery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rquery-core = { workspace = true }
+
+[dev-dependencies]

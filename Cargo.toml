@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/rquery",
+    "crates/rquery-core",
+    "crates/rquery-postgres",
+    "crates/rquery-sqlite",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+rquery-core = { path = "crates/rquery-core" }
+rquery-postgres = { path = "crates/rquery-postgres" }
+rquery-sqlite = { path = "crates/rquery-sqlite" }
+thiserror = "2"
