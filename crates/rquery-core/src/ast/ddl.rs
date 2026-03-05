@@ -17,6 +17,17 @@ pub enum SchemaMutationStmt {
         temporary: bool,
         unlogged: bool,
         tablespace: Option<String>,
+        partition_by: Option<PartitionByDef>,
+        inherits: Option<Vec<SchemaRef>>,
+        using_method: Option<String>,
+        with_options: Option<Vec<(String, String)>>,
+        on_commit: Option<OnCommitAction>,
+        /// Generic table options (MySQL ENGINE, ROW_FORMAT, etc.).
+        table_options: Option<Vec<(String, String)>>,
+        /// SQLite WITHOUT ROWID.
+        without_rowid: bool,
+        /// SQLite STRICT mode.
+        strict: bool,
     },
     DropTable {
         schema_ref: SchemaRef,
@@ -135,6 +146,7 @@ pub struct SchemaDef {
     pub columns: Vec<ColumnDef>,
     pub constraints: Option<Vec<ConstraintDef>>,
     pub indexes: Option<Vec<IndexDef>>,
+    pub like_tables: Option<Vec<LikeTableDef>>,
 }
 
 impl SchemaDef {
@@ -145,6 +157,7 @@ impl SchemaDef {
             columns: Vec::new(),
             constraints: None,
             indexes: None,
+            like_tables: None,
         }
     }
 }
@@ -164,6 +177,8 @@ pub struct ColumnDef {
     pub identity: Option<IdentityColumn>,
     pub collation: Option<String>,
     pub comment: Option<String>,
+    pub storage: Option<String>,
+    pub compression: Option<String>,
 }
 
 impl ColumnDef {
@@ -177,6 +192,8 @@ impl ColumnDef {
             identity: None,
             collation: None,
             comment: None,
+            storage: None,
+            compression: None,
         }
     }
 
@@ -279,6 +296,8 @@ pub enum ConstraintDef {
         name: Option<String>,
         columns: Vec<String>,
         include: Option<Vec<String>>,
+        /// SQLite AUTOINCREMENT (only valid with single INTEGER PRIMARY KEY).
+        autoincrement: bool,
     },
 
     ForeignKey {
@@ -412,4 +431,76 @@ pub enum IndexExpr {
 pub enum NullsOrder {
     First,
     Last,
+}
+
+// ---------------------------------------------------------------------------
+// Partition definition
+// ---------------------------------------------------------------------------
+
+/// PARTITION BY clause for CREATE TABLE.
+#[derive(Debug, Clone)]
+pub struct PartitionByDef {
+    pub strategy: PartitionStrategy,
+    pub columns: Vec<PartitionColumnDef>,
+}
+
+/// Partition strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartitionStrategy {
+    Range,
+    List,
+    Hash,
+}
+
+/// A column or expression in a PARTITION BY clause.
+#[derive(Debug, Clone)]
+pub struct PartitionColumnDef {
+    pub expr: IndexExpr,
+    pub collation: Option<String>,
+    pub opclass: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// LIKE table definition
+// ---------------------------------------------------------------------------
+
+/// LIKE source_table [ like_option ... ] in CREATE TABLE.
+#[derive(Debug, Clone)]
+pub struct LikeTableDef {
+    pub source_table: SchemaRef,
+    pub options: Vec<LikeOption>,
+}
+
+/// LIKE options: INCLUDING or EXCLUDING specific properties.
+#[derive(Debug, Clone)]
+pub struct LikeOption {
+    pub kind: LikeOptionKind,
+    pub include: bool,
+}
+
+/// What to include/exclude from the LIKE source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LikeOptionKind {
+    Comments,
+    Compression,
+    Constraints,
+    Defaults,
+    Generated,
+    Identity,
+    Indexes,
+    Statistics,
+    Storage,
+    All,
+}
+
+// ---------------------------------------------------------------------------
+// ON COMMIT action for temporary tables
+// ---------------------------------------------------------------------------
+
+/// ON COMMIT action for temporary tables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnCommitAction {
+    PreserveRows,
+    DeleteRows,
+    Drop,
 }

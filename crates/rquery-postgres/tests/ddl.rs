@@ -32,11 +32,20 @@ fn create_table_simple() {
             ],
             constraints: None,
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -53,11 +62,20 @@ fn create_table_if_not_exists() {
             columns: vec![ColumnDef::new("id", FieldType::scalar("INTEGER"))],
             constraints: None,
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: true,
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -74,11 +92,20 @@ fn create_table_temporary_unlogged() {
             columns: vec![ColumnDef::new("x", FieldType::scalar("INT"))],
             constraints: None,
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: true,
         unlogged: true,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -95,11 +122,20 @@ fn create_table_with_namespace() {
             columns: vec![ColumnDef::new("id", FieldType::scalar("INT"))],
             constraints: None,
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -124,15 +160,26 @@ fn create_table_with_default() {
                     identity: None,
                     collation: None,
                     comment: None,
+                    storage: None,
+                    compression: None,
                 },
             ],
             constraints: None,
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -160,14 +207,25 @@ fn create_table_with_identity() {
                 }),
                 collation: None,
                 comment: None,
+                storage: None,
+                compression: None,
             }],
             constraints: None,
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -199,15 +257,26 @@ fn create_table_with_generated_column() {
                     identity: None,
                     collation: None,
                     comment: None,
+                    storage: None,
+                    compression: None,
                 },
             ],
             constraints: None,
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -229,11 +298,20 @@ fn create_table_parameterized_types() {
             ],
             constraints: None,
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -259,13 +337,23 @@ fn create_table_primary_key() {
                 name: Some("pk_users".into()),
                 columns: vec!["id".into()],
                 include: None,
+                autoincrement: false,
             }]),
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -294,11 +382,20 @@ fn create_table_foreign_key() {
                 match_type: None,
             }]),
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -342,11 +439,20 @@ fn create_table_unique_check() {
                 },
             ]),
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -363,11 +469,20 @@ fn create_table_with_tablespace() {
             columns: vec![ColumnDef::new("id", FieldType::scalar("INT"))],
             constraints: None,
             indexes: None,
+            like_tables: None,
         },
         if_not_exists: false,
         temporary: false,
         unlogged: false,
         tablespace: Some("fast_storage".into()),
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -904,4 +1019,256 @@ fn truncate_table_restart_identity_cascade() {
         cascade: true,
     };
     assert_eq!(render(&stmt), r#"TRUNCATE TABLE "orders" RESTART IDENTITY CASCADE"#);
+}
+
+// ==========================================================================
+// Extended CREATE TABLE features
+// ==========================================================================
+
+#[test]
+fn create_table_partition_by_range() {
+    use rquery_core::ast::ddl::*;
+    let mut schema = SchemaDef::new("logs");
+    schema.columns = vec![
+        ColumnDef::new("id", FieldType::scalar("BIGINT")).not_null(),
+        ColumnDef::new("created_at", FieldType::scalar("TIMESTAMPTZ")).not_null(),
+        ColumnDef::new("message", FieldType::scalar("TEXT")),
+    ];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: Some(PartitionByDef {
+            strategy: PartitionStrategy::Range,
+            columns: vec![PartitionColumnDef {
+                expr: IndexExpr::Column("created_at".into()),
+                collation: None,
+                opclass: None,
+            }],
+        }),
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "logs"("id" BIGINT NOT NULL, "created_at" TIMESTAMPTZ NOT NULL, "message" TEXT) PARTITION BY RANGE("created_at")"#,
+    );
+}
+
+#[test]
+fn create_table_partition_by_list_with_expression() {
+    use rquery_core::ast::ddl::*;
+    let mut schema = SchemaDef::new("events");
+    schema.columns = vec![
+        ColumnDef::new("id", FieldType::scalar("INT")),
+        ColumnDef::new("region", FieldType::scalar("TEXT")),
+    ];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: Some(PartitionByDef {
+            strategy: PartitionStrategy::List,
+            columns: vec![PartitionColumnDef {
+                expr: IndexExpr::Expression(Expr::Func {
+                    name: "lower".into(),
+                    args: vec![Expr::Raw { sql: "region".into(), params: vec![] }],
+                }),
+                collation: None,
+                opclass: None,
+            }],
+        }),
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "events"("id" INT, "region" TEXT) PARTITION BY LIST((lower(region)))"#,
+    );
+}
+
+#[test]
+fn create_table_inherits() {
+    let mut schema = SchemaDef::new("child_table");
+    schema.columns = vec![ColumnDef::new("extra", FieldType::scalar("TEXT"))];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: Some(vec![SchemaRef::new("parent_table")]),
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "child_table"("extra" TEXT) INHERITS("parent_table")"#,
+    );
+}
+
+#[test]
+fn create_table_with_options() {
+    let mut schema = SchemaDef::new("hot_data");
+    schema.columns = vec![ColumnDef::new("id", FieldType::scalar("INT"))];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: Some(vec![
+            ("fillfactor".into(), "70".into()),
+            ("autovacuum_enabled".into(), "true".into()),
+        ]),
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "hot_data"("id" INT) WITH(fillfactor = 70, autovacuum_enabled = true)"#,
+    );
+}
+
+#[test]
+fn create_table_on_commit() {
+    use rquery_core::ast::ddl::OnCommitAction;
+    let mut schema = SchemaDef::new("temp_work");
+    schema.columns = vec![ColumnDef::new("data", FieldType::scalar("TEXT"))];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: true,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: Some(OnCommitAction::DeleteRows),
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TEMPORARY TABLE "temp_work"("data" TEXT) ON COMMIT DELETE ROWS"#,
+    );
+}
+
+#[test]
+fn create_table_using_method() {
+    let mut schema = SchemaDef::new("columnar_data");
+    schema.columns = vec![ColumnDef::new("id", FieldType::scalar("INT"))];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: Some("columnar".into()),
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "columnar_data"("id" INT) USING columnar"#,
+    );
+}
+
+#[test]
+fn create_table_like() {
+    use rquery_core::ast::ddl::*;
+    let mut schema = SchemaDef::new("users_copy");
+    schema.like_tables = Some(vec![LikeTableDef {
+        source_table: SchemaRef::new("users"),
+        options: vec![
+            LikeOption { kind: LikeOptionKind::All, include: true },
+            LikeOption { kind: LikeOptionKind::Indexes, include: false },
+        ],
+    }]);
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "users_copy"(LIKE "users" INCLUDING ALL EXCLUDING INDEXES)"#,
+    );
+}
+
+#[test]
+fn create_table_column_storage_compression() {
+    let mut schema = SchemaDef::new("docs");
+    schema.columns = vec![ColumnDef {
+        name: "body".into(),
+        field_type: FieldType::scalar("TEXT"),
+        not_null: false,
+        default: None,
+        generated: None,
+        identity: None,
+        collation: None,
+        comment: None,
+        storage: Some("EXTERNAL".into()),
+        compression: Some("lz4".into()),
+    }];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "docs"("body" TEXT STORAGE EXTERNAL COMPRESSION lz4)"#,
+    );
 }

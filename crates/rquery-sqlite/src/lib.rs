@@ -56,9 +56,17 @@ impl Renderer for SqliteRenderer {
                 schema,
                 if_not_exists,
                 temporary,
-                unlogged: _, // SQLite doesn't support UNLOGGED — Ignore (logged = safer)
-                tablespace: _, // SQLite doesn't support TABLESPACE — Ignore
-            } => self.sqlite_create_table(schema, *if_not_exists, *temporary, ctx),
+                unlogged: _,
+                tablespace: _,
+                partition_by: _,  // SQLite doesn't support PARTITION BY
+                inherits: _,     // SQLite doesn't support INHERITS
+                using_method: _, // SQLite doesn't support USING method
+                with_options: _, // SQLite doesn't support WITH options
+                on_commit: _,    // SQLite doesn't support ON COMMIT
+                table_options: _, // SQLite doesn't support generic table options
+                without_rowid,
+                strict,
+            } => self.sqlite_create_table(schema, *if_not_exists, *temporary, *without_rowid, *strict, ctx),
 
             SchemaMutationStmt::DropTable {
                 schema_ref,
@@ -281,6 +289,7 @@ impl Renderer for SqliteRenderer {
                 name,
                 columns,
                 include: _, // SQLite doesn't support INCLUDE — Ignore
+                autoincrement,
             } => {
                 if let Some(n) = name {
                     ctx.keyword("CONSTRAINT").ident(n);
@@ -288,6 +297,9 @@ impl Renderer for SqliteRenderer {
                 ctx.keyword("PRIMARY KEY").paren_open();
                 self.sqlite_comma_idents(columns, ctx);
                 ctx.paren_close();
+                if *autoincrement {
+                    ctx.keyword("AUTOINCREMENT");
+                }
             }
 
             ConstraintDef::ForeignKey {
@@ -774,6 +786,8 @@ impl SqliteRenderer {
         schema: &SchemaDef,
         if_not_exists: bool,
         temporary: bool,
+        without_rowid: bool,
+        strict: bool,
         ctx: &mut RenderCtx,
     ) -> RenderResult<()> {
         ctx.keyword("CREATE");
@@ -808,6 +822,23 @@ impl SqliteRenderer {
             }
         }
         ctx.paren_close();
+
+        // SQLite table modifiers
+        let mut modifiers = Vec::new();
+        if without_rowid {
+            modifiers.push("WITHOUT ROWID");
+        }
+        if strict {
+            modifiers.push("STRICT");
+        }
+        if !modifiers.is_empty() {
+            for (i, m) in modifiers.iter().enumerate() {
+                if i > 0 {
+                    ctx.comma();
+                }
+                ctx.keyword(m);
+            }
+        }
 
         Ok(())
     }

@@ -33,6 +33,14 @@ fn create_table_simple() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(render(&stmt), r#"CREATE TABLE "users"("id" INTEGER NOT NULL, "name" TEXT)"#);
 }
@@ -47,6 +55,14 @@ fn create_table_if_not_exists() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(render(&stmt), r#"CREATE TABLE IF NOT EXISTS "users"("id" INTEGER)"#);
 }
@@ -61,6 +77,14 @@ fn create_table_temporary() {
         temporary: true,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(render(&stmt), r#"CREATE TEMP TABLE "temp_data"("val" TEXT)"#);
 }
@@ -76,6 +100,14 @@ fn create_table_unlogged_ignored() {
         temporary: false,
         unlogged: true,
         tablespace: Some("fast_disk".into()),
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(render(&stmt), r#"CREATE TABLE "t"("id" INTEGER)"#);
 }
@@ -91,6 +123,14 @@ fn create_table_with_namespace() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(render(&stmt), r#"CREATE TABLE "main"."users"("id" INTEGER)"#);
 }
@@ -109,6 +149,14 @@ fn create_table_with_default() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -134,6 +182,8 @@ fn create_table_with_generated_column() {
             identity: None,
             collation: None,
             comment: None,
+            storage: None,
+            compression: None,
         },
     ];
     let stmt = SchemaMutationStmt::CreateTable {
@@ -142,6 +192,14 @@ fn create_table_with_generated_column() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -164,6 +222,8 @@ fn create_table_generated_stored() {
         identity: None,
         collation: None,
         comment: None,
+        storage: None,
+        compression: None,
     }];
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -171,6 +231,14 @@ fn create_table_generated_stored() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -190,6 +258,8 @@ fn create_table_identity_error() {
         identity: Some(IdentityColumn::default()),
         collation: None,
         comment: None,
+        storage: None,
+        compression: None,
     }];
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -197,6 +267,14 @@ fn create_table_identity_error() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     let err = render_err(&stmt);
     assert!(err.contains("IDENTITY"), "expected IDENTITY error, got: {err}");
@@ -215,6 +293,14 @@ fn create_table_parameterized_type() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -233,6 +319,7 @@ fn create_table_primary_key() {
         name: None,
         columns: vec!["id".into()],
         include: None,
+        autoincrement: false,
     }]);
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -240,6 +327,14 @@ fn create_table_primary_key() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -270,6 +365,14 @@ fn create_table_foreign_key() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -314,6 +417,14 @@ fn create_table_unique_check() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -344,6 +455,14 @@ fn create_table_deferrable_fk() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(
         render(&stmt),
@@ -361,6 +480,14 @@ fn create_table_array_type_error() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     let err = render_err(&stmt);
     assert!(err.contains("array"), "expected array error, got: {err}");
@@ -382,9 +509,151 @@ fn create_table_exclusion_error() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     let err = render_err(&stmt);
     assert!(err.contains("EXCLUDE"), "expected exclusion error, got: {err}");
+}
+
+// ==========================================================================
+// CREATE TABLE — WITHOUT ROWID, STRICT, AUTOINCREMENT
+// ==========================================================================
+
+#[test]
+fn create_table_without_rowid() {
+    let mut schema = SchemaDef::new("kv");
+    schema.columns = vec![
+        ColumnDef::new("key", FieldType::scalar("TEXT")).not_null(),
+        ColumnDef::new("value", FieldType::scalar("BLOB")),
+    ];
+    schema.constraints = Some(vec![ConstraintDef::PrimaryKey {
+        name: None,
+        columns: vec!["key".into()],
+        include: None,
+        autoincrement: false,
+    }]);
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: true,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "kv"("key" TEXT NOT NULL, "value" BLOB, PRIMARY KEY("key")) WITHOUT ROWID"#,
+    );
+}
+
+#[test]
+fn create_table_strict() {
+    let mut schema = SchemaDef::new("data");
+    schema.columns = vec![
+        ColumnDef::new("id", FieldType::scalar("INTEGER")).not_null(),
+        ColumnDef::new("name", FieldType::scalar("TEXT")),
+    ];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: true,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "data"("id" INTEGER NOT NULL, "name" TEXT) STRICT"#,
+    );
+}
+
+#[test]
+fn create_table_without_rowid_strict() {
+    let mut schema = SchemaDef::new("kv_strict");
+    schema.columns = vec![
+        ColumnDef::new("key", FieldType::scalar("TEXT")).not_null(),
+        ColumnDef::new("val", FieldType::scalar("INTEGER")),
+    ];
+    schema.constraints = Some(vec![ConstraintDef::PrimaryKey {
+        name: None,
+        columns: vec!["key".into()],
+        include: None,
+        autoincrement: false,
+    }]);
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: true,
+        strict: true,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "kv_strict"("key" TEXT NOT NULL, "val" INTEGER, PRIMARY KEY("key")) WITHOUT ROWID, STRICT"#,
+    );
+}
+
+#[test]
+fn create_table_primary_key_autoincrement() {
+    let mut schema = SchemaDef::new("events");
+    schema.columns = vec![
+        ColumnDef::new("id", FieldType::scalar("INTEGER")).not_null(),
+        ColumnDef::new("name", FieldType::scalar("TEXT")),
+    ];
+    schema.constraints = Some(vec![ConstraintDef::PrimaryKey {
+        name: None,
+        columns: vec!["id".into()],
+        include: None,
+        autoincrement: true,
+    }]);
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "events"("id" INTEGER NOT NULL, "name" TEXT, PRIMARY KEY("id") AUTOINCREMENT)"#,
+    );
 }
 
 // ==========================================================================
@@ -805,6 +1074,14 @@ fn bool_rendered_as_integer() {
         temporary: false,
         unlogged: false,
         tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
     };
     assert_eq!(render(&stmt), r#"CREATE TABLE "t"("flag" INTEGER DEFAULT 1)"#);
 }

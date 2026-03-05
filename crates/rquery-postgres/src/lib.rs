@@ -1,8 +1,9 @@
-use rquery_core::ast::common::{FieldRef, OrderByDef, OrderDir};
+use rquery_core::ast::common::{FieldRef, OrderByDef, OrderDir, SchemaRef};
 use rquery_core::ast::conditions::{CompareOp, ConditionNode, Conditions, Connector};
 use rquery_core::ast::ddl::{
     ColumnDef, ConstraintDef, DeferrableConstraint, FieldType,
-    IdentityColumn, IndexColumnDef, IndexDef, IndexExpr, MatchType, NullsOrder,
+    IdentityColumn, IndexColumnDef, IndexDef, IndexExpr, LikeTableDef,
+    MatchType, NullsOrder, OnCommitAction, PartitionByDef, PartitionStrategy,
     ReferentialAction, SchemaDef, SchemaMutationStmt,
 };
 use rquery_core::ast::dml::{
@@ -60,7 +61,19 @@ impl Renderer for PostgresRenderer {
                 temporary,
                 unlogged,
                 tablespace,
-            } => self.pg_create_table(schema, *if_not_exists, *temporary, *unlogged, tablespace.as_deref(), ctx),
+                partition_by,
+                inherits,
+                using_method,
+                with_options,
+                on_commit,
+                table_options: _, // PG uses WITH options instead
+                without_rowid: _, // SQLite-specific — Ignore
+                strict: _, // SQLite-specific — Ignore
+            } => self.pg_create_table(
+                schema, *if_not_exists, *temporary, *unlogged, tablespace.as_deref(),
+                partition_by.as_ref(), inherits.as_deref(), using_method.as_deref(),
+                with_options.as_deref(), on_commit.as_ref(), ctx,
+            ),
 
             SchemaMutationStmt::DropTable {
                 schema_ref,
@@ -336,6 +349,14 @@ impl Renderer for PostgresRenderer {
         ctx.ident(&col.name);
         self.render_column_type(&col.field_type, ctx)?;
 
+        if let Some(storage) = &col.storage {
+            ctx.keyword("STORAGE").keyword(storage);
+        }
+
+        if let Some(compression) = &col.compression {
+            ctx.keyword("COMPRESSION").keyword(compression);
+        }
+
         if let Some(collation) = &col.collation {
             ctx.keyword("COLLATE").ident(collation);
         }
@@ -400,6 +421,7 @@ impl Renderer for PostgresRenderer {
                 name,
                 columns,
                 include,
+                autoincrement: _, // SQLite-specific — Ignore
             } => {
                 if let Some(n) = name {
                     ctx.keyword("CONSTRAINT").ident(n);
@@ -1003,6 +1025,11 @@ impl PostgresRenderer {
         temporary: bool,
         unlogged: bool,
         tablespace: Option<&str>,
+        partition_by: Option<&PartitionByDef>,
+        inherits: Option<&[SchemaRef]>,
+        using_method: Option<&str>,
+        with_options: Option<&[(String, String)]>,
+        on_commit: Option<&OnCommitAction>,
         ctx: &mut RenderCtx,
     ) -> RenderResult<()> {
         ctx.keyword("CREATE");
@@ -1021,7 +1048,7 @@ impl PostgresRenderer {
         }
         ctx.ident(&schema.name);
 
-        // Columns + constraints
+        // Columns + constraints + LIKE
         ctx.paren_open();
         let mut first = true;
         for col in &schema.columns {
@@ -1030,6 +1057,15 @@ impl PostgresRenderer {
             }
             first = false;
             self.render_column_def(col, ctx)?;
+        }
+        if let Some(like_tables) = &schema.like_tables {
+            for like in like_tables {
+                if !first {
+                    ctx.comma();
+                }
+                first = false;
+                self.pg_like_table(like, ctx);
+            }
         }
         if let Some(constraints) = &schema.constraints {
             for constraint in constraints {
@@ -1042,11 +1078,106 @@ impl PostgresRenderer {
         }
         ctx.paren_close();
 
+        // INHERITS
+        if let Some(parents) = inherits {
+            ctx.keyword("INHERITS").paren_open();
+            for (i, parent) in parents.iter().enumerate() {
+                if i > 0 {
+                    ctx.comma();
+                }
+                self.pg_schema_ref(parent, ctx);
+            }
+            ctx.paren_close();
+        }
+
+        // PARTITION BY
+        if let Some(part) = partition_by {
+            ctx.keyword("PARTITION BY");
+            ctx.keyword(match part.strategy {
+                PartitionStrategy::Range => "RANGE",
+                PartitionStrategy::List => "LIST",
+                PartitionStrategy::Hash => "HASH",
+            });
+            ctx.paren_open();
+            for (i, col) in part.columns.iter().enumerate() {
+                if i > 0 {
+                    ctx.comma();
+                }
+                match &col.expr {
+                    IndexExpr::Column(name) => { ctx.ident(name); }
+                    IndexExpr::Expression(expr) => {
+                        ctx.paren_open();
+                        self.render_expr(expr, ctx)?;
+                        ctx.paren_close();
+                    }
+                }
+                if let Some(collation) = &col.collation {
+                    ctx.keyword("COLLATE").ident(collation);
+                }
+                if let Some(opclass) = &col.opclass {
+                    ctx.keyword(opclass);
+                }
+            }
+            ctx.paren_close();
+        }
+
+        // USING method
+        if let Some(method) = using_method {
+            ctx.keyword("USING").keyword(method);
+        }
+
+        // WITH (storage_parameter = value, ...)
+        if let Some(opts) = with_options {
+            ctx.keyword("WITH").paren_open();
+            for (i, (key, value)) in opts.iter().enumerate() {
+                if i > 0 {
+                    ctx.comma();
+                }
+                ctx.write(key).write(" = ").write(value);
+            }
+            ctx.paren_close();
+        }
+
+        // ON COMMIT
+        if let Some(action) = on_commit {
+            ctx.keyword("ON COMMIT");
+            ctx.keyword(match action {
+                OnCommitAction::PreserveRows => "PRESERVE ROWS",
+                OnCommitAction::DeleteRows => "DELETE ROWS",
+                OnCommitAction::Drop => "DROP",
+            });
+        }
+
+        // TABLESPACE
         if let Some(ts) = tablespace {
             ctx.keyword("TABLESPACE").ident(ts);
         }
 
         Ok(())
+    }
+
+    fn pg_like_table(&self, like: &LikeTableDef, ctx: &mut RenderCtx) {
+        ctx.keyword("LIKE");
+        self.pg_schema_ref(&like.source_table, ctx);
+        for opt in &like.options {
+            if opt.include {
+                ctx.keyword("INCLUDING");
+            } else {
+                ctx.keyword("EXCLUDING");
+            }
+            ctx.keyword(match opt.kind {
+                rquery_core::ast::ddl::LikeOptionKind::Comments => "COMMENTS",
+                rquery_core::ast::ddl::LikeOptionKind::Compression => "COMPRESSION",
+                rquery_core::ast::ddl::LikeOptionKind::Constraints => "CONSTRAINTS",
+                rquery_core::ast::ddl::LikeOptionKind::Defaults => "DEFAULTS",
+                rquery_core::ast::ddl::LikeOptionKind::Generated => "GENERATED",
+                rquery_core::ast::ddl::LikeOptionKind::Identity => "IDENTITY",
+                rquery_core::ast::ddl::LikeOptionKind::Indexes => "INDEXES",
+                rquery_core::ast::ddl::LikeOptionKind::Statistics => "STATISTICS",
+                rquery_core::ast::ddl::LikeOptionKind::Storage => "STORAGE",
+                rquery_core::ast::ddl::LikeOptionKind::All => "ALL",
+            });
+        }
     }
 
     fn pg_create_index(
