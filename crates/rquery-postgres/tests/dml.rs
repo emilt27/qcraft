@@ -40,7 +40,7 @@ fn insert_single_row() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("name", "email") VALUES('Alice', 'alice@example.com')"#,
+        r#"INSERT INTO "users" ("name", "email") VALUES ('Alice', 'alice@example.com')"#,
     );
 }
 
@@ -63,7 +63,7 @@ fn insert_multi_row() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("name") VALUES('Alice'), ('Bob')"#,
+        r#"INSERT INTO "users" ("name") VALUES ('Alice'), ('Bob')"#,
     );
 }
 
@@ -87,7 +87,7 @@ fn insert_with_params() {
     let (sql, _params) = render_with_params(&stmt);
     assert_eq!(
         sql,
-        r#"INSERT INTO "users"("name", "age") VALUES('Alice', 30)"#,
+        r#"INSERT INTO "users" ("name", "age") VALUES ('Alice', 30)"#,
     );
 }
 
@@ -125,7 +125,7 @@ fn insert_no_columns() {
         partition: None,
         ignore: false,
     });
-    assert_eq!(render(&stmt), r#"INSERT INTO "t" VALUES(1, 'x')"#);
+    assert_eq!(render(&stmt), r#"INSERT INTO "t" VALUES (1, 'x')"#);
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn insert_with_namespace() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "public"."users"("id") VALUES(1)"#,
+        r#"INSERT INTO "public"."users" ("id") VALUES (1)"#,
     );
 }
 
@@ -168,7 +168,7 @@ fn insert_returning_star() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("name") VALUES('Alice') RETURNING *"#,
+        r#"INSERT INTO "users" ("name") VALUES ('Alice') RETURNING *"#,
     );
 }
 
@@ -197,7 +197,7 @@ fn insert_returning_columns() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("name") VALUES('Alice') RETURNING "users"."id", "users"."name" AS "user_name""#,
+        r#"INSERT INTO "users" ("name") VALUES ('Alice') RETURNING "users"."id", "users"."name" AS "user_name""#,
     );
 }
 
@@ -230,7 +230,7 @@ fn insert_on_conflict_do_nothing() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("email", "name") VALUES('a@b.com', 'Alice') ON CONFLICT("email") DO NOTHING"#,
+        r#"INSERT INTO "users" ("email", "name") VALUES ('a@b.com', 'Alice') ON CONFLICT ("email") DO NOTHING"#,
     );
 }
 
@@ -264,7 +264,7 @@ fn insert_on_conflict_do_update() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("email", "name") VALUES('a@b.com', 'Alice') ON CONFLICT("email") DO UPDATE SET "name" = EXCLUDED."name""#,
+        r#"INSERT INTO "users" ("email", "name") VALUES ('a@b.com', 'Alice') ON CONFLICT ("email") DO UPDATE SET "name" = EXCLUDED."name""#,
     );
 }
 
@@ -287,7 +287,7 @@ fn insert_on_conflict_on_constraint() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("email") VALUES('a@b.com') ON CONFLICT ON CONSTRAINT "uq_email" DO NOTHING"#,
+        r#"INSERT INTO "users" ("email") VALUES ('a@b.com') ON CONFLICT ON CONSTRAINT "uq_email" DO NOTHING"#,
     );
 }
 
@@ -333,7 +333,7 @@ fn insert_on_conflict_do_update_with_where() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "counters"("key", "value") VALUES('hits', 1) ON CONFLICT("key") DO UPDATE SET "value" = "counters"."value" + EXCLUDED."value" WHERE "counters"."value" < 1000"#,
+        r#"INSERT INTO "counters" ("key", "value") VALUES ('hits', 1) ON CONFLICT ("key") DO UPDATE SET "value" = "counters"."value" + EXCLUDED."value" WHERE "counters"."value" < 1000"#,
     );
 }
 
@@ -368,7 +368,7 @@ fn insert_on_conflict_partial_index() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("email") VALUES('a@b.com') ON CONFLICT("email") WHERE "active" = TRUE DO NOTHING"#,
+        r#"INSERT INTO "users" ("email") VALUES ('a@b.com') ON CONFLICT ("email") WHERE "active" = TRUE DO NOTHING"#,
     );
 }
 
@@ -395,7 +395,7 @@ fn insert_overriding_system_value() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("id", "name") OVERRIDING SYSTEM VALUE VALUES(100, 'Alice')"#,
+        r#"INSERT INTO "users" ("id", "name") OVERRIDING SYSTEM VALUE VALUES (100, 'Alice')"#,
     );
 }
 
@@ -767,7 +767,7 @@ fn insert_with_expression_values() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "events"("name", "created_at") VALUES('login', now())"#,
+        r#"INSERT INTO "events" ("name", "created_at") VALUES ('login', now())"#,
     );
 }
 
@@ -849,6 +849,6 @@ fn insert_upsert_returning() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("email", "name") VALUES('alice@example.com', 'Alice') ON CONFLICT("email") DO UPDATE SET "name" = EXCLUDED."name" RETURNING *"#,
+        r#"INSERT INTO "users" ("email", "name") VALUES ('alice@example.com', 'Alice') ON CONFLICT ("email") DO UPDATE SET "name" = EXCLUDED."name" RETURNING *"#,
     );
 }

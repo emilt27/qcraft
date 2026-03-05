@@ -1,4 +1,4 @@
-use rquery_core::ast::common::{FieldRef, SchemaRef};
+use rquery_core::ast::common::{FieldRef, OrderByDef, SchemaRef};
 use rquery_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use rquery_core::ast::dml::*;
 use rquery_core::ast::expr::Expr;
@@ -40,7 +40,7 @@ fn insert_single_row() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("name", "email") VALUES('Alice', 'alice@example.com')"#,
+        r#"INSERT INTO "users" ("name", "email") VALUES ('Alice', 'alice@example.com')"#,
     );
 }
 
@@ -63,7 +63,7 @@ fn insert_multi_row() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("name") VALUES('Alice'), ('Bob')"#,
+        r#"INSERT INTO "users" ("name") VALUES ('Alice'), ('Bob')"#,
     );
 }
 
@@ -100,7 +100,7 @@ fn insert_with_namespace() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "main"."users"("id") VALUES(1)"#,
+        r#"INSERT INTO "main"."users" ("id") VALUES (1)"#,
     );
 }
 
@@ -127,7 +127,7 @@ fn insert_or_replace() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT OR REPLACE INTO "users"("id", "name") VALUES(1, 'Alice')"#,
+        r#"INSERT OR REPLACE INTO "users" ("id", "name") VALUES (1, 'Alice')"#,
     );
 }
 
@@ -147,7 +147,7 @@ fn insert_or_ignore() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT OR IGNORE INTO "users"("id") VALUES(1)"#,
+        r#"INSERT OR IGNORE INTO "users" ("id") VALUES (1)"#,
     );
 }
 
@@ -165,7 +165,7 @@ fn insert_or_abort() {
         partition: None,
         ignore: false,
     });
-    assert_eq!(render(&stmt), r#"INSERT OR ABORT INTO "t" VALUES(1)"#);
+    assert_eq!(render(&stmt), r#"INSERT OR ABORT INTO "t" VALUES (1)"#);
 }
 
 // ==========================================================================
@@ -188,7 +188,7 @@ fn insert_returning_star() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("name") VALUES('Alice') RETURNING *"#,
+        r#"INSERT INTO "users" ("name") VALUES ('Alice') RETURNING *"#,
     );
 }
 
@@ -217,7 +217,7 @@ fn insert_returning_columns() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("name") VALUES('Alice') RETURNING "users"."id", "users"."name" AS "user_name""#,
+        r#"INSERT INTO "users" ("name") VALUES ('Alice') RETURNING "users"."id", "users"."name" AS "user_name""#,
     );
 }
 
@@ -247,7 +247,7 @@ fn insert_on_conflict_do_nothing() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("email") VALUES('a@b.com') ON CONFLICT("email") DO NOTHING"#,
+        r#"INSERT INTO "users" ("email") VALUES ('a@b.com') ON CONFLICT ("email") DO NOTHING"#,
     );
 }
 
@@ -281,7 +281,7 @@ fn insert_on_conflict_do_update() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("email", "name") VALUES('a@b.com', 'Alice') ON CONFLICT("email") DO UPDATE SET "name" = excluded."name""#,
+        r#"INSERT INTO "users" ("email", "name") VALUES ('a@b.com', 'Alice') ON CONFLICT ("email") DO UPDATE SET "name" = excluded."name""#,
     );
 }
 
@@ -305,7 +305,7 @@ fn insert_on_conflict_catch_all() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "t"("id") VALUES(1) ON CONFLICT DO NOTHING"#,
+        r#"INSERT INTO "t" ("id") VALUES (1) ON CONFLICT DO NOTHING"#,
     );
 }
 
@@ -371,7 +371,7 @@ fn insert_multiple_on_conflict() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("id", "email", "name") VALUES(1, 'a@b.com', 'Alice') ON CONFLICT("id") DO NOTHING ON CONFLICT("email") DO UPDATE SET "name" = excluded."name""#,
+        r#"INSERT INTO "users" ("id", "email", "name") VALUES (1, 'a@b.com', 'Alice') ON CONFLICT ("id") DO NOTHING ON CONFLICT ("email") DO UPDATE SET "name" = excluded."name""#,
     );
 }
 
@@ -395,7 +395,7 @@ fn insert_bool_as_integer() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "flags"("active") VALUES(1)"#,
+        r#"INSERT INTO "flags" ("active") VALUES (1)"#,
     );
 }
 
@@ -535,8 +535,9 @@ fn update_with_limit_offset() {
         ctes: None,
         conflict_resolution: None,
         order_by: Some(vec![OrderByDef {
-            field: FieldRef::new("logs", "created_at"),
+            expr: Expr::Field(FieldRef::new("logs", "created_at")),
             direction: rquery_core::ast::common::OrderDir::Asc,
+            nulls: None,
         }]),
         limit: Some(100),
         offset: Some(10),
@@ -546,7 +547,7 @@ fn update_with_limit_offset() {
     });
     assert_eq!(
         render(&stmt),
-        r#"UPDATE "logs" SET "archived" = 1 ORDER BY "created_at" ASC LIMIT 100 OFFSET 10"#,
+        r#"UPDATE "logs" SET "archived" = 1 ORDER BY "logs"."created_at" ASC LIMIT 100 OFFSET 10"#,
     );
 }
 
@@ -692,8 +693,9 @@ fn delete_with_limit_offset() {
         returning: None,
         ctes: None,
         order_by: Some(vec![OrderByDef {
-            field: FieldRef::new("logs", "created_at"),
+            expr: Expr::Field(FieldRef::new("logs", "created_at")),
             direction: rquery_core::ast::common::OrderDir::Asc,
+            nulls: None,
         }]),
         limit: Some(50),
         offset: None,
@@ -703,7 +705,7 @@ fn delete_with_limit_offset() {
     });
     assert_eq!(
         render(&stmt),
-        r#"DELETE FROM "logs" ORDER BY "created_at" ASC LIMIT 50"#,
+        r#"DELETE FROM "logs" ORDER BY "logs"."created_at" ASC LIMIT 50"#,
     );
 }
 
@@ -744,6 +746,6 @@ fn insert_upsert_returning() {
     });
     assert_eq!(
         render(&stmt),
-        r#"INSERT INTO "users"("email", "name") VALUES('alice@example.com', 'Alice') ON CONFLICT("email") DO UPDATE SET "name" = excluded."name" RETURNING *"#,
+        r#"INSERT INTO "users" ("email", "name") VALUES ('alice@example.com', 'Alice') ON CONFLICT ("email") DO UPDATE SET "name" = excluded."name" RETURNING *"#,
     );
 }

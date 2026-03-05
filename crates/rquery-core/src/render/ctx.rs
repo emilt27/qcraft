@@ -103,8 +103,9 @@ impl RenderCtx {
         self
     }
 
-    /// Write opening parenthesis `(`.
+    /// Write opening parenthesis `(`, with space if needed.
     pub fn paren_open(&mut self) -> &mut Self {
+        self.space_if_needed();
         self.sql.push('(');
         self
     }
@@ -201,7 +202,7 @@ mod tests {
     fn paren_no_extra_space() {
         let mut ctx = RenderCtx::new(ParamStyle::Dollar);
         ctx.keyword("CAST").paren_open().ident("x").keyword("AS").keyword("TEXT").paren_close();
-        assert_eq!(ctx.sql(), "CAST(\"x\" AS TEXT)");
+        assert_eq!(ctx.sql(), "CAST (\"x\" AS TEXT)");
     }
 
     #[test]
@@ -219,7 +220,7 @@ mod tests {
         ctx.paren_close();
         assert_eq!(
             ctx.sql(),
-            r#"CREATE TABLE IF NOT EXISTS "users"("id" BIGINT NOT NULL)"#
+            r#"CREATE TABLE IF NOT EXISTS "users" ("id" BIGINT NOT NULL)"#
         );
     }
 }

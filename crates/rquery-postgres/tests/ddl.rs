@@ -1,4 +1,4 @@
-use rquery_core::ast::common::{OrderDir, SchemaRef};
+use rquery_core::ast::common::{NullsOrder, OrderDir, SchemaRef};
 use rquery_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use rquery_core::ast::ddl::*;
 use rquery_core::ast::expr::Expr;
@@ -49,7 +49,7 @@ fn create_table_simple() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "users"("id" BIGINT NOT NULL, "name" TEXT)"#
+        r#"CREATE TABLE "users" ("id" BIGINT NOT NULL, "name" TEXT)"#
     );
 }
 
@@ -79,7 +79,7 @@ fn create_table_if_not_exists() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE IF NOT EXISTS "users"("id" INTEGER)"#
+        r#"CREATE TABLE IF NOT EXISTS "users" ("id" INTEGER)"#
     );
 }
 
@@ -109,7 +109,7 @@ fn create_table_temporary_unlogged() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TEMPORARY UNLOGGED TABLE "tmp"("x" INT)"#
+        r#"CREATE TEMPORARY UNLOGGED TABLE "tmp" ("x" INT)"#
     );
 }
 
@@ -139,7 +139,7 @@ fn create_table_with_namespace() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "public"."users"("id" INT)"#
+        r#"CREATE TABLE "public"."users" ("id" INT)"#
     );
 }
 
@@ -183,7 +183,7 @@ fn create_table_with_default() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "posts"("id" SERIAL, "status" TEXT NOT NULL DEFAULT 'draft')"#
+        r#"CREATE TABLE "posts" ("id" SERIAL, "status" TEXT NOT NULL DEFAULT 'draft')"#
     );
 }
 
@@ -229,7 +229,7 @@ fn create_table_with_identity() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "items"("id" BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY(START WITH 1 INCREMENT BY 1))"#
+        r#"CREATE TABLE "items" ("id" BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (START WITH 1 INCREMENT BY 1))"#
     );
 }
 
@@ -280,7 +280,7 @@ fn create_table_with_generated_column() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "products"("price" NUMERIC, "qty" INTEGER, "total" NUMERIC GENERATED ALWAYS AS (price * qty) STORED)"#
+        r#"CREATE TABLE "products" ("price" NUMERIC, "qty" INTEGER, "total" NUMERIC GENERATED ALWAYS AS (price * qty) STORED)"#
     );
 }
 
@@ -315,7 +315,7 @@ fn create_table_parameterized_types() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "t"("name" VARCHAR(255), "amount" NUMERIC(10, 2), "tags" TEXT[], "embedding" VECTOR(1536))"#
+        r#"CREATE TABLE "t" ("name" VARCHAR(255), "amount" NUMERIC(10, 2), "tags" TEXT[], "embedding" VECTOR(1536))"#
     );
 }
 
@@ -357,7 +357,7 @@ fn create_table_primary_key() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "users"("id" BIGINT NOT NULL, "name" TEXT, CONSTRAINT "pk_users" PRIMARY KEY("id"))"#
+        r#"CREATE TABLE "users" ("id" BIGINT NOT NULL, "name" TEXT, CONSTRAINT "pk_users" PRIMARY KEY ("id"))"#
     );
 }
 
@@ -399,7 +399,7 @@ fn create_table_foreign_key() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "posts"("id" BIGINT, "user_id" BIGINT, CONSTRAINT "fk_posts_user" FOREIGN KEY("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION)"#
+        r#"CREATE TABLE "posts" ("id" BIGINT, "user_id" BIGINT, CONSTRAINT "fk_posts_user" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE NO ACTION)"#
     );
 }
 
@@ -456,7 +456,7 @@ fn create_table_unique_check() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "accounts"("id" INT, "email" TEXT, "age" INT, CONSTRAINT "uq_email" UNIQUE("email"), CONSTRAINT "ck_age" CHECK("age" > 0))"#
+        r#"CREATE TABLE "accounts" ("id" INT, "email" TEXT, "age" INT, CONSTRAINT "uq_email" UNIQUE ("email"), CONSTRAINT "ck_age" CHECK ("age" > 0))"#
     );
 }
 
@@ -486,7 +486,7 @@ fn create_table_with_tablespace() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "big"("id" INT) TABLESPACE "fast_storage""#
+        r#"CREATE TABLE "big" ("id" INT) TABLESPACE "fast_storage""#
     );
 }
 
@@ -669,7 +669,7 @@ fn alter_table_add_constraint() {
     };
     assert_eq!(
         render(&stmt),
-        r#"ALTER TABLE "users" ADD CONSTRAINT "uq_email" UNIQUE("email")"#
+        r#"ALTER TABLE "users" ADD CONSTRAINT "uq_email" UNIQUE ("email")"#
     );
 }
 
@@ -691,7 +691,7 @@ fn alter_table_add_constraint_not_valid() {
     };
     assert_eq!(
         render(&stmt),
-        r#"ALTER TABLE "orders" ADD CONSTRAINT "fk_user" FOREIGN KEY("user_id") REFERENCES "users"("id") NOT VALID"#
+        r#"ALTER TABLE "orders" ADD CONSTRAINT "fk_user" FOREIGN KEY ("user_id") REFERENCES "users" ("id") NOT VALID"#
     );
 }
 
@@ -756,7 +756,7 @@ fn create_index_simple() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE INDEX "idx_users_email" ON "users"("email")"#
+        r#"CREATE INDEX "idx_users_email" ON "users" ("email")"#
     );
 }
 
@@ -778,7 +778,7 @@ fn create_unique_index_concurrently() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "idx_users_email" ON "users"("email")"#
+        r#"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "idx_users_email" ON "users" ("email")"#
     );
 }
 
@@ -808,7 +808,7 @@ fn create_index_with_type_and_options() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE INDEX "idx_docs_content" ON "docs" USING GIN("content" gin_trgm_ops)"#
+        r#"CREATE INDEX "idx_docs_content" ON "docs" USING GIN ("content" gin_trgm_ops)"#
     );
 }
 
@@ -837,7 +837,7 @@ fn create_index_multi_column_with_direction() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE INDEX "idx_events_composite" ON "events"("created_at" DESC NULLS LAST, "priority" ASC)"#
+        r#"CREATE INDEX "idx_events_composite" ON "events" ("created_at" DESC NULLS LAST, "priority" ASC)"#
     );
 }
 
@@ -876,7 +876,7 @@ fn create_index_with_include_and_where() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE UNIQUE INDEX "idx_active_email" ON "users"("email") INCLUDE("name") WHERE "active" = TRUE"#
+        r#"CREATE UNIQUE INDEX "idx_active_email" ON "users" ("email") INCLUDE ("name") WHERE "active" = TRUE"#
     );
 }
 
@@ -901,7 +901,7 @@ fn create_index_expression() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE INDEX "idx_lower_email" ON "users"((lower("email")))"#
+        r#"CREATE INDEX "idx_lower_email" ON "users" ((lower("email")))"#
     );
 }
 
@@ -993,7 +993,7 @@ fn foreign_key_deferrable() {
     };
     assert_eq!(
         render(&stmt),
-        r#"ALTER TABLE "orders" ADD CONSTRAINT "fk_user" FOREIGN KEY("user_id") REFERENCES "users"("id") MATCH FULL ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED"#
+        r#"ALTER TABLE "orders" ADD CONSTRAINT "fk_user" FOREIGN KEY ("user_id") REFERENCES "users" ("id") MATCH FULL ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED"#
     );
 }
 
@@ -1058,7 +1058,7 @@ fn create_table_partition_by_range() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "logs"("id" BIGINT NOT NULL, "created_at" TIMESTAMPTZ NOT NULL, "message" TEXT) PARTITION BY RANGE("created_at")"#,
+        r#"CREATE TABLE "logs" ("id" BIGINT NOT NULL, "created_at" TIMESTAMPTZ NOT NULL, "message" TEXT) PARTITION BY RANGE ("created_at")"#,
     );
 }
 
@@ -1097,7 +1097,7 @@ fn create_table_partition_by_list_with_expression() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "events"("id" INT, "region" TEXT) PARTITION BY LIST((lower(region)))"#,
+        r#"CREATE TABLE "events" ("id" INT, "region" TEXT) PARTITION BY LIST ((lower(region)))"#,
     );
 }
 
@@ -1122,7 +1122,7 @@ fn create_table_inherits() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "child_table"("extra" TEXT) INHERITS("parent_table")"#,
+        r#"CREATE TABLE "child_table" ("extra" TEXT) INHERITS ("parent_table")"#,
     );
 }
 
@@ -1150,7 +1150,7 @@ fn create_table_with_options() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "hot_data"("id" INT) WITH(fillfactor = 70, autovacuum_enabled = true)"#,
+        r#"CREATE TABLE "hot_data" ("id" INT) WITH (fillfactor = 70, autovacuum_enabled = true)"#,
     );
 }
 
@@ -1176,7 +1176,7 @@ fn create_table_on_commit() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TEMPORARY TABLE "temp_work"("data" TEXT) ON COMMIT DELETE ROWS"#,
+        r#"CREATE TEMPORARY TABLE "temp_work" ("data" TEXT) ON COMMIT DELETE ROWS"#,
     );
 }
 
@@ -1201,7 +1201,7 @@ fn create_table_using_method() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "columnar_data"("id" INT) USING columnar"#,
+        r#"CREATE TABLE "columnar_data" ("id" INT) USING columnar"#,
     );
 }
 
@@ -1233,7 +1233,7 @@ fn create_table_like() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "users_copy"(LIKE "users" INCLUDING ALL EXCLUDING INDEXES)"#,
+        r#"CREATE TABLE "users_copy" (LIKE "users" INCLUDING ALL EXCLUDING INDEXES)"#,
     );
 }
 
@@ -1269,6 +1269,6 @@ fn create_table_column_storage_compression() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "docs"("body" TEXT STORAGE EXTERNAL COMPRESSION lz4)"#,
+        r#"CREATE TABLE "docs" ("body" TEXT STORAGE EXTERNAL COMPRESSION lz4)"#,
     );
 }

@@ -42,7 +42,7 @@ fn create_table_simple() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TABLE "users"("id" INTEGER NOT NULL, "name" TEXT)"#);
+    assert_eq!(render(&stmt), r#"CREATE TABLE "users" ("id" INTEGER NOT NULL, "name" TEXT)"#);
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn create_table_if_not_exists() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TABLE IF NOT EXISTS "users"("id" INTEGER)"#);
+    assert_eq!(render(&stmt), r#"CREATE TABLE IF NOT EXISTS "users" ("id" INTEGER)"#);
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn create_table_temporary() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TEMP TABLE "temp_data"("val" TEXT)"#);
+    assert_eq!(render(&stmt), r#"CREATE TEMP TABLE "temp_data" ("val" TEXT)"#);
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn create_table_unlogged_ignored() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TABLE "t"("id" INTEGER)"#);
+    assert_eq!(render(&stmt), r#"CREATE TABLE "t" ("id" INTEGER)"#);
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn create_table_with_namespace() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TABLE "main"."users"("id" INTEGER)"#);
+    assert_eq!(render(&stmt), r#"CREATE TABLE "main"."users" ("id" INTEGER)"#);
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn create_table_with_default() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "config"("key" TEXT NOT NULL, "value" TEXT DEFAULT 'default')"#,
+        r#"CREATE TABLE "config" ("key" TEXT NOT NULL, "value" TEXT DEFAULT 'default')"#,
     );
 }
 
@@ -203,7 +203,7 @@ fn create_table_with_generated_column() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "products"("price" REAL, "qty" INTEGER, "total" REAL GENERATED ALWAYS AS (price * qty) VIRTUAL)"#,
+        r#"CREATE TABLE "products" ("price" REAL, "qty" INTEGER, "total" REAL GENERATED ALWAYS AS (price * qty) VIRTUAL)"#,
     );
 }
 
@@ -242,7 +242,7 @@ fn create_table_generated_stored() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "t"("full_name" TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED)"#,
+        r#"CREATE TABLE "t" ("full_name" TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED)"#,
     );
 }
 
@@ -304,7 +304,7 @@ fn create_table_parameterized_type() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "data"("amount" DECIMAL(10, 2), "code" VARCHAR(50))"#,
+        r#"CREATE TABLE "data" ("amount" DECIMAL(10, 2), "code" VARCHAR(50))"#,
     );
 }
 
@@ -338,7 +338,7 @@ fn create_table_primary_key() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "users"("id" INTEGER NOT NULL, "name" TEXT, PRIMARY KEY("id"))"#,
+        r#"CREATE TABLE "users" ("id" INTEGER NOT NULL, "name" TEXT, PRIMARY KEY ("id"))"#,
     );
 }
 
@@ -376,7 +376,7 @@ fn create_table_foreign_key() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "posts"("id" INTEGER NOT NULL, "user_id" INTEGER, CONSTRAINT "fk_user" FOREIGN KEY("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION)"#,
+        r#"CREATE TABLE "posts" ("id" INTEGER NOT NULL, "user_id" INTEGER, CONSTRAINT "fk_user" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE NO ACTION)"#,
     );
 }
 
@@ -428,7 +428,7 @@ fn create_table_unique_check() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "users"("email" TEXT NOT NULL, "age" INTEGER, UNIQUE("email"), CONSTRAINT "age_positive" CHECK("age" > 0))"#,
+        r#"CREATE TABLE "users" ("email" TEXT NOT NULL, "age" INTEGER, UNIQUE ("email"), CONSTRAINT "age_positive" CHECK ("age" > 0))"#,
     );
 }
 
@@ -466,7 +466,7 @@ fn create_table_deferrable_fk() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "t"("ref_id" INTEGER, FOREIGN KEY("ref_id") REFERENCES "other"("id") DEFERRABLE INITIALLY DEFERRED)"#,
+        r#"CREATE TABLE "t" ("ref_id" INTEGER, FOREIGN KEY ("ref_id") REFERENCES "other" ("id") DEFERRABLE INITIALLY DEFERRED)"#,
     );
 }
 
@@ -556,7 +556,7 @@ fn create_table_without_rowid() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "kv"("key" TEXT NOT NULL, "value" BLOB, PRIMARY KEY("key")) WITHOUT ROWID"#,
+        r#"CREATE TABLE "kv" ("key" TEXT NOT NULL, "value" BLOB, PRIMARY KEY ("key")) WITHOUT ROWID"#,
     );
 }
 
@@ -584,7 +584,7 @@ fn create_table_strict() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "data"("id" INTEGER NOT NULL, "name" TEXT) STRICT"#,
+        r#"CREATE TABLE "data" ("id" INTEGER NOT NULL, "name" TEXT) STRICT"#,
     );
 }
 
@@ -618,7 +618,7 @@ fn create_table_without_rowid_strict() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "kv_strict"("key" TEXT NOT NULL, "val" INTEGER, PRIMARY KEY("key")) WITHOUT ROWID, STRICT"#,
+        r#"CREATE TABLE "kv_strict" ("key" TEXT NOT NULL, "val" INTEGER, PRIMARY KEY ("key")) WITHOUT ROWID, STRICT"#,
     );
 }
 
@@ -652,7 +652,7 @@ fn create_table_primary_key_autoincrement() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "events"("id" INTEGER NOT NULL, "name" TEXT, PRIMARY KEY("id") AUTOINCREMENT)"#,
+        r#"CREATE TABLE "events" ("id" INTEGER NOT NULL, "name" TEXT, PRIMARY KEY ("id") AUTOINCREMENT)"#,
     );
 }
 
@@ -837,7 +837,7 @@ fn create_index_simple() {
         if_not_exists: false,
         concurrently: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE INDEX "idx_name" ON "users"("name")"#);
+    assert_eq!(render(&stmt), r#"CREATE INDEX "idx_name" ON "users" ("name")"#);
 }
 
 #[test]
@@ -856,7 +856,7 @@ fn create_unique_index_if_not_exists() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE UNIQUE INDEX IF NOT EXISTS "idx_email" ON "users"("email")"#,
+        r#"CREATE UNIQUE INDEX IF NOT EXISTS "idx_email" ON "users" ("email")"#,
     );
 }
 
@@ -875,7 +875,7 @@ fn create_index_concurrently_ignored() {
         concurrently: true,
     };
     // CONCURRENTLY silently ignored
-    assert_eq!(render(&stmt), r#"CREATE INDEX "idx_a" ON "t"("a")"#);
+    assert_eq!(render(&stmt), r#"CREATE INDEX "idx_a" ON "t" ("a")"#);
 }
 
 #[test]
@@ -903,7 +903,7 @@ fn create_index_with_direction() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE INDEX "idx_events" ON "events"("created_at" DESC, "priority" ASC)"#,
+        r#"CREATE INDEX "idx_events" ON "events" ("created_at" DESC, "priority" ASC)"#,
     );
 }
 
@@ -942,7 +942,7 @@ fn create_index_with_where() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE INDEX "idx_active" ON "users"("email") WHERE "active" = 1"#,
+        r#"CREATE INDEX "idx_active" ON "users" ("email") WHERE "active" = 1"#,
     );
 }
 
@@ -967,7 +967,7 @@ fn create_index_expression() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE INDEX "idx_lower_email" ON "users"((lower("email")))"#,
+        r#"CREATE INDEX "idx_lower_email" ON "users" ((lower("email")))"#,
     );
 }
 
@@ -997,7 +997,7 @@ fn create_index_include_ignored() {
         concurrently: false,
     };
     // All PG-specific options silently ignored
-    assert_eq!(render(&stmt), r#"CREATE INDEX "idx_a" ON "t"("a")"#);
+    assert_eq!(render(&stmt), r#"CREATE INDEX "idx_a" ON "t" ("a")"#);
 }
 
 // ==========================================================================
@@ -1083,7 +1083,7 @@ fn bool_rendered_as_integer() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TABLE "t"("flag" INTEGER DEFAULT 1)"#);
+    assert_eq!(render(&stmt), r#"CREATE TABLE "t" ("flag" INTEGER DEFAULT 1)"#);
 }
 
 // ==========================================================================

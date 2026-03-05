@@ -1,9 +1,9 @@
-use rquery_core::ast::common::{FieldRef, OrderByDef, OrderDir, SchemaRef};
+use rquery_core::ast::common::{FieldRef, NullsOrder, OrderByDef, OrderDir, SchemaRef};
 use rquery_core::ast::conditions::{CompareOp, ConditionNode, Conditions, Connector};
 use rquery_core::ast::ddl::{
     ColumnDef, ConstraintDef, DeferrableConstraint, FieldType,
     IdentityColumn, IndexColumnDef, IndexDef, IndexExpr, LikeTableDef,
-    MatchType, NullsOrder, OnCommitAction, PartitionByDef, PartitionStrategy,
+    MatchType, OnCommitAction, PartitionByDef, PartitionStrategy,
     ReferentialAction, SchemaDef, SchemaMutationStmt,
 };
 use rquery_core::ast::dml::{
@@ -19,7 +19,9 @@ use rquery_core::ast::expr::{
     WindowFrameDef, WindowFrameType,
 };
 use rquery_core::ast::query::{
-    CteDef, JoinDef, LimitDef, QueryStmt, SelectColumn, SelectLockDef, TableSource,
+    CteDef, CteMaterialized, DistinctDef, FromItem, GroupByItem, JoinCondition, JoinDef, JoinType,
+    LimitDef, LimitKind, LockStrength, QueryStmt, SampleMethod, SelectColumn, SelectLockDef,
+    SetOpDef, SetOperationType, TableSource, WindowNameDef,
 };
 use rquery_core::ast::value::Value;
 use rquery_core::error::{RenderError, RenderResult};
@@ -51,6 +53,13 @@ impl PostgresRenderer {
     pub fn render_mutation_stmt(&self, stmt: &MutationStmt) -> RenderResult<(String, Vec<Value>)> {
         let mut ctx = RenderCtx::new(ParamStyle::Dollar);
         self.render_mutation(stmt, &mut ctx)?;
+        Ok(ctx.finish())
+    }
+
+    /// Convenience: render a SELECT query to SQL string + params.
+    pub fn render_query_stmt(&self, stmt: &QueryStmt) -> RenderResult<(String, Vec<Value>)> {
+        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+        self.render_query(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 }
@@ -408,7 +417,7 @@ impl Renderer for PostgresRenderer {
                 ctx.keyword(name);
             }
             FieldType::Parameterized { name, params } => {
-                ctx.keyword(name).paren_open();
+                ctx.keyword(name).write("(");
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
                         ctx.comma();
@@ -422,7 +431,7 @@ impl Renderer for PostgresRenderer {
                 ctx.write("[]");
             }
             FieldType::Vector(dim) => {
-                ctx.keyword("VECTOR").paren_open().write(&dim.to_string()).paren_close();
+                ctx.keyword("VECTOR").write("(").write(&dim.to_string()).paren_close();
             }
             FieldType::Custom(_) => {
                 return Err(RenderError::unsupported(
@@ -621,7 +630,7 @@ impl Renderer for PostgresRenderer {
             }
 
             Expr::Func { name, args } => {
-                ctx.keyword(name).paren_open();
+                ctx.keyword(name).write("(");
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         ctx.comma();
@@ -681,7 +690,7 @@ impl Renderer for PostgresRenderer {
     }
 
     fn render_aggregate(&self, agg: &AggregationDef, ctx: &mut RenderCtx) -> RenderResult<()> {
-        ctx.keyword(&agg.name).paren_open();
+        ctx.keyword(&agg.name).write("(");
         if agg.distinct {
             ctx.keyword("DISTINCT");
         }
@@ -698,7 +707,7 @@ impl Renderer for PostgresRenderer {
         }
         if let Some(order_by) = &agg.order_by {
             ctx.keyword("ORDER BY");
-            self.pg_order_by_list(order_by, ctx);
+            self.pg_order_by_list(order_by, ctx)?;
         }
         ctx.paren_close();
         if let Some(filter) = &agg.filter {
@@ -723,7 +732,7 @@ impl Renderer for PostgresRenderer {
         }
         if let Some(order_by) = &win.order_by {
             ctx.keyword("ORDER BY");
-            self.pg_order_by_list(order_by, ctx);
+            self.pg_order_by_list(order_by, ctx)?;
         }
         if let Some(frame) = &win.frame {
             self.pg_window_frame(frame, ctx);
@@ -850,12 +859,121 @@ impl Renderer for PostgresRenderer {
 
     // ── Query (stub) ─────────────────────────────────────────────────────
 
-    fn render_query(&self, _stmt: &QueryStmt, _ctx: &mut RenderCtx) -> RenderResult<()> {
-        todo!("PostgreSQL query rendering not yet implemented")
+    fn render_query(&self, stmt: &QueryStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        // CTEs
+        if let Some(ctes) = &stmt.ctes {
+            self.render_ctes(ctes, ctx)?;
+        }
+
+        // SELECT
+        ctx.keyword("SELECT");
+
+        // DISTINCT / DISTINCT ON
+        if let Some(distinct) = &stmt.distinct {
+            match distinct {
+                DistinctDef::Distinct => {
+                    ctx.keyword("DISTINCT");
+                }
+                DistinctDef::DistinctOn(exprs) => {
+                    ctx.keyword("DISTINCT ON").paren_open();
+                    for (i, expr) in exprs.iter().enumerate() {
+                        if i > 0 {
+                            ctx.comma();
+                        }
+                        self.render_expr(expr, ctx)?;
+                    }
+                    ctx.paren_close();
+                }
+            }
+        }
+
+        // Columns
+        self.render_select_columns(&stmt.columns, ctx)?;
+
+        // FROM
+        if let Some(from) = &stmt.from {
+            ctx.keyword("FROM");
+            for (i, item) in from.iter().enumerate() {
+                if i > 0 {
+                    ctx.comma();
+                }
+                self.pg_render_from_item(item, ctx)?;
+            }
+        }
+
+        // JOINs
+        if let Some(joins) = &stmt.joins {
+            self.render_joins(joins, ctx)?;
+        }
+
+        // WHERE
+        if let Some(cond) = &stmt.where_clause {
+            self.render_where(cond, ctx)?;
+        }
+
+        // GROUP BY
+        if let Some(group_by) = &stmt.group_by {
+            self.pg_render_group_by(group_by, ctx)?;
+        }
+
+        // HAVING
+        if let Some(having) = &stmt.having {
+            ctx.keyword("HAVING");
+            self.render_condition(having, ctx)?;
+        }
+
+        // WINDOW
+        if let Some(windows) = &stmt.window {
+            self.pg_render_window_clause(windows, ctx)?;
+        }
+
+        // ORDER BY
+        if let Some(order_by) = &stmt.order_by {
+            self.render_order_by(order_by, ctx)?;
+        }
+
+        // LIMIT / OFFSET
+        if let Some(limit) = &stmt.limit {
+            self.render_limit(limit, ctx)?;
+        }
+
+        // FOR UPDATE / SHARE
+        if let Some(locks) = &stmt.lock {
+            for lock in locks {
+                self.render_lock(lock, ctx)?;
+            }
+        }
+
+        Ok(())
     }
 
-    fn render_select_columns(&self, _cols: &[SelectColumn], _ctx: &mut RenderCtx) -> RenderResult<()> {
-        todo!()
+    fn render_select_columns(&self, cols: &[SelectColumn], ctx: &mut RenderCtx) -> RenderResult<()> {
+        for (i, col) in cols.iter().enumerate() {
+            if i > 0 {
+                ctx.comma();
+            }
+            match col {
+                SelectColumn::Star(None) => {
+                    ctx.keyword("*");
+                }
+                SelectColumn::Star(Some(table)) => {
+                    ctx.ident(table).operator(".").keyword("*");
+                }
+                SelectColumn::Expr { expr, alias } => {
+                    self.render_expr(expr, ctx)?;
+                    if let Some(a) = alias {
+                        ctx.keyword("AS").ident(a);
+                    }
+                }
+                SelectColumn::Field { field, alias } => {
+                    self.pg_field_ref(field, ctx);
+                    if let Some(a) = alias {
+                        ctx.keyword("AS").ident(a);
+                    }
+                }
+            }
+        }
+        Ok(())
     }
     fn render_from(&self, source: &TableSource, ctx: &mut RenderCtx) -> RenderResult<()> {
         match source {
@@ -870,11 +988,46 @@ impl Renderer for PostgresRenderer {
                 self.render_query(&sq.query, ctx)?;
                 ctx.paren_close().keyword("AS").ident(&sq.alias);
             }
-            TableSource::SetOp(_) => {
-                return Err(RenderError::unsupported(
-                    "SetOpInFrom",
-                    "set operations in FROM not yet implemented",
-                ));
+            TableSource::SetOp(set_op) => {
+                ctx.paren_open();
+                self.pg_render_set_op(set_op, ctx)?;
+                ctx.paren_close();
+            }
+            TableSource::Lateral(inner) => {
+                ctx.keyword("LATERAL");
+                self.render_from(&inner.source, ctx)?;
+            }
+            TableSource::Function { name, args, alias } => {
+                ctx.keyword(name).write("(");
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 { ctx.comma(); }
+                    self.render_expr(arg, ctx)?;
+                }
+                ctx.paren_close();
+                if let Some(a) = alias {
+                    ctx.keyword("AS").ident(a);
+                }
+            }
+            TableSource::Values { rows, alias, column_aliases } => {
+                ctx.paren_open().keyword("VALUES");
+                for (i, row) in rows.iter().enumerate() {
+                    if i > 0 { ctx.comma(); }
+                    ctx.paren_open();
+                    for (j, val) in row.iter().enumerate() {
+                        if j > 0 { ctx.comma(); }
+                        self.render_expr(val, ctx)?;
+                    }
+                    ctx.paren_close();
+                }
+                ctx.paren_close().keyword("AS").ident(alias);
+                if let Some(cols) = column_aliases {
+                    ctx.paren_open();
+                    for (i, c) in cols.iter().enumerate() {
+                        if i > 0 { ctx.comma(); }
+                        ctx.ident(c);
+                    }
+                    ctx.paren_close();
+                }
             }
             TableSource::Custom(_) => {
                 return Err(RenderError::unsupported(
@@ -885,23 +1038,139 @@ impl Renderer for PostgresRenderer {
         }
         Ok(())
     }
-    fn render_joins(&self, _joins: &[JoinDef], _ctx: &mut RenderCtx) -> RenderResult<()> {
-        todo!()
+    fn render_joins(&self, joins: &[JoinDef], ctx: &mut RenderCtx) -> RenderResult<()> {
+        for join in joins {
+            if join.natural {
+                ctx.keyword("NATURAL");
+            }
+            ctx.keyword(match join.join_type {
+                JoinType::Inner => "INNER JOIN",
+                JoinType::Left => "LEFT JOIN",
+                JoinType::Right => "RIGHT JOIN",
+                JoinType::Full => "FULL JOIN",
+                JoinType::Cross => "CROSS JOIN",
+                JoinType::CrossApply => "CROSS JOIN LATERAL",
+                JoinType::OuterApply => "LEFT JOIN LATERAL",
+            });
+            self.pg_render_from_item(&join.source, ctx)?;
+            if let Some(condition) = &join.condition {
+                match condition {
+                    JoinCondition::On(cond) => {
+                        ctx.keyword("ON");
+                        self.render_condition(cond, ctx)?;
+                    }
+                    JoinCondition::Using(cols) => {
+                        ctx.keyword("USING").paren_open();
+                        self.pg_comma_idents(cols, ctx);
+                        ctx.paren_close();
+                    }
+                }
+            }
+            // CrossApply/OuterApply rendered as LATERAL need ON TRUE if no condition
+            if matches!(join.join_type, JoinType::OuterApply) && join.condition.is_none() {
+                ctx.keyword("ON TRUE");
+            }
+        }
+        Ok(())
     }
-    fn render_where(&self, _cond: &Conditions, _ctx: &mut RenderCtx) -> RenderResult<()> {
-        todo!()
+    fn render_where(&self, cond: &Conditions, ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("WHERE");
+        self.render_condition(cond, ctx)
     }
-    fn render_order_by(&self, _order: &[OrderByDef], _ctx: &mut RenderCtx) -> RenderResult<()> {
-        todo!()
+    fn render_order_by(&self, order: &[OrderByDef], ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("ORDER BY");
+        self.pg_order_by_list(order, ctx)
     }
-    fn render_limit(&self, _limit: &LimitDef, _ctx: &mut RenderCtx) -> RenderResult<()> {
-        todo!()
+    fn render_limit(&self, limit: &LimitDef, ctx: &mut RenderCtx) -> RenderResult<()> {
+        match &limit.kind {
+            LimitKind::Limit(n) => {
+                ctx.keyword("LIMIT").space().write(&n.to_string());
+            }
+            LimitKind::FetchFirst { count, with_ties, percent } => {
+                if let Some(offset) = limit.offset {
+                    ctx.keyword("OFFSET").space().write(&offset.to_string()).keyword("ROWS");
+                }
+                ctx.keyword("FETCH FIRST");
+                if *percent {
+                    ctx.space().write(&count.to_string()).keyword("PERCENT");
+                } else {
+                    ctx.space().write(&count.to_string());
+                }
+                if *with_ties {
+                    ctx.keyword("ROWS WITH TIES");
+                } else {
+                    ctx.keyword("ROWS ONLY");
+                }
+                return Ok(());
+            }
+            LimitKind::Top { count, .. } => {
+                // PG doesn't support TOP, convert to LIMIT
+                ctx.keyword("LIMIT").space().write(&count.to_string());
+            }
+        }
+        if let Some(offset) = limit.offset {
+            ctx.keyword("OFFSET").space().write(&offset.to_string());
+        }
+        Ok(())
     }
-    fn render_ctes(&self, _ctes: &[CteDef], _ctx: &mut RenderCtx) -> RenderResult<()> {
-        todo!()
+    fn render_ctes(&self, ctes: &[CteDef], ctx: &mut RenderCtx) -> RenderResult<()> {
+        // Check if any CTE is recursive — PG uses WITH RECURSIVE once for all.
+        let any_recursive = ctes.iter().any(|c| c.recursive);
+        ctx.keyword("WITH");
+        if any_recursive {
+            ctx.keyword("RECURSIVE");
+        }
+        for (i, cte) in ctes.iter().enumerate() {
+            if i > 0 {
+                ctx.comma();
+            }
+            ctx.ident(&cte.name);
+            if let Some(col_names) = &cte.column_names {
+                ctx.paren_open();
+                self.pg_comma_idents(col_names, ctx);
+                ctx.paren_close();
+            }
+            ctx.keyword("AS");
+            if let Some(mat) = &cte.materialized {
+                match mat {
+                    CteMaterialized::Materialized => {
+                        ctx.keyword("MATERIALIZED");
+                    }
+                    CteMaterialized::NotMaterialized => {
+                        ctx.keyword("NOT MATERIALIZED");
+                    }
+                }
+            }
+            ctx.paren_open();
+            self.render_query(&cte.query, ctx)?;
+            ctx.paren_close();
+        }
+        Ok(())
     }
-    fn render_lock(&self, _lock: &SelectLockDef, _ctx: &mut RenderCtx) -> RenderResult<()> {
-        todo!()
+    fn render_lock(&self, lock: &SelectLockDef, ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("FOR");
+        ctx.keyword(match lock.strength {
+            LockStrength::Update => "UPDATE",
+            LockStrength::NoKeyUpdate => "NO KEY UPDATE",
+            LockStrength::Share => "SHARE",
+            LockStrength::KeyShare => "KEY SHARE",
+        });
+        if let Some(of) = &lock.of {
+            ctx.keyword("OF");
+            for (i, table) in of.iter().enumerate() {
+                if i > 0 {
+                    ctx.comma();
+                }
+                self.pg_schema_ref(table, ctx);
+            }
+        }
+        if lock.nowait {
+            ctx.keyword("NOWAIT");
+        }
+        if lock.skip_locked {
+            ctx.keyword("SKIP LOCKED");
+        }
+        Ok(())
     }
 
     // ── DML ──────────────────────────────────────────────────────────────
@@ -1331,8 +1600,8 @@ impl PostgresRenderer {
         match val {
             Value::Null => { ctx.keyword("NULL"); }
             Value::Bool(b) => { ctx.keyword(if *b { "TRUE" } else { "FALSE" }); }
-            Value::Int(n) => { ctx.write(&n.to_string()); }
-            Value::Float(f) => { ctx.write(&f.to_string()); }
+            Value::Int(n) => { ctx.keyword(&n.to_string()); }
+            Value::Float(f) => { ctx.keyword(&f.to_string()); }
             Value::Str(s) => { ctx.string_literal(s); }
             Value::Bytes(b) => {
                 ctx.write("'\\x");
@@ -1354,7 +1623,7 @@ impl PostgresRenderer {
                 }
                 ctx.write("]");
             }
-            Value::Decimal(s) => { ctx.write(s); }
+            Value::Decimal(s) => { ctx.keyword(s); }
             Value::Uuid(s) => { ctx.string_literal(s); }
             Value::TimeDelta { days, seconds, microseconds } => {
                 ctx.keyword("INTERVAL");
@@ -1439,19 +1708,124 @@ impl PostgresRenderer {
     }
 
     fn pg_render_ctes(&self, ctes: &[CteDef], ctx: &mut RenderCtx) -> RenderResult<()> {
-        ctx.keyword("WITH");
-        for (i, cte) in ctes.iter().enumerate() {
+        // Delegate to the trait method
+        self.render_ctes(ctes, ctx)
+    }
+
+    fn pg_render_from_item(&self, item: &FromItem, ctx: &mut RenderCtx) -> RenderResult<()> {
+        if item.only {
+            ctx.keyword("ONLY");
+        }
+        self.render_from(&item.source, ctx)?;
+        if let Some(sample) = &item.sample {
+            ctx.keyword("TABLESAMPLE");
+            ctx.keyword(match sample.method {
+                SampleMethod::Bernoulli => "BERNOULLI",
+                SampleMethod::System => "SYSTEM",
+                SampleMethod::Block => "SYSTEM", // Block maps to SYSTEM on PG
+            });
+            ctx.paren_open().write(&sample.percentage.to_string()).paren_close();
+            if let Some(seed) = sample.seed {
+                ctx.keyword("REPEATABLE").paren_open().write(&seed.to_string()).paren_close();
+            }
+        }
+        Ok(())
+    }
+
+    fn pg_render_group_by(&self, items: &[GroupByItem], ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("GROUP BY");
+        for (i, item) in items.iter().enumerate() {
             if i > 0 {
                 ctx.comma();
             }
-            if cte.recursive {
-                ctx.keyword("RECURSIVE");
+            match item {
+                GroupByItem::Expr(expr) => {
+                    self.render_expr(expr, ctx)?;
+                }
+                GroupByItem::Rollup(exprs) => {
+                    ctx.keyword("ROLLUP").paren_open();
+                    for (j, expr) in exprs.iter().enumerate() {
+                        if j > 0 {
+                            ctx.comma();
+                        }
+                        self.render_expr(expr, ctx)?;
+                    }
+                    ctx.paren_close();
+                }
+                GroupByItem::Cube(exprs) => {
+                    ctx.keyword("CUBE").paren_open();
+                    for (j, expr) in exprs.iter().enumerate() {
+                        if j > 0 {
+                            ctx.comma();
+                        }
+                        self.render_expr(expr, ctx)?;
+                    }
+                    ctx.paren_close();
+                }
+                GroupByItem::GroupingSets(sets) => {
+                    ctx.keyword("GROUPING SETS").paren_open();
+                    for (j, set) in sets.iter().enumerate() {
+                        if j > 0 {
+                            ctx.comma();
+                        }
+                        ctx.paren_open();
+                        for (k, expr) in set.iter().enumerate() {
+                            if k > 0 {
+                                ctx.comma();
+                            }
+                            self.render_expr(expr, ctx)?;
+                        }
+                        ctx.paren_close();
+                    }
+                    ctx.paren_close();
+                }
             }
-            ctx.ident(&cte.name).keyword("AS").paren_open();
-            self.render_query(&cte.query, ctx)?;
+        }
+        Ok(())
+    }
+
+    fn pg_render_window_clause(&self, windows: &[WindowNameDef], ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("WINDOW");
+        for (i, win) in windows.iter().enumerate() {
+            if i > 0 {
+                ctx.comma();
+            }
+            ctx.ident(&win.name).keyword("AS").paren_open();
+            if let Some(base) = &win.base_window {
+                ctx.ident(base);
+            }
+            if let Some(partition_by) = &win.partition_by {
+                ctx.keyword("PARTITION BY");
+                for (j, expr) in partition_by.iter().enumerate() {
+                    if j > 0 {
+                        ctx.comma();
+                    }
+                    self.render_expr(expr, ctx)?;
+                }
+            }
+            if let Some(order_by) = &win.order_by {
+                ctx.keyword("ORDER BY");
+                self.pg_order_by_list(order_by, ctx)?;
+            }
+            if let Some(frame) = &win.frame {
+                self.pg_window_frame(frame, ctx);
+            }
             ctx.paren_close();
         }
         Ok(())
+    }
+
+    fn pg_render_set_op(&self, set_op: &SetOpDef, ctx: &mut RenderCtx) -> RenderResult<()> {
+        self.render_query(&set_op.left, ctx)?;
+        ctx.keyword(match set_op.operation {
+            SetOperationType::Union => "UNION",
+            SetOperationType::UnionAll => "UNION ALL",
+            SetOperationType::Intersect => "INTERSECT",
+            SetOperationType::IntersectAll => "INTERSECT ALL",
+            SetOperationType::Except => "EXCEPT",
+            SetOperationType::ExceptAll => "EXCEPT ALL",
+        });
+        self.render_query(&set_op.right, ctx)
     }
 
     fn pg_create_table(
@@ -1716,17 +2090,24 @@ impl PostgresRenderer {
         Ok(())
     }
 
-    fn pg_order_by_list(&self, order_by: &[OrderByDef], ctx: &mut RenderCtx) {
+    fn pg_order_by_list(&self, order_by: &[OrderByDef], ctx: &mut RenderCtx) -> RenderResult<()> {
         for (i, ob) in order_by.iter().enumerate() {
             if i > 0 {
                 ctx.comma();
             }
-            ctx.ident(&ob.field.field.name);
+            self.render_expr(&ob.expr, ctx)?;
             ctx.keyword(match ob.direction {
                 OrderDir::Asc => "ASC",
                 OrderDir::Desc => "DESC",
             });
+            if let Some(nulls) = &ob.nulls {
+                ctx.keyword(match nulls {
+                    NullsOrder::First => "NULLS FIRST",
+                    NullsOrder::Last => "NULLS LAST",
+                });
+            }
         }
+        Ok(())
     }
 
     fn pg_window_frame(&self, frame: &WindowFrameDef, ctx: &mut RenderCtx) {
@@ -1750,11 +2131,11 @@ impl PostgresRenderer {
             WindowFrameBound::CurrentRow => { ctx.keyword("CURRENT ROW"); }
             WindowFrameBound::Preceding(None) => { ctx.keyword("UNBOUNDED PRECEDING"); }
             WindowFrameBound::Preceding(Some(n)) => {
-                ctx.write(&n.to_string()).keyword("PRECEDING");
+                ctx.keyword(&n.to_string()).keyword("PRECEDING");
             }
             WindowFrameBound::Following(None) => { ctx.keyword("UNBOUNDED FOLLOWING"); }
             WindowFrameBound::Following(Some(n)) => {
-                ctx.write(&n.to_string()).keyword("FOLLOWING");
+                ctx.keyword(&n.to_string()).keyword("FOLLOWING");
             }
         }
     }

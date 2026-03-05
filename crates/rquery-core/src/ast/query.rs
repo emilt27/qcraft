@@ -3,30 +3,32 @@ use super::conditions::Conditions;
 use super::custom::CustomTableSource;
 use super::expr::Expr;
 
+// ---------------------------------------------------------------------------
+// SELECT statement
+// ---------------------------------------------------------------------------
+
 /// A SELECT query statement.
 #[derive(Debug, Clone)]
 pub struct QueryStmt {
-    pub table: TableSource,
-    pub columns: Option<Vec<SelectColumn>>,
-    pub distinct: Option<DistinctClause>,
+    pub ctes: Option<Vec<CteDef>>,
+    pub columns: Vec<SelectColumn>,
+    pub distinct: Option<DistinctDef>,
+    /// FROM items. None for `SELECT 1` (no FROM clause).
+    pub from: Option<Vec<FromItem>>,
     pub joins: Option<Vec<JoinDef>>,
     pub where_clause: Option<Conditions>,
-    pub group_by: Option<Vec<Expr>>,
+    pub group_by: Option<Vec<GroupByItem>>,
     pub having: Option<Conditions>,
+    pub window: Option<Vec<WindowNameDef>>,
     pub order_by: Option<Vec<OrderByDef>>,
     pub limit: Option<LimitDef>,
-    pub ctes: Option<Vec<CteDef>>,
-    pub lock: Option<SelectLockDef>,
+    /// Multiple lock clauses: PG supports `FOR UPDATE OF t1 FOR SHARE OF t2`.
+    pub lock: Option<Vec<SelectLockDef>>,
 }
 
-/// Source of data in FROM clause.
-#[derive(Debug, Clone)]
-pub enum TableSource {
-    Table(SchemaRef),
-    SubQuery(SubQueryDef),
-    SetOp(Box<SetOpDef>),
-    Custom(Box<dyn CustomTableSource>),
-}
+// ---------------------------------------------------------------------------
+// SELECT columns
+// ---------------------------------------------------------------------------
 
 /// A column in SELECT clause.
 #[derive(Debug, Clone)]
@@ -47,19 +49,144 @@ pub enum SelectColumn {
     },
 }
 
+// ---------------------------------------------------------------------------
+// DISTINCT
+// ---------------------------------------------------------------------------
+
 /// DISTINCT clause.
 #[derive(Debug, Clone)]
-pub struct DistinctClause {
-    /// DISTINCT ON (fields) — PostgreSQL only.
-    pub on_fields: Option<Vec<FieldRef>>,
+pub enum DistinctDef {
+    /// Plain DISTINCT (all databases).
+    Distinct,
+    /// DISTINCT ON (expr, ...) — PostgreSQL only.
+    DistinctOn(Vec<Expr>),
 }
+
+// ---------------------------------------------------------------------------
+// FROM item
+// ---------------------------------------------------------------------------
+
+/// A single item in the FROM clause, wrapping a table source with decorations.
+#[derive(Debug, Clone)]
+pub struct FromItem {
+    pub source: TableSource,
+    /// PG: ONLY (exclude inherited/child tables).
+    pub only: bool,
+    /// TABLESAMPLE / SAMPLE clause.
+    pub sample: Option<TableSampleDef>,
+    /// SQLite: INDEXED BY / NOT INDEXED.
+    pub index_hint: Option<SqliteIndexHint>,
+}
+
+impl FromItem {
+    pub fn table(schema_ref: SchemaRef) -> Self {
+        Self {
+            source: TableSource::Table(schema_ref),
+            only: false,
+            sample: None,
+            index_hint: None,
+        }
+    }
+
+    pub fn subquery(query: QueryStmt, alias: String) -> Self {
+        Self {
+            source: TableSource::SubQuery(SubQueryDef {
+                query: Box::new(query),
+                alias,
+            }),
+            only: false,
+            sample: None,
+            index_hint: None,
+        }
+    }
+}
+
+/// Source of data in FROM clause.
+#[derive(Debug, Clone)]
+pub enum TableSource {
+    /// A table or view.
+    Table(SchemaRef),
+    /// A subquery with alias.
+    SubQuery(SubQueryDef),
+    /// Set operation (UNION/INTERSECT/EXCEPT).
+    SetOp(Box<SetOpDef>),
+    /// LATERAL (subquery).
+    Lateral(Box<FromItem>),
+    /// Table-valued function: `generate_series(1, 10)`, `json_each(col)`.
+    Function {
+        name: String,
+        args: Vec<Expr>,
+        alias: Option<String>,
+    },
+    /// VALUES as a table source: `(VALUES (1,'a'), (2,'b')) AS t(id, name)`.
+    Values {
+        rows: Vec<Vec<Expr>>,
+        alias: String,
+        column_aliases: Option<Vec<String>>,
+    },
+    /// User-defined table source (extension point).
+    Custom(Box<dyn CustomTableSource>),
+}
+
+// ---------------------------------------------------------------------------
+// TABLESAMPLE
+// ---------------------------------------------------------------------------
+
+/// TABLESAMPLE / SAMPLE clause.
+#[derive(Debug, Clone)]
+pub struct TableSampleDef {
+    /// Sampling method: BERNOULLI, SYSTEM, BLOCK (Oracle).
+    pub method: SampleMethod,
+    /// Sample percentage (0.0 - 100.0).
+    pub percentage: f64,
+    /// REPEATABLE / SEED value for reproducible sampling.
+    pub seed: Option<i64>,
+}
+
+/// Sampling method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SampleMethod {
+    /// Row-level random sampling (PG, SQL Server).
+    Bernoulli,
+    /// Page/block-level random sampling (PG, SQL Server).
+    System,
+    /// Block-level sampling (Oracle: SAMPLE BLOCK).
+    Block,
+}
+
+// ---------------------------------------------------------------------------
+// SQLite index hints
+// ---------------------------------------------------------------------------
+
+/// SQLite-specific index hints in FROM.
+#[derive(Debug, Clone)]
+pub enum SqliteIndexHint {
+    /// INDEXED BY index_name.
+    IndexedBy(String),
+    /// NOT INDEXED.
+    NotIndexed,
+}
+
+// ---------------------------------------------------------------------------
+// JOIN
+// ---------------------------------------------------------------------------
 
 /// JOIN definition.
 #[derive(Debug, Clone)]
 pub struct JoinDef {
-    pub table: TableSource,
-    pub on: Option<Conditions>,
+    pub source: FromItem,
+    pub condition: Option<JoinCondition>,
     pub join_type: JoinType,
+    pub natural: bool,
+}
+
+/// JOIN condition.
+#[derive(Debug, Clone)]
+pub enum JoinCondition {
+    /// ON condition.
+    On(Conditions),
+    /// USING (col1, col2, ...).
+    Using(Vec<String>),
 }
 
 /// Types of JOIN.
@@ -70,9 +197,15 @@ pub enum JoinType {
     Right,
     Full,
     Cross,
-    InnerLateral,
-    LeftLateral,
+    /// SQL Server / Oracle: CROSS APPLY (equivalent to INNER LATERAL JOIN).
+    CrossApply,
+    /// SQL Server / Oracle: OUTER APPLY (equivalent to LEFT LATERAL JOIN).
+    OuterApply,
 }
+
+// ---------------------------------------------------------------------------
+// Subquery
+// ---------------------------------------------------------------------------
 
 /// Subquery with alias.
 #[derive(Debug, Clone)]
@@ -80,6 +213,10 @@ pub struct SubQueryDef {
     pub query: Box<QueryStmt>,
     pub alias: String,
 }
+
+// ---------------------------------------------------------------------------
+// Set operations (UNION / INTERSECT / EXCEPT)
+// ---------------------------------------------------------------------------
 
 /// Set operation (UNION, INTERSECT, EXCEPT).
 #[derive(Debug, Clone)]
@@ -100,13 +237,72 @@ pub enum SetOperationType {
     ExceptAll,
 }
 
-/// LIMIT / OFFSET / FETCH.
+// ---------------------------------------------------------------------------
+// GROUP BY
+// ---------------------------------------------------------------------------
+
+/// GROUP BY element.
+#[derive(Debug, Clone)]
+pub enum GroupByItem {
+    /// Simple expression: `GROUP BY col1, col2`.
+    Expr(Expr),
+    /// ROLLUP(a, b) or MySQL `WITH ROLLUP`.
+    Rollup(Vec<Expr>),
+    /// CUBE(a, b).
+    Cube(Vec<Expr>),
+    /// GROUPING SETS ((a, b), (a), ()).
+    GroupingSets(Vec<Vec<Expr>>),
+}
+
+// ---------------------------------------------------------------------------
+// WINDOW clause (named windows)
+// ---------------------------------------------------------------------------
+
+/// Named window definition in the WINDOW clause.
+#[derive(Debug, Clone)]
+pub struct WindowNameDef {
+    pub name: String,
+    /// Optional base window name for inheritance: `WINDOW w2 AS (w1 ORDER BY y)`.
+    pub base_window: Option<String>,
+    pub partition_by: Option<Vec<Expr>>,
+    pub order_by: Option<Vec<OrderByDef>>,
+    pub frame: Option<super::expr::WindowFrameDef>,
+}
+
+// ---------------------------------------------------------------------------
+// LIMIT / OFFSET / FETCH / TOP
+// ---------------------------------------------------------------------------
+
+/// Pagination definition.
 #[derive(Debug, Clone)]
 pub struct LimitDef {
-    pub limit: u64,
-    pub offset: u64,
-    pub with_ties: bool,
+    pub kind: LimitKind,
+    pub offset: Option<u64>,
 }
+
+/// The type of row limiting.
+#[derive(Debug, Clone)]
+pub enum LimitKind {
+    /// LIMIT n (PG, SQLite, MySQL).
+    Limit(u64),
+    /// FETCH FIRST n ROWS { ONLY | WITH TIES } (PG, Oracle, SQL Server).
+    FetchFirst {
+        count: u64,
+        with_ties: bool,
+        /// Oracle: FETCH FIRST n PERCENT ROWS.
+        percent: bool,
+    },
+    /// SQL Server: TOP(n) [PERCENT] [WITH TIES].
+    Top {
+        count: u64,
+        with_ties: bool,
+        percent: bool,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// Common Table Expressions (WITH clause)
+// ---------------------------------------------------------------------------
 
 /// Common Table Expression (WITH clause).
 #[derive(Debug, Clone)]
@@ -114,7 +310,22 @@ pub struct CteDef {
     pub name: String,
     pub query: Box<QueryStmt>,
     pub recursive: bool,
+    /// Explicit column names: `WITH cte(a, b) AS (...)`.
+    pub column_names: Option<Vec<String>>,
+    /// PG: MATERIALIZED / NOT MATERIALIZED hint.
+    pub materialized: Option<CteMaterialized>,
 }
+
+/// CTE materialization hint (PostgreSQL).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CteMaterialized {
+    Materialized,
+    NotMaterialized,
+}
+
+// ---------------------------------------------------------------------------
+// SELECT ... FOR UPDATE / SHARE (row locking)
+// ---------------------------------------------------------------------------
 
 /// SELECT ... FOR UPDATE / SHARE.
 #[derive(Debug, Clone)]
@@ -123,13 +334,17 @@ pub struct SelectLockDef {
     pub of: Option<Vec<SchemaRef>>,
     pub nowait: bool,
     pub skip_locked: bool,
+    /// Oracle: FOR UPDATE WAIT N seconds.
+    pub wait: Option<u64>,
 }
 
 /// Lock strength.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LockStrength {
     Update,
+    /// PG: FOR NO KEY UPDATE.
     NoKeyUpdate,
     Share,
+    /// PG: FOR KEY SHARE.
     KeyShare,
 }

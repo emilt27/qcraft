@@ -67,9 +67,17 @@ pub enum OrderDir {
     Desc,
 }
 
+/// NULLS placement in ORDER BY.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NullsOrder {
+    First,
+    Last,
+}
+
 /// ORDER BY element.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct OrderByDef {
-    pub field: FieldRef,
+    pub expr: super::expr::Expr,
     pub direction: OrderDir,
+    pub nulls: Option<NullsOrder>,
 }

@@ -1,4 +1,4 @@
-use super::common::{OrderDir, SchemaRef};
+use super::common::{NullsOrder, OrderDir, SchemaRef};
 use super::conditions::Conditions;
 use super::custom::{CustomConstraint, CustomFieldType, CustomSchemaMutation};
 use super::expr::Expr;
@@ -424,13 +424,6 @@ pub struct IndexColumnDef {
 pub enum IndexExpr {
     Column(String),
     Expression(Expr),
-}
-
-/// NULLS FIRST / NULLS LAST for indexes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NullsOrder {
-    First,
-    Last,
 }
 
 // ---------------------------------------------------------------------------
