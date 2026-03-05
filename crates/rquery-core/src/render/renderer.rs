@@ -6,7 +6,6 @@ use crate::ast::dml::{
     DeleteStmt, InsertStmt, MutationStmt, OnConflictDef, UpdateStmt,
 };
 use crate::ast::expr::{AggregationDef, CaseDef, Expr, WindowDef};
-use crate::ast::common::FieldRef;
 use crate::ast::common::OrderByDef;
 use crate::ast::query::{
     CteDef, JoinDef, LimitDef, QueryStmt, SelectColumn,
@@ -69,7 +68,7 @@ pub trait Renderer {
     fn render_update(&self, stmt: &UpdateStmt, ctx: &mut RenderCtx) -> RenderResult<()>;
     fn render_delete(&self, stmt: &DeleteStmt, ctx: &mut RenderCtx) -> RenderResult<()>;
     fn render_on_conflict(&self, oc: &OnConflictDef, ctx: &mut RenderCtx) -> RenderResult<()>;
-    fn render_returning(&self, fields: &[FieldRef], ctx: &mut RenderCtx) -> RenderResult<()>;
+    fn render_returning(&self, cols: &[SelectColumn], ctx: &mut RenderCtx) -> RenderResult<()>;
 
     // ── DDL parts ──
 
@@ -143,7 +142,7 @@ macro_rules! delegate_renderer {
         }
         fn render_order_by(
             &$self,
-            order: &[$crate::ast::query::OrderByDef],
+            order: &[$crate::ast::common::OrderByDef],
             ctx: &mut $crate::render::ctx::RenderCtx,
         ) -> $crate::error::RenderResult<()> {
             $self.$inner.render_order_by(order, ctx)
@@ -243,10 +242,10 @@ macro_rules! delegate_renderer {
         }
         fn render_returning(
             &$self,
-            fields: &[$crate::ast::common::FieldRef],
+            cols: &[$crate::ast::query::SelectColumn],
             ctx: &mut $crate::render::ctx::RenderCtx,
         ) -> $crate::error::RenderResult<()> {
-            $self.$inner.render_returning(fields, ctx)
+            $self.$inner.render_returning(cols, ctx)
         }
         fn render_column_def(
             &$self,

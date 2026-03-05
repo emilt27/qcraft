@@ -6,7 +6,8 @@ use rquery_core::ast::ddl::{
     ReferentialAction, SchemaDef, SchemaMutationStmt,
 };
 use rquery_core::ast::dml::{
-    DeleteStmt, InsertStmt, MutationStmt, OnConflictDef, UpdateStmt,
+    ConflictAction, ConflictResolution, ConflictTarget, DeleteStmt, InsertSource,
+    InsertStmt, MutationStmt, OnConflictDef, UpdateStmt,
 };
 use rquery_core::ast::expr::{
     AggregationDef, BinaryOp, CaseDef, Expr, UnaryOp, WindowDef,
@@ -29,6 +30,12 @@ impl SqliteRenderer {
     pub fn render_schema_stmt(&self, stmt: &SchemaMutationStmt) -> RenderResult<(String, Vec<Value>)> {
         let mut ctx = RenderCtx::new(ParamStyle::QMark);
         self.render_schema_mutation(stmt, &mut ctx)?;
+        Ok(ctx.finish())
+    }
+
+    pub fn render_mutation_stmt(&self, stmt: &MutationStmt) -> RenderResult<(String, Vec<Value>)> {
+        let mut ctx = RenderCtx::new(ParamStyle::QMark);
+        self.render_mutation(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 }
@@ -663,7 +670,34 @@ impl Renderer for SqliteRenderer {
         todo!("SQLite query rendering not yet implemented")
     }
     fn render_select_columns(&self, _cols: &[SelectColumn], _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
-    fn render_from(&self, _source: &TableSource, _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
+    fn render_from(&self, source: &TableSource, ctx: &mut RenderCtx) -> RenderResult<()> {
+        match source {
+            TableSource::Table(schema_ref) => {
+                self.sqlite_schema_ref(schema_ref, ctx);
+                if let Some(alias) = &schema_ref.alias {
+                    ctx.keyword("AS").ident(alias);
+                }
+            }
+            TableSource::SubQuery(sq) => {
+                ctx.paren_open();
+                self.render_query(&sq.query, ctx)?;
+                ctx.paren_close().keyword("AS").ident(&sq.alias);
+            }
+            TableSource::SetOp(_) => {
+                return Err(RenderError::unsupported(
+                    "SetOpInFrom",
+                    "set operations in FROM not yet implemented",
+                ));
+            }
+            TableSource::Custom(_) => {
+                return Err(RenderError::unsupported(
+                    "CustomTableSource",
+                    "custom table source must be handled by a wrapping renderer",
+                ));
+            }
+        }
+        Ok(())
+    }
     fn render_joins(&self, _joins: &[JoinDef], _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
     fn render_where(&self, _cond: &Conditions, _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
     fn render_order_by(&self, _order: &[OrderByDef], _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
@@ -671,14 +705,293 @@ impl Renderer for SqliteRenderer {
     fn render_ctes(&self, _ctes: &[CteDef], _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
     fn render_lock(&self, _lock: &SelectLockDef, _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
 
-    // ── DML (stub) ───────────────────────────────────────────────────────
+    // ── DML ──────────────────────────────────────────────────────────────
 
-    fn render_mutation(&self, _stmt: &MutationStmt, _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
-    fn render_insert(&self, _stmt: &InsertStmt, _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
-    fn render_update(&self, _stmt: &UpdateStmt, _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
-    fn render_delete(&self, _stmt: &DeleteStmt, _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
-    fn render_on_conflict(&self, _oc: &OnConflictDef, _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
-    fn render_returning(&self, _fields: &[FieldRef], _ctx: &mut RenderCtx) -> RenderResult<()> { todo!() }
+    fn render_mutation(&self, stmt: &MutationStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        match stmt {
+            MutationStmt::Insert(s) => self.render_insert(s, ctx),
+            MutationStmt::Update(s) => self.render_update(s, ctx),
+            MutationStmt::Delete(s) => self.render_delete(s, ctx),
+            MutationStmt::Custom(_) => Err(RenderError::unsupported(
+                "CustomMutation",
+                "custom DML must be handled by a wrapping renderer",
+            )),
+        }
+    }
+
+    fn render_insert(&self, stmt: &InsertStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        // CTEs
+        if let Some(ctes) = &stmt.ctes {
+            self.sqlite_render_ctes(ctes, ctx)?;
+        }
+
+        // INSERT OR REPLACE / OR IGNORE / etc.
+        if let Some(cr) = &stmt.conflict_resolution {
+            ctx.keyword("INSERT OR");
+            ctx.keyword(match cr {
+                ConflictResolution::Rollback => "ROLLBACK",
+                ConflictResolution::Abort => "ABORT",
+                ConflictResolution::Fail => "FAIL",
+                ConflictResolution::Ignore => "IGNORE",
+                ConflictResolution::Replace => "REPLACE",
+            });
+            ctx.keyword("INTO");
+        } else {
+            ctx.keyword("INSERT INTO");
+        }
+
+        self.sqlite_schema_ref(&stmt.table, ctx);
+
+        // Alias
+        if let Some(alias) = &stmt.table.alias {
+            ctx.keyword("AS").ident(alias);
+        }
+
+        // Column list
+        if let Some(cols) = &stmt.columns {
+            ctx.paren_open();
+            self.sqlite_comma_idents(cols, ctx);
+            ctx.paren_close();
+        }
+
+        // Source
+        match &stmt.source {
+            InsertSource::Values(rows) => {
+                ctx.keyword("VALUES");
+                for (i, row) in rows.iter().enumerate() {
+                    if i > 0 {
+                        ctx.comma();
+                    }
+                    ctx.paren_open();
+                    for (j, expr) in row.iter().enumerate() {
+                        if j > 0 {
+                            ctx.comma();
+                        }
+                        self.render_expr(expr, ctx)?;
+                    }
+                    ctx.paren_close();
+                }
+            }
+            InsertSource::Select(query) => {
+                self.render_query(query, ctx)?;
+            }
+            InsertSource::DefaultValues => {
+                ctx.keyword("DEFAULT VALUES");
+            }
+        }
+
+        // ON CONFLICT
+        if let Some(conflicts) = &stmt.on_conflict {
+            for oc in conflicts {
+                self.render_on_conflict(oc, ctx)?;
+            }
+        }
+
+        // RETURNING
+        if let Some(returning) = &stmt.returning {
+            self.render_returning(returning, ctx)?;
+        }
+
+        Ok(())
+    }
+
+    fn render_update(&self, stmt: &UpdateStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        // CTEs
+        if let Some(ctes) = &stmt.ctes {
+            self.sqlite_render_ctes(ctes, ctx)?;
+        }
+
+        // UPDATE OR REPLACE / OR IGNORE / etc.
+        if let Some(cr) = &stmt.conflict_resolution {
+            ctx.keyword("UPDATE OR");
+            ctx.keyword(match cr {
+                ConflictResolution::Rollback => "ROLLBACK",
+                ConflictResolution::Abort => "ABORT",
+                ConflictResolution::Fail => "FAIL",
+                ConflictResolution::Ignore => "IGNORE",
+                ConflictResolution::Replace => "REPLACE",
+            });
+        } else {
+            ctx.keyword("UPDATE");
+        }
+
+        self.sqlite_schema_ref(&stmt.table, ctx);
+
+        // Alias
+        if let Some(alias) = &stmt.table.alias {
+            ctx.keyword("AS").ident(alias);
+        }
+
+        // SET
+        ctx.keyword("SET");
+        for (i, (col, expr)) in stmt.assignments.iter().enumerate() {
+            if i > 0 {
+                ctx.comma();
+            }
+            ctx.ident(col).write(" = ");
+            self.render_expr(expr, ctx)?;
+        }
+
+        // FROM (SQLite 3.33+)
+        if let Some(from) = &stmt.from {
+            ctx.keyword("FROM");
+            for (i, source) in from.iter().enumerate() {
+                if i > 0 {
+                    ctx.comma();
+                }
+                self.render_from(source, ctx)?;
+            }
+        }
+
+        // WHERE
+        if let Some(cond) = &stmt.where_clause {
+            ctx.keyword("WHERE");
+            self.render_condition(cond, ctx)?;
+        }
+
+        // RETURNING
+        if let Some(returning) = &stmt.returning {
+            self.render_returning(returning, ctx)?;
+        }
+
+        // ORDER BY
+        if let Some(order_by) = &stmt.order_by {
+            ctx.keyword("ORDER BY");
+            self.sqlite_order_by_list(order_by, ctx);
+        }
+
+        // LIMIT / OFFSET
+        if let Some(limit) = stmt.limit {
+            ctx.keyword("LIMIT").keyword(&limit.to_string());
+            if let Some(offset) = stmt.offset {
+                ctx.keyword("OFFSET").keyword(&offset.to_string());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn render_delete(&self, stmt: &DeleteStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        // CTEs
+        if let Some(ctes) = &stmt.ctes {
+            self.sqlite_render_ctes(ctes, ctx)?;
+        }
+
+        ctx.keyword("DELETE FROM");
+
+        self.sqlite_schema_ref(&stmt.table, ctx);
+
+        // Alias
+        if let Some(alias) = &stmt.table.alias {
+            ctx.keyword("AS").ident(alias);
+        }
+
+        // SQLite doesn't support USING — ignore
+        // (SQLite has no JOIN syntax in DELETE; use subqueries in WHERE)
+
+        // WHERE
+        if let Some(cond) = &stmt.where_clause {
+            ctx.keyword("WHERE");
+            self.render_condition(cond, ctx)?;
+        }
+
+        // RETURNING
+        if let Some(returning) = &stmt.returning {
+            self.render_returning(returning, ctx)?;
+        }
+
+        // ORDER BY
+        if let Some(order_by) = &stmt.order_by {
+            ctx.keyword("ORDER BY");
+            self.sqlite_order_by_list(order_by, ctx);
+        }
+
+        // LIMIT / OFFSET
+        if let Some(limit) = stmt.limit {
+            ctx.keyword("LIMIT").keyword(&limit.to_string());
+            if let Some(offset) = stmt.offset {
+                ctx.keyword("OFFSET").keyword(&offset.to_string());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn render_on_conflict(&self, oc: &OnConflictDef, ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("ON CONFLICT");
+
+        // Target
+        if let Some(target) = &oc.target {
+            match target {
+                ConflictTarget::Columns { columns, where_clause } => {
+                    ctx.paren_open();
+                    self.sqlite_comma_idents(columns, ctx);
+                    ctx.paren_close();
+                    if let Some(cond) = where_clause {
+                        ctx.keyword("WHERE");
+                        self.render_condition(cond, ctx)?;
+                    }
+                }
+                ConflictTarget::Constraint(_) => {
+                    return Err(RenderError::unsupported(
+                        "OnConstraint",
+                        "SQLite does not support ON CONFLICT ON CONSTRAINT. Use column list instead.",
+                    ));
+                }
+            }
+        }
+
+        // Action
+        match &oc.action {
+            ConflictAction::DoNothing => {
+                ctx.keyword("DO NOTHING");
+            }
+            ConflictAction::DoUpdate { assignments, where_clause } => {
+                ctx.keyword("DO UPDATE SET");
+                for (i, (col, expr)) in assignments.iter().enumerate() {
+                    if i > 0 {
+                        ctx.comma();
+                    }
+                    ctx.ident(col).write(" = ");
+                    self.render_expr(expr, ctx)?;
+                }
+                if let Some(cond) = where_clause {
+                    ctx.keyword("WHERE");
+                    self.render_condition(cond, ctx)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn render_returning(&self, cols: &[SelectColumn], ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("RETURNING");
+        for (i, col) in cols.iter().enumerate() {
+            if i > 0 {
+                ctx.comma();
+            }
+            match col {
+                SelectColumn::Star(None) => { ctx.keyword("*"); }
+                SelectColumn::Star(Some(table)) => {
+                    ctx.ident(table).operator(".").keyword("*");
+                }
+                SelectColumn::Expr { expr, alias } => {
+                    self.render_expr(expr, ctx)?;
+                    if let Some(a) = alias {
+                        ctx.keyword("AS").ident(a);
+                    }
+                }
+                SelectColumn::Field { field, alias } => {
+                    self.sqlite_field_ref(field, ctx);
+                    if let Some(a) = alias {
+                        ctx.keyword("AS").ident(a);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 // ==========================================================================
@@ -779,6 +1092,22 @@ impl SqliteRenderer {
         } else {
             ctx.keyword("INITIALLY IMMEDIATE");
         }
+    }
+
+    fn sqlite_render_ctes(&self, ctes: &[CteDef], ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("WITH");
+        for (i, cte) in ctes.iter().enumerate() {
+            if i > 0 {
+                ctx.comma();
+            }
+            if cte.recursive {
+                ctx.keyword("RECURSIVE");
+            }
+            ctx.ident(&cte.name).keyword("AS").paren_open();
+            self.render_query(&cte.query, ctx)?;
+            ctx.paren_close();
+        }
+        Ok(())
     }
 
     fn sqlite_create_table(
