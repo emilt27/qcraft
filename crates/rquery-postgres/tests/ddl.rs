@@ -881,3 +881,27 @@ fn foreign_key_deferrable() {
         r#"ALTER TABLE "orders" ADD CONSTRAINT "fk_user" FOREIGN KEY("user_id") REFERENCES "users"("id") MATCH FULL ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED"#
     );
 }
+
+// ==========================================================================
+// TRUNCATE TABLE
+// ==========================================================================
+
+#[test]
+fn truncate_table_simple() {
+    let stmt = SchemaMutationStmt::TruncateTable {
+        schema_ref: SchemaRef::new("users"),
+        restart_identity: false,
+        cascade: false,
+    };
+    assert_eq!(render(&stmt), r#"TRUNCATE TABLE "users""#);
+}
+
+#[test]
+fn truncate_table_restart_identity_cascade() {
+    let stmt = SchemaMutationStmt::TruncateTable {
+        schema_ref: SchemaRef::new("orders"),
+        restart_identity: true,
+        cascade: true,
+    };
+    assert_eq!(render(&stmt), r#"TRUNCATE TABLE "orders" RESTART IDENTITY CASCADE"#);
+}

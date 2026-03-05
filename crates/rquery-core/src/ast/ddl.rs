@@ -27,6 +27,11 @@ pub enum SchemaMutationStmt {
         schema_ref: SchemaRef,
         new_name: String,
     },
+    TruncateTable {
+        schema_ref: SchemaRef,
+        restart_identity: bool,
+        cascade: bool,
+    },
 
     // ── Column operations ──
     AddColumn {

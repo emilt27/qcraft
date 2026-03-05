@@ -88,6 +88,22 @@ impl Renderer for PostgresRenderer {
                 Ok(())
             }
 
+            SchemaMutationStmt::TruncateTable {
+                schema_ref,
+                restart_identity,
+                cascade,
+            } => {
+                ctx.keyword("TRUNCATE TABLE");
+                self.pg_schema_ref(schema_ref, ctx);
+                if *restart_identity {
+                    ctx.keyword("RESTART IDENTITY");
+                }
+                if *cascade {
+                    ctx.keyword("CASCADE");
+                }
+                Ok(())
+            }
+
             SchemaMutationStmt::AddColumn {
                 schema_ref,
                 column,
