@@ -5,4 +5,5 @@ pub mod ddl;
 pub mod dml;
 pub mod expr;
 pub mod query;
+pub mod tcl;
 pub mod value;

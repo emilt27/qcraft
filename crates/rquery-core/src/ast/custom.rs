@@ -28,3 +28,4 @@ define_custom_trait!(CustomMutation);
 define_custom_trait!(CustomSchemaMutation);
 define_custom_trait!(CustomFieldType);
 define_custom_trait!(CustomConstraint);
+define_custom_trait!(CustomTransaction);

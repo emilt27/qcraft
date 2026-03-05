@@ -2,6 +2,7 @@ use crate::ast::conditions::{CompareOp, Conditions};
 use crate::ast::ddl::{
     ColumnDef, ConstraintDef, FieldType, IndexDef, SchemaMutationStmt,
 };
+use crate::ast::tcl::TransactionStmt;
 use crate::ast::dml::{
     DeleteStmt, InsertStmt, MutationStmt, OnConflictDef, UpdateStmt,
 };
@@ -26,6 +27,11 @@ pub trait Renderer {
     fn render_schema_mutation(
         &self,
         stmt: &SchemaMutationStmt,
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()>;
+    fn render_transaction(
+        &self,
+        stmt: &TransactionStmt,
         ctx: &mut RenderCtx,
     ) -> RenderResult<()>;
 
@@ -111,6 +117,13 @@ macro_rules! delegate_renderer {
             ctx: &mut $crate::render::ctx::RenderCtx,
         ) -> $crate::error::RenderResult<()> {
             $self.$inner.render_schema_mutation(stmt, ctx)
+        }
+        fn render_transaction(
+            &$self,
+            stmt: &$crate::ast::tcl::TransactionStmt,
+            ctx: &mut $crate::render::ctx::RenderCtx,
+        ) -> $crate::error::RenderResult<()> {
+            $self.$inner.render_transaction(stmt, ctx)
         }
         fn render_select_columns(
             &$self,

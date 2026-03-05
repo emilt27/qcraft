@@ -9,6 +9,7 @@ use rquery_core::ast::dml::{
     ConflictAction, ConflictResolution, ConflictTarget, DeleteStmt, InsertSource,
     InsertStmt, MutationStmt, OnConflictDef, UpdateStmt,
 };
+use rquery_core::ast::tcl::{SqliteLockType, TransactionStmt};
 use rquery_core::ast::expr::{
     AggregationDef, BinaryOp, CaseDef, Expr, UnaryOp, WindowDef,
 };
@@ -30,6 +31,12 @@ impl SqliteRenderer {
     pub fn render_schema_stmt(&self, stmt: &SchemaMutationStmt) -> RenderResult<(String, Vec<Value>)> {
         let mut ctx = RenderCtx::new(ParamStyle::QMark);
         self.render_schema_mutation(stmt, &mut ctx)?;
+        Ok(ctx.finish())
+    }
+
+    pub fn render_transaction_stmt(&self, stmt: &TransactionStmt) -> RenderResult<(String, Vec<Value>)> {
+        let mut ctx = RenderCtx::new(ParamStyle::QMark);
+        self.render_transaction(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 
@@ -991,6 +998,62 @@ impl Renderer for SqliteRenderer {
             }
         }
         Ok(())
+    }
+
+    // ── TCL ──────────────────────────────────────────────────────────────
+
+    fn render_transaction(&self, stmt: &TransactionStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        match stmt {
+            TransactionStmt::Begin(s) => {
+                ctx.keyword("BEGIN");
+                if let Some(lock_type) = &s.lock_type {
+                    ctx.keyword(match lock_type {
+                        SqliteLockType::Deferred => "DEFERRED",
+                        SqliteLockType::Immediate => "IMMEDIATE",
+                        SqliteLockType::Exclusive => "EXCLUSIVE",
+                    });
+                }
+                ctx.keyword("TRANSACTION");
+                Ok(())
+            }
+            TransactionStmt::Commit(_) => {
+                ctx.keyword("COMMIT");
+                Ok(())
+            }
+            TransactionStmt::Rollback(s) => {
+                ctx.keyword("ROLLBACK");
+                if let Some(sp) = &s.to_savepoint {
+                    ctx.keyword("TO").keyword("SAVEPOINT").ident(sp);
+                }
+                Ok(())
+            }
+            TransactionStmt::Savepoint(s) => {
+                ctx.keyword("SAVEPOINT").ident(&s.name);
+                Ok(())
+            }
+            TransactionStmt::ReleaseSavepoint(s) => {
+                ctx.keyword("RELEASE").keyword("SAVEPOINT").ident(&s.name);
+                Ok(())
+            }
+            TransactionStmt::SetTransaction(_) => {
+                Err(RenderError::unsupported("SET TRANSACTION", "not supported in SQLite"))
+            }
+            TransactionStmt::LockTable(_) => {
+                Err(RenderError::unsupported("LOCK TABLE", "not supported in SQLite (use BEGIN EXCLUSIVE)"))
+            }
+            TransactionStmt::PrepareTransaction(_) => {
+                Err(RenderError::unsupported("PREPARE TRANSACTION", "not supported in SQLite"))
+            }
+            TransactionStmt::CommitPrepared(_) => {
+                Err(RenderError::unsupported("COMMIT PREPARED", "not supported in SQLite"))
+            }
+            TransactionStmt::RollbackPrepared(_) => {
+                Err(RenderError::unsupported("ROLLBACK PREPARED", "not supported in SQLite"))
+            }
+            TransactionStmt::Custom(_) => {
+                Err(RenderError::unsupported("Custom TCL", "not supported by SqliteRenderer"))
+            }
+        }
     }
 }
 

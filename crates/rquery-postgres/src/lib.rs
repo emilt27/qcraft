@@ -10,6 +10,10 @@ use rquery_core::ast::dml::{
     ConflictAction, ConflictTarget, DeleteStmt, InsertSource, InsertStmt,
     MutationStmt, OnConflictDef, OverridingKind, UpdateStmt,
 };
+use rquery_core::ast::tcl::{
+    BeginStmt, CommitStmt, IsolationLevel, LockMode, LockTableStmt, RollbackStmt,
+    SetTransactionStmt, TransactionMode, TransactionScope, TransactionStmt,
+};
 use rquery_core::ast::expr::{
     AggregationDef, BinaryOp, CaseDef, Expr, UnaryOp, WindowDef, WindowFrameBound,
     WindowFrameDef, WindowFrameType,
@@ -33,6 +37,13 @@ impl PostgresRenderer {
     pub fn render_schema_stmt(&self, stmt: &SchemaMutationStmt) -> RenderResult<(String, Vec<Value>)> {
         let mut ctx = RenderCtx::new(ParamStyle::Dollar);
         self.render_schema_mutation(stmt, &mut ctx)?;
+        Ok(ctx.finish())
+    }
+
+    /// Convenience: render a TCL statement to SQL string + params.
+    pub fn render_transaction_stmt(&self, stmt: &TransactionStmt) -> RenderResult<(String, Vec<Value>)> {
+        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+        self.render_transaction(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 
@@ -1144,6 +1155,41 @@ impl Renderer for PostgresRenderer {
         }
         Ok(())
     }
+
+    // ── TCL ──────────────────────────────────────────────────────────────
+
+    fn render_transaction(&self, stmt: &TransactionStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        match stmt {
+            TransactionStmt::Begin(s) => self.pg_begin(s, ctx),
+            TransactionStmt::Commit(s) => self.pg_commit(s, ctx),
+            TransactionStmt::Rollback(s) => self.pg_rollback(s, ctx),
+            TransactionStmt::Savepoint(s) => {
+                ctx.keyword("SAVEPOINT").ident(&s.name);
+                Ok(())
+            }
+            TransactionStmt::ReleaseSavepoint(s) => {
+                ctx.keyword("RELEASE").keyword("SAVEPOINT").ident(&s.name);
+                Ok(())
+            }
+            TransactionStmt::SetTransaction(s) => self.pg_set_transaction(s, ctx),
+            TransactionStmt::LockTable(s) => self.pg_lock_table(s, ctx),
+            TransactionStmt::PrepareTransaction(s) => {
+                ctx.keyword("PREPARE").keyword("TRANSACTION").string_literal(&s.transaction_id);
+                Ok(())
+            }
+            TransactionStmt::CommitPrepared(s) => {
+                ctx.keyword("COMMIT").keyword("PREPARED").string_literal(&s.transaction_id);
+                Ok(())
+            }
+            TransactionStmt::RollbackPrepared(s) => {
+                ctx.keyword("ROLLBACK").keyword("PREPARED").string_literal(&s.transaction_id);
+                Ok(())
+            }
+            TransactionStmt::Custom(_) => {
+                Err(RenderError::unsupported("Custom TCL", "not supported by PostgresRenderer"))
+            }
+        }
+    }
 }
 
 // ==========================================================================
@@ -1151,6 +1197,116 @@ impl Renderer for PostgresRenderer {
 // ==========================================================================
 
 impl PostgresRenderer {
+    // ── TCL helpers ──────────────────────────────────────────────────────
+
+    fn pg_begin(&self, stmt: &BeginStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("BEGIN");
+        if let Some(modes) = &stmt.modes {
+            self.pg_transaction_modes(modes, ctx);
+        }
+        Ok(())
+    }
+
+    fn pg_commit(&self, stmt: &CommitStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("COMMIT");
+        if stmt.and_chain {
+            ctx.keyword("AND").keyword("CHAIN");
+        }
+        Ok(())
+    }
+
+    fn pg_rollback(&self, stmt: &RollbackStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("ROLLBACK");
+        if let Some(sp) = &stmt.to_savepoint {
+            ctx.keyword("TO").keyword("SAVEPOINT").ident(sp);
+        }
+        if stmt.and_chain {
+            ctx.keyword("AND").keyword("CHAIN");
+        }
+        Ok(())
+    }
+
+    fn pg_set_transaction(&self, stmt: &SetTransactionStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("SET");
+        match &stmt.scope {
+            Some(TransactionScope::Session) => {
+                ctx.keyword("SESSION").keyword("CHARACTERISTICS").keyword("AS").keyword("TRANSACTION");
+            }
+            _ => {
+                ctx.keyword("TRANSACTION");
+            }
+        }
+        if let Some(snap_id) = &stmt.snapshot_id {
+            ctx.keyword("SNAPSHOT").string_literal(snap_id);
+        } else {
+            self.pg_transaction_modes(&stmt.modes, ctx);
+        }
+        Ok(())
+    }
+
+    fn pg_transaction_modes(&self, modes: &[TransactionMode], ctx: &mut RenderCtx) {
+        for (i, mode) in modes.iter().enumerate() {
+            if i > 0 {
+                ctx.comma();
+            }
+            match mode {
+                TransactionMode::IsolationLevel(lvl) => {
+                    ctx.keyword("ISOLATION").keyword("LEVEL");
+                    ctx.keyword(match lvl {
+                        IsolationLevel::ReadUncommitted => "READ UNCOMMITTED",
+                        IsolationLevel::ReadCommitted => "READ COMMITTED",
+                        IsolationLevel::RepeatableRead => "REPEATABLE READ",
+                        IsolationLevel::Serializable => "SERIALIZABLE",
+                        IsolationLevel::Snapshot => "SERIALIZABLE", // PG doesn't have SNAPSHOT
+                    });
+                }
+                TransactionMode::ReadOnly => { ctx.keyword("READ ONLY"); }
+                TransactionMode::ReadWrite => { ctx.keyword("READ WRITE"); }
+                TransactionMode::Deferrable => { ctx.keyword("DEFERRABLE"); }
+                TransactionMode::NotDeferrable => { ctx.keyword("NOT DEFERRABLE"); }
+                TransactionMode::WithConsistentSnapshot => {} // MySQL only, skip
+            }
+        }
+    }
+
+    fn pg_lock_table(&self, stmt: &LockTableStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.keyword("LOCK").keyword("TABLE");
+        for (i, def) in stmt.tables.iter().enumerate() {
+            if i > 0 {
+                ctx.comma();
+            }
+            if def.only {
+                ctx.keyword("ONLY");
+            }
+            if let Some(schema) = &def.schema {
+                ctx.ident(schema).operator(".");
+            }
+            ctx.ident(&def.table);
+        }
+        // Use mode from first table (PG applies one mode to all).
+        if let Some(first) = stmt.tables.first() {
+            ctx.keyword("IN");
+            ctx.keyword(match first.mode {
+                LockMode::AccessShare => "ACCESS SHARE",
+                LockMode::RowShare => "ROW SHARE",
+                LockMode::RowExclusive => "ROW EXCLUSIVE",
+                LockMode::ShareUpdateExclusive => "SHARE UPDATE EXCLUSIVE",
+                LockMode::Share => "SHARE",
+                LockMode::ShareRowExclusive => "SHARE ROW EXCLUSIVE",
+                LockMode::Exclusive => "EXCLUSIVE",
+                LockMode::AccessExclusive => "ACCESS EXCLUSIVE",
+                _ => "ACCESS EXCLUSIVE", // Non-PG modes default
+            });
+            ctx.keyword("MODE");
+        }
+        if stmt.nowait {
+            ctx.keyword("NOWAIT");
+        }
+        Ok(())
+    }
+
+    // ── Schema helpers ───────────────────────────────────────────────────
+
     fn pg_schema_ref(&self, schema_ref: &rquery_core::ast::common::SchemaRef, ctx: &mut RenderCtx) {
         if let Some(ns) = &schema_ref.namespace {
             ctx.ident(ns).operator(".");
