@@ -1339,10 +1339,24 @@ impl SqliteRenderer {
             }
             Value::Decimal(s) => { ctx.keyword(s); }
             Value::Uuid(s) => { ctx.string_literal(s); }
-            Value::List(_) => {
+            Value::Json(s) | Value::Jsonb(s) => {
+                // SQLite stores JSON as TEXT; json1 extension handles parsing
+                ctx.string_literal(s);
+            }
+            Value::IpNetwork(s) => {
+                // SQLite stores IP addresses as TEXT
+                ctx.string_literal(s);
+            }
+            Value::Array(_) => {
                 return Err(RenderError::unsupported(
-                    "ListValue",
-                    "SQLite does not support array/list literals.",
+                    "ArrayValue",
+                    "SQLite does not support array literals.",
+                ));
+            }
+            Value::Vector(_) => {
+                return Err(RenderError::unsupported(
+                    "VectorValue",
+                    "SQLite does not support vector type.",
                 ));
             }
             Value::TimeDelta { .. } => {

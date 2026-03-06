@@ -1613,7 +1613,21 @@ impl PostgresRenderer {
             Value::Date(s) | Value::DateTime(s) | Value::Time(s) => {
                 ctx.string_literal(s);
             }
-            Value::List(items) => {
+            Value::Decimal(s) => { ctx.keyword(s); }
+            Value::Uuid(s) => { ctx.string_literal(s); }
+            Value::Json(s) => {
+                ctx.string_literal(s);
+                ctx.write("::json");
+            }
+            Value::Jsonb(s) => {
+                ctx.string_literal(s);
+                ctx.write("::jsonb");
+            }
+            Value::IpNetwork(s) => {
+                ctx.string_literal(s);
+                ctx.write("::inet");
+            }
+            Value::Array(items) => {
                 ctx.keyword("ARRAY").write("[");
                 for (i, item) in items.iter().enumerate() {
                     if i > 0 {
@@ -1623,12 +1637,22 @@ impl PostgresRenderer {
                 }
                 ctx.write("]");
             }
-            Value::Decimal(s) => { ctx.keyword(s); }
-            Value::Uuid(s) => { ctx.string_literal(s); }
-            Value::TimeDelta { days, seconds, microseconds } => {
+            Value::Vector(values) => {
+                let parts: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+                let literal = format!("[{}]", parts.join(","));
+                ctx.string_literal(&literal);
+                ctx.write("::vector");
+            }
+            Value::TimeDelta { years, months, days, seconds, microseconds } => {
                 ctx.keyword("INTERVAL");
-                let interval = format!("{days} days {seconds} seconds {microseconds} microseconds");
-                ctx.string_literal(&interval);
+                let mut parts = Vec::new();
+                if *years != 0 { parts.push(format!("{years} years")); }
+                if *months != 0 { parts.push(format!("{months} months")); }
+                if *days != 0 { parts.push(format!("{days} days")); }
+                if *seconds != 0 { parts.push(format!("{seconds} seconds")); }
+                if *microseconds != 0 { parts.push(format!("{microseconds} microseconds")); }
+                if parts.is_empty() { parts.push("0 seconds".into()); }
+                ctx.string_literal(&parts.join(" "));
             }
         }
         Ok(())
