@@ -38,9 +38,17 @@ fn insert_single_row() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "users" ("name", "email") VALUES ('Alice', 'alice@example.com')"#,
+        sql,
+        r#"INSERT INTO "users" ("name", "email") VALUES ($1, $2)"#,
+    );
+    assert_eq!(
+        params,
+        vec![
+            Value::Str("Alice".into()),
+            Value::Str("alice@example.com".into())
+        ]
     );
 }
 
@@ -61,9 +69,11 @@ fn insert_multi_row() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"INSERT INTO "users" ("name") VALUES ($1), ($2)"#,);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "users" ("name") VALUES ('Alice'), ('Bob')"#,
+        params,
+        vec![Value::Str("Alice".into()), Value::Str("Bob".into())]
     );
 }
 
@@ -84,11 +94,12 @@ fn insert_with_params() {
         partition: None,
         ignore: false,
     });
-    let (sql, _params) = render_with_params(&stmt);
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
         sql,
-        r#"INSERT INTO "users" ("name", "age") VALUES ('Alice', 30)"#,
+        r#"INSERT INTO "users" ("name", "age") VALUES ($1, $2)"#,
     );
+    assert_eq!(params, vec![Value::Str("Alice".into()), Value::Int(30)]);
 }
 
 #[test]
@@ -125,7 +136,9 @@ fn insert_no_columns() {
         partition: None,
         ignore: false,
     });
-    assert_eq!(render(&stmt), r#"INSERT INTO "t" VALUES (1, 'x')"#);
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"INSERT INTO "t" VALUES ($1, $2)"#);
+    assert_eq!(params, vec![Value::Int(1), Value::Str("x".into())]);
 }
 
 #[test]
@@ -142,10 +155,9 @@ fn insert_with_namespace() {
         partition: None,
         ignore: false,
     });
-    assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "public"."users" ("id") VALUES (1)"#,
-    );
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"INSERT INTO "public"."users" ("id") VALUES ($1)"#,);
+    assert_eq!(params, vec![Value::Int(1)]);
 }
 
 // ==========================================================================
@@ -166,10 +178,12 @@ fn insert_returning_star() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "users" ("name") VALUES ('Alice') RETURNING *"#,
+        sql,
+        r#"INSERT INTO "users" ("name") VALUES ($1) RETURNING *"#,
     );
+    assert_eq!(params, vec![Value::Str("Alice".into())]);
 }
 
 #[test]
@@ -195,10 +209,12 @@ fn insert_returning_columns() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "users" ("name") VALUES ('Alice') RETURNING "users"."id", "users"."name" AS "user_name""#,
+        sql,
+        r#"INSERT INTO "users" ("name") VALUES ($1) RETURNING "users"."id", "users"."name" AS "user_name""#,
     );
+    assert_eq!(params, vec![Value::Str("Alice".into())]);
 }
 
 // ==========================================================================
@@ -228,9 +244,14 @@ fn insert_on_conflict_do_nothing() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "users" ("email", "name") VALUES ('a@b.com', 'Alice') ON CONFLICT ("email") DO NOTHING"#,
+        sql,
+        r#"INSERT INTO "users" ("email", "name") VALUES ($1, $2) ON CONFLICT ("email") DO NOTHING"#,
+    );
+    assert_eq!(
+        params,
+        vec![Value::Str("a@b.com".into()), Value::Str("Alice".into())]
     );
 }
 
@@ -249,9 +270,13 @@ fn insert_on_conflict_do_update() {
                 where_clause: None,
             }),
             action: ConflictAction::DoUpdate {
-                assignments: vec![
-                    ("name".into(), Expr::Raw { sql: "EXCLUDED.\"name\"".into(), params: vec![] }),
-                ],
+                assignments: vec![(
+                    "name".into(),
+                    Expr::Raw {
+                        sql: "EXCLUDED.\"name\"".into(),
+                        params: vec![],
+                    },
+                )],
                 where_clause: None,
             },
         }]),
@@ -262,9 +287,14 @@ fn insert_on_conflict_do_update() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "users" ("email", "name") VALUES ('a@b.com', 'Alice') ON CONFLICT ("email") DO UPDATE SET "name" = EXCLUDED."name""#,
+        sql,
+        r#"INSERT INTO "users" ("email", "name") VALUES ($1, $2) ON CONFLICT ("email") DO UPDATE SET "name" = EXCLUDED."name""#,
+    );
+    assert_eq!(
+        params,
+        vec![Value::Str("a@b.com".into()), Value::Str("Alice".into())]
     );
 }
 
@@ -285,10 +315,12 @@ fn insert_on_conflict_on_constraint() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "users" ("email") VALUES ('a@b.com') ON CONFLICT ON CONSTRAINT "uq_email" DO NOTHING"#,
+        sql,
+        r#"INSERT INTO "users" ("email") VALUES ($1) ON CONFLICT ON CONSTRAINT "uq_email" DO NOTHING"#,
     );
+    assert_eq!(params, vec![Value::Str("a@b.com".into())]);
 }
 
 #[test]
@@ -306,15 +338,19 @@ fn insert_on_conflict_do_update_with_where() {
                 where_clause: None,
             }),
             action: ConflictAction::DoUpdate {
-                assignments: vec![
-                    ("value".into(), Expr::Raw {
+                assignments: vec![(
+                    "value".into(),
+                    Expr::Raw {
                         sql: "\"counters\".\"value\" + EXCLUDED.\"value\"".into(),
                         params: vec![],
-                    }),
-                ],
+                    },
+                )],
                 where_clause: Some(Conditions {
                     children: vec![ConditionNode::Comparison(Comparison {
-                        left: Expr::Raw { sql: "\"counters\".\"value\"".into(), params: vec![] },
+                        left: Expr::Raw {
+                            sql: "\"counters\".\"value\"".into(),
+                            params: vec![],
+                        },
                         op: CompareOp::Lt,
                         right: Expr::Value(Value::Int(1000)),
                         negate: false,
@@ -331,9 +367,14 @@ fn insert_on_conflict_do_update_with_where() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "counters" ("key", "value") VALUES ('hits', 1) ON CONFLICT ("key") DO UPDATE SET "value" = "counters"."value" + EXCLUDED."value" WHERE "counters"."value" < 1000"#,
+        sql,
+        r#"INSERT INTO "counters" ("key", "value") VALUES ($1, $2) ON CONFLICT ("key") DO UPDATE SET "value" = "counters"."value" + EXCLUDED."value" WHERE "counters"."value" < $3"#,
+    );
+    assert_eq!(
+        params,
+        vec![Value::Str("hits".into()), Value::Int(1), Value::Int(1000)]
     );
 }
 
@@ -348,7 +389,10 @@ fn insert_on_conflict_partial_index() {
                 columns: vec!["email".into()],
                 where_clause: Some(Conditions {
                     children: vec![ConditionNode::Comparison(Comparison {
-                        left: Expr::Raw { sql: "\"active\"".into(), params: vec![] },
+                        left: Expr::Raw {
+                            sql: "\"active\"".into(),
+                            params: vec![],
+                        },
                         op: CompareOp::Eq,
                         right: Expr::Value(Value::Bool(true)),
                         negate: false,
@@ -366,9 +410,14 @@ fn insert_on_conflict_partial_index() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "users" ("email") VALUES ('a@b.com') ON CONFLICT ("email") WHERE "active" = TRUE DO NOTHING"#,
+        sql,
+        r#"INSERT INTO "users" ("email") VALUES ($1) ON CONFLICT ("email") WHERE "active" = $2 DO NOTHING"#,
+    );
+    assert_eq!(
+        params,
+        vec![Value::Str("a@b.com".into()), Value::Bool(true)]
     );
 }
 
@@ -393,10 +442,12 @@ fn insert_overriding_system_value() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "users" ("id", "name") OVERRIDING SYSTEM VALUE VALUES (100, 'Alice')"#,
+        sql,
+        r#"INSERT INTO "users" ("id", "name") OVERRIDING SYSTEM VALUE VALUES ($1, $2)"#,
     );
+    assert_eq!(params, vec![Value::Int(100), Value::Str("Alice".into())]);
 }
 
 // ==========================================================================
@@ -407,13 +458,14 @@ fn insert_overriding_system_value() {
 fn update_simple() {
     let stmt = MutationStmt::Update(UpdateStmt {
         table: SchemaRef::new("users"),
-        assignments: vec![
-            ("name".into(), Expr::Value(Value::Str("Bob".into()))),
-        ],
+        assignments: vec![("name".into(), Expr::Value(Value::Str("Bob".into())))],
         from: None,
         where_clause: Some(Conditions {
             children: vec![ConditionNode::Comparison(Comparison {
-                left: Expr::Raw { sql: "\"id\"".into(), params: vec![] },
+                left: Expr::Raw {
+                    sql: "\"id\"".into(),
+                    params: vec![],
+                },
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
@@ -431,10 +483,9 @@ fn update_simple() {
         partition: None,
         ignore: false,
     });
-    assert_eq!(
-        render(&stmt),
-        r#"UPDATE "users" SET "name" = 'Bob' WHERE "id" = 1"#,
-    );
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"UPDATE "users" SET "name" = $1 WHERE "id" = $2"#,);
+    assert_eq!(params, vec![Value::Str("Bob".into()), Value::Int(1)]);
 }
 
 #[test]
@@ -457,23 +508,23 @@ fn update_multiple_assignments() {
         partition: None,
         ignore: false,
     });
-    assert_eq!(
-        render(&stmt),
-        r#"UPDATE "users" SET "name" = 'Bob', "age" = 30"#,
-    );
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"UPDATE "users" SET "name" = $1, "age" = $2"#,);
+    assert_eq!(params, vec![Value::Str("Bob".into()), Value::Int(30)]);
 }
 
 #[test]
 fn update_with_returning() {
     let stmt = MutationStmt::Update(UpdateStmt {
         table: SchemaRef::new("users"),
-        assignments: vec![
-            ("name".into(), Expr::Value(Value::Str("Bob".into()))),
-        ],
+        assignments: vec![("name".into(), Expr::Value(Value::Str("Bob".into())))],
         from: None,
         where_clause: Some(Conditions {
             children: vec![ConditionNode::Comparison(Comparison {
-                left: Expr::Raw { sql: "\"id\"".into(), params: vec![] },
+                left: Expr::Raw {
+                    sql: "\"id\"".into(),
+                    params: vec![],
+                },
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
@@ -491,19 +542,19 @@ fn update_with_returning() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"UPDATE "users" SET "name" = 'Bob' WHERE "id" = 1 RETURNING *"#,
+        sql,
+        r#"UPDATE "users" SET "name" = $1 WHERE "id" = $2 RETURNING *"#,
     );
+    assert_eq!(params, vec![Value::Str("Bob".into()), Value::Int(1)]);
 }
 
 #[test]
 fn update_only() {
     let stmt = MutationStmt::Update(UpdateStmt {
         table: SchemaRef::new("events"),
-        assignments: vec![
-            ("status".into(), Expr::Value(Value::Str("archived".into()))),
-        ],
+        assignments: vec![("status".into(), Expr::Value(Value::Str("archived".into())))],
         from: None,
         where_clause: None,
         returning: None,
@@ -516,19 +567,16 @@ fn update_only() {
         partition: None,
         ignore: false,
     });
-    assert_eq!(
-        render(&stmt),
-        r#"UPDATE ONLY "events" SET "status" = 'archived'"#,
-    );
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"UPDATE ONLY "events" SET "status" = $1"#,);
+    assert_eq!(params, vec![Value::Str("archived".into())]);
 }
 
 #[test]
 fn update_with_alias() {
     let stmt = MutationStmt::Update(UpdateStmt {
         table: SchemaRef::new("users").with_alias("u"),
-        assignments: vec![
-            ("name".into(), Expr::Value(Value::Str("Bob".into()))),
-        ],
+        assignments: vec![("name".into(), Expr::Value(Value::Str("Bob".into())))],
         from: None,
         where_clause: None,
         returning: None,
@@ -541,10 +589,9 @@ fn update_with_alias() {
         partition: None,
         ignore: false,
     });
-    assert_eq!(
-        render(&stmt),
-        r#"UPDATE "users" AS "u" SET "name" = 'Bob'"#,
-    );
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"UPDATE "users" AS "u" SET "name" = $1"#,);
+    assert_eq!(params, vec![Value::Str("Bob".into())]);
 }
 
 #[test]
@@ -552,15 +599,21 @@ fn update_with_from() {
     use rquery_core::ast::query::TableSource;
     let stmt = MutationStmt::Update(UpdateStmt {
         table: SchemaRef::new("orders").with_alias("o"),
-        assignments: vec![
-            ("status".into(), Expr::Value(Value::Str("shipped".into()))),
-        ],
-        from: Some(vec![TableSource::Table(SchemaRef::new("users").with_alias("u"))]),
+        assignments: vec![("status".into(), Expr::Value(Value::Str("shipped".into())))],
+        from: Some(vec![TableSource::Table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         where_clause: Some(Conditions {
             children: vec![ConditionNode::Comparison(Comparison {
-                left: Expr::Raw { sql: "\"o\".\"user_id\"".into(), params: vec![] },
+                left: Expr::Raw {
+                    sql: "\"o\".\"user_id\"".into(),
+                    params: vec![],
+                },
                 op: CompareOp::Eq,
-                right: Expr::Raw { sql: "\"u\".\"id\"".into(), params: vec![] },
+                right: Expr::Raw {
+                    sql: "\"u\".\"id\"".into(),
+                    params: vec![],
+                },
                 negate: false,
             })],
             connector: Connector::And,
@@ -578,10 +631,14 @@ fn update_with_from() {
     });
     // render_from for TableSource::Table renders the schema ref + alias
     // This test verifies FROM clause is rendered
-    let sql = render(&stmt);
+    let (sql, params) = render_with_params(&stmt);
     assert!(sql.contains("FROM"), "expected FROM clause, got: {sql}");
-    assert!(sql.contains(r#"SET "status" = 'shipped'"#), "expected SET clause, got: {sql}");
+    assert!(
+        sql.contains(r#"SET "status" = $1"#),
+        "expected SET clause, got: {sql}"
+    );
     assert!(sql.contains("WHERE"), "expected WHERE clause, got: {sql}");
+    assert_eq!(params, vec![Value::Str("shipped".into())]);
 }
 
 // ==========================================================================
@@ -595,7 +652,10 @@ fn delete_simple() {
         using: None,
         where_clause: Some(Conditions {
             children: vec![ConditionNode::Comparison(Comparison {
-                left: Expr::Raw { sql: "\"id\"".into(), params: vec![] },
+                left: Expr::Raw {
+                    sql: "\"id\"".into(),
+                    params: vec![],
+                },
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
@@ -612,10 +672,9 @@ fn delete_simple() {
         partition: None,
         ignore: false,
     });
-    assert_eq!(
-        render(&stmt),
-        r#"DELETE FROM "users" WHERE "id" = 1"#,
-    );
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"DELETE FROM "users" WHERE "id" = $1"#,);
+    assert_eq!(params, vec![Value::Int(1)]);
 }
 
 #[test]
@@ -643,7 +702,10 @@ fn delete_with_returning() {
         using: None,
         where_clause: Some(Conditions {
             children: vec![ConditionNode::Comparison(Comparison {
-                left: Expr::Raw { sql: "\"active\"".into(), params: vec![] },
+                left: Expr::Raw {
+                    sql: "\"active\"".into(),
+                    params: vec![],
+                },
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(false)),
                 negate: false,
@@ -660,10 +722,12 @@ fn delete_with_returning() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"DELETE FROM "users" WHERE "active" = FALSE RETURNING *"#,
+        sql,
+        r#"DELETE FROM "users" WHERE "active" = $1 RETURNING *"#,
     );
+    assert_eq!(params, vec![Value::Bool(false)]);
 }
 
 #[test]
@@ -691,7 +755,10 @@ fn delete_with_alias() {
         using: None,
         where_clause: Some(Conditions {
             children: vec![ConditionNode::Comparison(Comparison {
-                left: Expr::Raw { sql: "\"u\".\"id\"".into(), params: vec![] },
+                left: Expr::Raw {
+                    sql: "\"u\".\"id\"".into(),
+                    params: vec![],
+                },
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
@@ -708,10 +775,9 @@ fn delete_with_alias() {
         partition: None,
         ignore: false,
     });
-    assert_eq!(
-        render(&stmt),
-        r#"DELETE FROM "users" AS "u" WHERE "u"."id" = 1"#,
-    );
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"DELETE FROM "users" AS "u" WHERE "u"."id" = $1"#,);
+    assert_eq!(params, vec![Value::Int(1)]);
 }
 
 #[test]
@@ -719,12 +785,20 @@ fn delete_with_using() {
     use rquery_core::ast::query::TableSource;
     let stmt = MutationStmt::Delete(DeleteStmt {
         table: SchemaRef::new("orders").with_alias("o"),
-        using: Some(vec![TableSource::Table(SchemaRef::new("users").with_alias("u"))]),
+        using: Some(vec![TableSource::Table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         where_clause: Some(Conditions {
             children: vec![ConditionNode::Comparison(Comparison {
-                left: Expr::Raw { sql: "\"o\".\"user_id\"".into(), params: vec![] },
+                left: Expr::Raw {
+                    sql: "\"o\".\"user_id\"".into(),
+                    params: vec![],
+                },
                 op: CompareOp::Eq,
-                right: Expr::Raw { sql: "\"u\".\"id\"".into(), params: vec![] },
+                right: Expr::Raw {
+                    sql: "\"u\".\"id\"".into(),
+                    params: vec![],
+                },
                 negate: false,
             })],
             connector: Connector::And,
@@ -755,7 +829,10 @@ fn insert_with_expression_values() {
         columns: Some(vec!["name".into(), "created_at".into()]),
         source: InsertSource::Values(vec![vec![
             Expr::Value(Value::Str("login".into())),
-            Expr::Func { name: "now".into(), args: vec![] },
+            Expr::Func {
+                name: "now".into(),
+                args: vec![],
+            },
         ]]),
         on_conflict: None,
         returning: None,
@@ -765,10 +842,12 @@ fn insert_with_expression_values() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "events" ("name", "created_at") VALUES ('login', now())"#,
+        sql,
+        r#"INSERT INTO "events" ("name", "created_at") VALUES ($1, now())"#,
     );
+    assert_eq!(params, vec![Value::Str("login".into())]);
 }
 
 // ==========================================================================
@@ -779,16 +858,20 @@ fn insert_with_expression_values() {
 fn update_with_expression() {
     let stmt = MutationStmt::Update(UpdateStmt {
         table: SchemaRef::new("counters"),
-        assignments: vec![
-            ("value".into(), Expr::Raw {
+        assignments: vec![(
+            "value".into(),
+            Expr::Raw {
                 sql: "\"value\" + 1".into(),
                 params: vec![],
-            }),
-        ],
+            },
+        )],
         from: None,
         where_clause: Some(Conditions {
             children: vec![ConditionNode::Comparison(Comparison {
-                left: Expr::Raw { sql: "\"key\"".into(), params: vec![] },
+                left: Expr::Raw {
+                    sql: "\"key\"".into(),
+                    params: vec![],
+                },
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Str("hits".into())),
                 negate: false,
@@ -806,10 +889,12 @@ fn update_with_expression() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"UPDATE "counters" SET "value" = "value" + 1 WHERE "key" = 'hits'"#,
+        sql,
+        r#"UPDATE "counters" SET "value" = "value" + 1 WHERE "key" = $1"#,
     );
+    assert_eq!(params, vec![Value::Str("hits".into())]);
 }
 
 // ==========================================================================
@@ -831,12 +916,13 @@ fn insert_upsert_returning() {
                 where_clause: None,
             }),
             action: ConflictAction::DoUpdate {
-                assignments: vec![
-                    ("name".into(), Expr::Raw {
+                assignments: vec![(
+                    "name".into(),
+                    Expr::Raw {
                         sql: "EXCLUDED.\"name\"".into(),
                         params: vec![],
-                    }),
-                ],
+                    },
+                )],
                 where_clause: None,
             },
         }]),
@@ -847,8 +933,16 @@ fn insert_upsert_returning() {
         partition: None,
         ignore: false,
     });
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"INSERT INTO "users" ("email", "name") VALUES ('alice@example.com', 'Alice') ON CONFLICT ("email") DO UPDATE SET "name" = EXCLUDED."name" RETURNING *"#,
+        sql,
+        r#"INSERT INTO "users" ("email", "name") VALUES ($1, $2) ON CONFLICT ("email") DO UPDATE SET "name" = EXCLUDED."name" RETURNING *"#,
+    );
+    assert_eq!(
+        params,
+        vec![
+            Value::Str("alice@example.com".into()),
+            Value::Str("Alice".into())
+        ]
     );
 }

@@ -1,9 +1,9 @@
 //! Integration tests for SQLite TCL (transaction control) statements
 //! that run against a real in-memory SQLite database.
 
-use rusqlite::Connection;
 use rquery_core::ast::tcl::*;
 use rquery_sqlite::SqliteRenderer;
+use rusqlite::Connection;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -18,8 +18,11 @@ fn render(stmt: &TransactionStmt) -> String {
 }
 
 fn setup_table(conn: &Connection) {
-    conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)", [])
-        .unwrap();
+    conn.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+        [],
+    )
+    .unwrap();
 }
 
 fn count_rows(conn: &Connection) -> i64 {
@@ -28,11 +31,9 @@ fn count_rows(conn: &Connection) -> i64 {
 }
 
 fn row_exists(conn: &Connection, id: i64) -> bool {
-    conn.query_row(
-        "SELECT COUNT(*) FROM items WHERE id = ?",
-        [id],
-        |row| row.get::<_, i64>(0),
-    )
+    conn.query_row("SELECT COUNT(*) FROM items WHERE id = ?", [id], |row| {
+        row.get::<_, i64>(0)
+    })
     .unwrap()
         > 0
 }

@@ -1,13 +1,13 @@
 //! Tests that verify SQLite renderer correctly rejects unsupported DML features
 //! with meaningful errors (not silent failures).
 
-use std::any::Any;
 use rquery_core::ast::common::SchemaRef;
 use rquery_core::ast::custom::CustomMutation;
 use rquery_core::ast::dml::*;
 use rquery_core::ast::expr::Expr;
 use rquery_core::ast::value::Value;
 use rquery_sqlite::SqliteRenderer;
+use std::any::Any;
 
 fn render_err(stmt: &MutationStmt) -> String {
     let renderer = SqliteRenderer::new();
@@ -37,7 +37,10 @@ fn on_conflict_on_constraint_unsupported() {
     });
 
     let err = render_err(&stmt);
-    assert!(err.contains("ON CONSTRAINT"), "expected ON CONSTRAINT error, got: {err}");
+    assert!(
+        err.contains("ON CONSTRAINT"),
+        "expected ON CONSTRAINT error, got: {err}"
+    );
 }
 
 // ==========================================================================
@@ -62,5 +65,8 @@ fn custom_mutation_unsupported() {
     let stmt = MutationStmt::Custom(Box::new(DummyMutation));
 
     let err = render_err(&stmt);
-    assert!(!err.is_empty(), "expected error for Custom mutation, got empty");
+    assert!(
+        !err.is_empty(),
+        "expected error for Custom mutation, got empty"
+    );
 }

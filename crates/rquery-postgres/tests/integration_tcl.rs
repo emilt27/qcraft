@@ -2,8 +2,8 @@
 //! executed against a real PostgreSQL instance via testcontainers.
 
 use postgres::{Client, NoTls};
-use testcontainers::runners::SyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::SyncRunner;
 use testcontainers_modules::postgres::Postgres;
 
 use rquery_core::ast::tcl::*;
@@ -111,7 +111,9 @@ fn begin_isolation_serializable() {
     client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
 
     let begin = TransactionStmt::Begin(BeginStmt {
-        modes: Some(vec![TransactionMode::IsolationLevel(IsolationLevel::Serializable)]),
+        modes: Some(vec![TransactionMode::IsolationLevel(
+            IsolationLevel::Serializable,
+        )]),
         lock_type: None,
         name: None,
         with_mark: None,
@@ -131,7 +133,9 @@ fn begin_read_committed() {
     let (_node, mut client) = connect();
 
     let begin = TransactionStmt::Begin(BeginStmt {
-        modes: Some(vec![TransactionMode::IsolationLevel(IsolationLevel::ReadCommitted)]),
+        modes: Some(vec![TransactionMode::IsolationLevel(
+            IsolationLevel::ReadCommitted,
+        )]),
         lock_type: None,
         name: None,
         with_mark: None,
@@ -150,7 +154,9 @@ fn begin_repeatable_read() {
     let (_node, mut client) = connect();
 
     let begin = TransactionStmt::Begin(BeginStmt {
-        modes: Some(vec![TransactionMode::IsolationLevel(IsolationLevel::RepeatableRead)]),
+        modes: Some(vec![TransactionMode::IsolationLevel(
+            IsolationLevel::RepeatableRead,
+        )]),
         lock_type: None,
         name: None,
         with_mark: None,
@@ -209,7 +215,9 @@ fn begin_serializable_read_only_deferrable() {
     let row = client.query_one("SHOW transaction_read_only", &[]).unwrap();
     assert_eq!(row.get::<_, String>(0), "on");
 
-    let row = client.query_one("SHOW transaction_deferrable", &[]).unwrap();
+    let row = client
+        .query_one("SHOW transaction_deferrable", &[])
+        .unwrap();
     assert_eq!(row.get::<_, String>(0), "on");
 
     client.batch_execute("ROLLBACK").unwrap();
@@ -358,7 +366,9 @@ fn set_transaction_isolation() {
     client.batch_execute("BEGIN").unwrap();
 
     let set_tx = TransactionStmt::SetTransaction(SetTransactionStmt {
-        modes: vec![TransactionMode::IsolationLevel(IsolationLevel::Serializable)],
+        modes: vec![TransactionMode::IsolationLevel(
+            IsolationLevel::Serializable,
+        )],
         scope: None,
         snapshot_id: None,
         name: None,
@@ -376,7 +386,9 @@ fn set_session_characteristics() {
     let (_node, mut client) = connect();
 
     let set_session = TransactionStmt::SetTransaction(SetTransactionStmt {
-        modes: vec![TransactionMode::IsolationLevel(IsolationLevel::Serializable)],
+        modes: vec![TransactionMode::IsolationLevel(
+            IsolationLevel::Serializable,
+        )],
         scope: Some(TransactionScope::Session),
         snapshot_id: None,
         name: None,
@@ -390,7 +402,9 @@ fn set_session_characteristics() {
     client.batch_execute("ROLLBACK").unwrap();
 
     // Reset to default
-    client.batch_execute("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ COMMITTED").unwrap();
+    client
+        .batch_execute("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .unwrap();
 }
 
 // ==========================================================================

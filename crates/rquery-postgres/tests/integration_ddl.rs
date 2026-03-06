@@ -1,6 +1,6 @@
 use postgres::{Client, NoTls};
-use testcontainers::runners::SyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::SyncRunner;
 use testcontainers_modules::postgres::Postgres;
 
 use rquery_core::ast::common::SchemaRef;
@@ -113,7 +113,10 @@ fn create_table_parameterized_types() {
     let mut schema = SchemaDef::new("data");
     schema.columns = vec![
         ColumnDef::new("code", FieldType::parameterized("VARCHAR", vec!["255"])),
-        ColumnDef::new("amount", FieldType::parameterized("NUMERIC", vec!["10", "2"])),
+        ColumnDef::new(
+            "amount",
+            FieldType::parameterized("NUMERIC", vec!["10", "2"]),
+        ),
     ];
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -174,8 +177,7 @@ fn create_table_default_value() {
         ColumnDef::new("key", FieldType::scalar("TEXT")).not_null(),
         ColumnDef::new("value", FieldType::scalar("TEXT"))
             .default(Expr::Value(Value::Str("default_val".into()))),
-        ColumnDef::new("count", FieldType::scalar("INTEGER"))
-            .default(Expr::Value(Value::Int(0))),
+        ColumnDef::new("count", FieldType::scalar("INTEGER")).default(Expr::Value(Value::Int(0))),
     ];
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -423,10 +425,7 @@ fn create_table_foreign_key() {
 
     // Create parent table directly
     client
-        .execute(
-            "CREATE TABLE \"users\" (\"id\" BIGINT PRIMARY KEY)",
-            &[],
-        )
+        .execute("CREATE TABLE \"users\" (\"id\" BIGINT PRIMARY KEY)", &[])
         .unwrap();
 
     // Create child table via AST
@@ -630,10 +629,7 @@ fn create_table_with_generated_column() {
         .unwrap();
 
     let row = client
-        .query_one(
-            "SELECT \"total\"::TEXT FROM \"products\"",
-            &[],
-        )
+        .query_one("SELECT \"total\"::TEXT FROM \"products\"", &[])
         .unwrap();
     let total: &str = row.get(0);
     assert_eq!(total, "31.5");
@@ -897,24 +893,15 @@ fn create_index_partial_with_where() {
 
     // Partial unique: two inactive rows with same email — ok
     client
-        .execute(
-            "INSERT INTO \"users\" VALUES ('a@b.com', false)",
-            &[],
-        )
+        .execute("INSERT INTO \"users\" VALUES ('a@b.com', false)", &[])
         .unwrap();
     client
-        .execute(
-            "INSERT INTO \"users\" VALUES ('a@b.com', false)",
-            &[],
-        )
+        .execute("INSERT INTO \"users\" VALUES ('a@b.com', false)", &[])
         .unwrap();
 
     // Two active rows with same email — fails
     client
-        .execute(
-            "INSERT INTO \"users\" VALUES ('x@y.com', true)",
-            &[],
-        )
+        .execute("INSERT INTO \"users\" VALUES ('x@y.com', true)", &[])
         .unwrap();
 
     let err = client.execute("INSERT INTO \"users\" VALUES ('x@y.com', true)", &[]);
@@ -1304,10 +1291,7 @@ fn alter_column_set_default() {
         .unwrap();
 
     let row = client
-        .query_one(
-            "SELECT \"status\" FROM \"users\" WHERE \"id\" = 1",
-            &[],
-        )
+        .query_one("SELECT \"status\" FROM \"users\" WHERE \"id\" = 1", &[])
         .unwrap();
     let status: &str = row.get(0);
     assert_eq!(status, "active");
@@ -1346,10 +1330,7 @@ fn alter_column_drop_default() {
         .unwrap();
 
     let row = client
-        .query_one(
-            "SELECT \"status\" FROM \"users\" WHERE \"id\" = 1",
-            &[],
-        )
+        .query_one("SELECT \"status\" FROM \"users\" WHERE \"id\" = 1", &[])
         .unwrap();
     let status: Option<&str> = row.get(0);
     assert!(status.is_none(), "should be NULL after dropping default");
@@ -1427,13 +1408,13 @@ fn alter_column_drop_not_null() {
         .unwrap();
 
     let row = client
-        .query_one(
-            "SELECT \"email\" FROM \"users\" WHERE \"id\" = 1",
-            &[],
-        )
+        .query_one("SELECT \"email\" FROM \"users\" WHERE \"id\" = 1", &[])
         .unwrap();
     let email: Option<&str> = row.get(0);
-    assert!(email.is_none(), "NULL should be allowed after DROP NOT NULL");
+    assert!(
+        email.is_none(),
+        "NULL should be allowed after DROP NOT NULL"
+    );
 }
 
 // ==========================================================================
@@ -1481,7 +1462,10 @@ fn alter_table_add_constraint() {
         "INSERT INTO \"users\" (\"id\", \"email\") VALUES (2, 'a@b.com')",
         &[],
     );
-    assert!(err.is_err(), "duplicate email should fail after ADD CONSTRAINT UNIQUE");
+    assert!(
+        err.is_err(),
+        "duplicate email should fail after ADD CONSTRAINT UNIQUE"
+    );
 }
 
 // ==========================================================================

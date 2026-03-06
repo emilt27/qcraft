@@ -81,7 +81,11 @@ impl Conditions {
 
     /// `field LIKE pattern`
     pub fn like(field: FieldRef, pattern: &str) -> Self {
-        Self::comparison(field, CompareOp::Like, Expr::Value(Value::Str(pattern.to_string())))
+        Self::comparison(
+            field,
+            CompareOp::Like,
+            Expr::Value(Value::Str(pattern.to_string())),
+        )
     }
 
     /// `field IN (subquery)`
@@ -100,7 +104,10 @@ impl Conditions {
             self.children.push(ConditionNode::Group(other));
             self
         } else {
-            Self::and(vec![ConditionNode::Group(self), ConditionNode::Group(other)])
+            Self::and(vec![
+                ConditionNode::Group(self),
+                ConditionNode::Group(other),
+            ])
         }
     }
 
@@ -110,7 +117,10 @@ impl Conditions {
             self.children.push(ConditionNode::Group(other));
             self
         } else {
-            Self::or(vec![ConditionNode::Group(self), ConditionNode::Group(other)])
+            Self::or(vec![
+                ConditionNode::Group(self),
+                ConditionNode::Group(other),
+            ])
         }
     }
 

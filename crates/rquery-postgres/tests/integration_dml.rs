@@ -1,9 +1,10 @@
 //! Integration tests for PostgreSQL DML (INSERT / UPDATE / DELETE) rendering
 //! executed against a real PostgreSQL instance via testcontainers.
 
+use postgres::types::ToSql;
 use postgres::{Client, NoTls};
-use testcontainers::runners::SyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::SyncRunner;
 use testcontainers_modules::postgres::Postgres;
 
 use rquery_core::ast::common::{FieldRef, SchemaRef};
@@ -14,10 +15,38 @@ use rquery_core::ast::query::SelectColumn;
 use rquery_core::ast::value::Value;
 use rquery_postgres::PostgresRenderer;
 
-fn render(stmt: &MutationStmt) -> String {
+fn render(stmt: &MutationStmt) -> (String, Vec<Value>) {
     let renderer = PostgresRenderer::new();
-    let (sql, _) = renderer.render_mutation_stmt(stmt).unwrap();
-    sql
+    renderer.render_mutation_stmt(stmt).unwrap()
+}
+
+fn to_pg_params(values: &[Value]) -> Vec<Box<dyn ToSql + Sync>> {
+    values
+        .iter()
+        .map(|v| -> Box<dyn ToSql + Sync> {
+            match v {
+                Value::Null => Box::new(Option::<String>::None),
+                Value::Bool(b) => Box::new(*b),
+                Value::Int(n) => match i32::try_from(*n) {
+                    Ok(i) => Box::new(i),
+                    Err(_) => Box::new(*n),
+                },
+                Value::Float(f) => Box::new(*f),
+                Value::Str(s) => Box::new(s.clone()),
+                Value::Bytes(b) => Box::new(b.clone()),
+                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
+                Value::Decimal(s) => Box::new(s.clone()),
+                Value::Uuid(s) => Box::new(s.clone()),
+                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
+                Value::IpNetwork(s) => Box::new(s.clone()),
+                _ => Box::new(format!("{:?}", v)),
+            }
+        })
+        .collect()
+}
+
+fn as_pg_params(boxed: &[Box<dyn ToSql + Sync>]) -> Vec<&(dyn ToSql + Sync)> {
+    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn connect() -> (impl std::any::Any, Client) {
@@ -60,7 +89,10 @@ fn insert_single_row() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let rows = client.query("SELECT name, email FROM users", &[]).unwrap();
     assert_eq!(rows.len(), 1);
@@ -74,7 +106,10 @@ fn insert_single_row() {
 fn insert_multi_row() {
     let (_node, mut client) = connect();
     client
-        .execute("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)", &[])
+        .execute(
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
+            &[],
+        )
         .unwrap();
 
     let stmt = MutationStmt::Insert(InsertStmt {
@@ -93,7 +128,10 @@ fn insert_multi_row() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM users", &[])
@@ -124,7 +162,10 @@ fn insert_default_values() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let row = client
         .query_one("SELECT id, value FROM counters", &[])
@@ -157,7 +198,10 @@ fn insert_no_columns() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let row = client.query_one("SELECT a, b FROM t", &[]).unwrap();
     let a: i32 = row.get(0);
@@ -192,7 +236,10 @@ fn insert_returning_star() {
         partition: None,
         ignore: false,
     });
-    let rows = client.query(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     let id: i32 = rows[0].get(0);
     let name: &str = rows[0].get(1);
@@ -231,7 +278,10 @@ fn insert_returning_columns() {
         partition: None,
         ignore: false,
     });
-    let rows = client.query(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     let id: i32 = rows[0].get(0);
     let user_name: &str = rows[0].get(1);
@@ -280,7 +330,10 @@ fn insert_on_conflict_do_nothing() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM users", &[])
@@ -340,7 +393,10 @@ fn insert_on_conflict_do_update() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let name: String = client
         .query_one("SELECT name FROM users WHERE email = 'a@b.com'", &[])
@@ -377,7 +433,10 @@ fn insert_on_conflict_on_constraint() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM users", &[])
@@ -445,7 +504,10 @@ fn insert_on_conflict_do_update_with_where() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let value: i32 = client
         .query_one("SELECT value FROM counters WHERE key = 'hits'", &[])
@@ -454,7 +516,10 @@ fn insert_on_conflict_do_update_with_where() {
     assert_eq!(value, 1000);
 
     // Now value = 1000, so WHERE counters.value < 1000 is false — no update
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
     let value: i32 = client
         .query_one("SELECT value FROM counters WHERE key = 'hits'", &[])
         .unwrap()
@@ -517,7 +582,10 @@ fn insert_on_conflict_partial_index() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM users", &[])
@@ -551,11 +619,12 @@ fn insert_overriding_system_value() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
-    let row = client
-        .query_one("SELECT id, name FROM users", &[])
-        .unwrap();
+    let row = client.query_one("SELECT id, name FROM users", &[]).unwrap();
     let id: i32 = row.get(0);
     let name: &str = row.get(1);
     assert_eq!(id, 100);
@@ -566,10 +635,7 @@ fn insert_overriding_system_value() {
 fn insert_with_namespace() {
     let (_node, mut client) = connect();
     client
-        .execute(
-            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)",
-            &[],
-        )
+        .execute("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)", &[])
         .unwrap();
 
     let stmt = MutationStmt::Insert(InsertStmt {
@@ -584,7 +650,10 @@ fn insert_with_namespace() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let name: String = client
         .query_one("SELECT name FROM public.users", &[])
@@ -621,10 +690,16 @@ fn insert_with_expression() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let row = client
-        .query_one("SELECT name, created_at IS NOT NULL AS has_ts FROM events", &[])
+        .query_one(
+            "SELECT name, created_at IS NOT NULL AS has_ts FROM events",
+            &[],
+        )
         .unwrap();
     let name: &str = row.get(0);
     let has_ts: bool = row.get(1);
@@ -676,7 +751,10 @@ fn update_simple() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let name: String = client
         .query_one("SELECT name FROM users WHERE id = 1", &[])
@@ -735,7 +813,10 @@ fn update_multiple_assignments() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let row = client
         .query_one("SELECT name, age FROM users WHERE id = 1", &[])
@@ -777,7 +858,10 @@ fn update_no_where() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM users WHERE name = 'Updated'", &[])
@@ -826,7 +910,10 @@ fn update_with_returning() {
         partition: None,
         ignore: false,
     });
-    let rows = client.query(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     let id: i32 = rows[0].get(0);
     let name: &str = rows[0].get(1);
@@ -844,10 +931,7 @@ fn update_only() {
         )
         .unwrap();
     client
-        .execute(
-            "CREATE TABLE child_events () INHERITS (events)",
-            &[],
-        )
+        .execute("CREATE TABLE child_events () INHERITS (events)", &[])
         .unwrap();
     client
         .execute("INSERT INTO events (status) VALUES ('active')", &[])
@@ -858,10 +942,7 @@ fn update_only() {
 
     let stmt = MutationStmt::Update(UpdateStmt {
         table: SchemaRef::new("events"),
-        assignments: vec![(
-            "status".into(),
-            Expr::Value(Value::Str("archived".into())),
-        )],
+        assignments: vec![("status".into(), Expr::Value(Value::Str("archived".into())))],
         from: None,
         where_clause: None,
         returning: None,
@@ -874,7 +955,10 @@ fn update_only() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     // Parent row should be updated
     let status: String = client
@@ -920,10 +1004,7 @@ fn update_with_from() {
 
     let stmt = MutationStmt::Update(UpdateStmt {
         table: SchemaRef::new("orders").with_alias("o"),
-        assignments: vec![(
-            "status".into(),
-            Expr::Value(Value::Str("shipped".into())),
-        )],
+        assignments: vec![("status".into(), Expr::Value(Value::Str("shipped".into())))],
         from: Some(vec![TableSource::Table(
             SchemaRef::new("users").with_alias("u"),
         )]),
@@ -953,7 +1034,10 @@ fn update_with_from() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let status: String = client
         .query_one("SELECT status FROM orders WHERE id = 1", &[])
@@ -972,10 +1056,7 @@ fn update_with_expression() {
         )
         .unwrap();
     client
-        .execute(
-            "INSERT INTO counters (key, value) VALUES ('hits', 10)",
-            &[],
-        )
+        .execute("INSERT INTO counters (key, value) VALUES ('hits', 10)", &[])
         .unwrap();
 
     let stmt = MutationStmt::Update(UpdateStmt {
@@ -1011,7 +1092,10 @@ fn update_with_expression() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let value: i32 = client
         .query_one("SELECT value FROM counters WHERE key = 'hits'", &[])
@@ -1060,7 +1144,10 @@ fn update_with_alias() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let name: String = client
         .query_one("SELECT name FROM users WHERE id = 1", &[])
@@ -1111,7 +1198,10 @@ fn delete_simple() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM users", &[])
@@ -1154,7 +1244,10 @@ fn delete_no_where() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM users", &[])
@@ -1204,7 +1297,10 @@ fn delete_with_returning() {
         partition: None,
         ignore: false,
     });
-    let rows = client.query(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
 
     let remaining: i64 = client
@@ -1246,7 +1342,10 @@ fn delete_only() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     // Parent rows deleted
     let parent_count: i64 = client
@@ -1320,7 +1419,10 @@ fn delete_with_using() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM orders", &[])
@@ -1367,7 +1469,10 @@ fn delete_with_alias() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM users", &[])

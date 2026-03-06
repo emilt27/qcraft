@@ -11,6 +11,11 @@ fn render(stmt: &QueryStmt) -> String {
     sql
 }
 
+fn render_with_params(stmt: &QueryStmt) -> (String, Vec<Value>) {
+    let renderer = SqliteRenderer::new();
+    renderer.render_query_stmt(stmt).unwrap()
+}
+
 fn render_err(stmt: &QueryStmt) -> String {
     let renderer = SqliteRenderer::new();
     renderer.render_query_stmt(stmt).unwrap_err().to_string()
@@ -46,31 +51,48 @@ fn select_star() {
 fn select_columns() {
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "id"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: Some("user_name".into()) },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "id"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: Some("user_name".into()),
+            },
         ],
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT "users"."id", "users"."name" AS "user_name" FROM "users""#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT "users"."id", "users"."name" AS "user_name" FROM "users""#
+    );
 }
 
 #[test]
 fn select_expr() {
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Expr {
-            expr: Expr::Func { name: "COUNT".into(), args: vec![Expr::Field(FieldRef::new("users", "id"))] },
+            expr: Expr::Func {
+                name: "COUNT".into(),
+                args: vec![Expr::Field(FieldRef::new("users", "id"))],
+            },
             alias: Some("cnt".into()),
         }],
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT COUNT("users"."id") AS "cnt" FROM "users""#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT COUNT("users"."id") AS "cnt" FROM "users""#
+    );
 }
 
 #[test]
 fn select_table_star() {
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(Some("u".into()))],
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_alias("u"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         ..simple_query()
     };
     assert_eq!(render(&stmt), r#"SELECT "u".* FROM "users" AS "u""#);
@@ -86,7 +108,9 @@ fn select_no_from() {
         from: None,
         ..simple_query()
     };
-    assert_eq!(render(&stmt), "SELECT 1");
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, "SELECT ?");
+    assert_eq!(params, vec![Value::Int(1)]);
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +129,9 @@ fn select_distinct() {
 #[test]
 fn distinct_on_unsupported() {
     let stmt = QueryStmt {
-        distinct: Some(DistinctDef::DistinctOn(vec![Expr::Field(FieldRef::new("users", "id"))])),
+        distinct: Some(DistinctDef::DistinctOn(vec![Expr::Field(FieldRef::new(
+            "users", "id",
+        ))])),
         ..simple_query()
     };
     assert!(render_err(&stmt).contains("DISTINCT ON"));
@@ -118,7 +144,9 @@ fn distinct_on_unsupported() {
 #[test]
 fn from_with_namespace() {
     let stmt = QueryStmt {
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_namespace("main"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_namespace("main"),
+        )]),
         ..simple_query()
     };
     assert_eq!(render(&stmt), r#"SELECT * FROM "main"."users""#);
@@ -147,7 +175,10 @@ fn from_indexed_by() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" INDEXED BY "idx_name""#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" INDEXED BY "idx_name""#
+    );
 }
 
 #[test]
@@ -171,7 +202,10 @@ fn from_subquery() {
         from: Some(vec![FromItem::subquery(inner, "sub".into())]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM (SELECT * FROM "users") AS "sub""#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM (SELECT * FROM "users") AS "sub""#
+    );
 }
 
 #[test]
@@ -189,7 +223,10 @@ fn from_table_function() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM json_each("t"."data") AS "j""#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM json_each("t"."data") AS "j""#
+    );
 }
 
 #[test]
@@ -198,8 +235,14 @@ fn from_values() {
         from: Some(vec![FromItem {
             source: TableSource::Values {
                 rows: vec![
-                    vec![Expr::Value(Value::Int(1)), Expr::Value(Value::Str("a".into()))],
-                    vec![Expr::Value(Value::Int(2)), Expr::Value(Value::Str("b".into()))],
+                    vec![
+                        Expr::Value(Value::Int(1)),
+                        Expr::Value(Value::Str("a".into())),
+                    ],
+                    vec![
+                        Expr::Value(Value::Int(2)),
+                        Expr::Value(Value::Str("b".into())),
+                    ],
                 ],
                 alias: "t".into(),
                 column_aliases: Some(vec!["id".into(), "name".into()]),
@@ -210,7 +253,20 @@ fn from_values() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS "t" ("id", "name")"#);
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM (VALUES (?, ?), (?, ?)) AS "t" ("id", "name")"#
+    );
+    assert_eq!(
+        params,
+        vec![
+            Value::Int(1),
+            Value::Str("a".into()),
+            Value::Int(2),
+            Value::Str("b".into()),
+        ]
+    );
 }
 
 #[test]
@@ -219,7 +275,11 @@ fn tablesample_unsupported() {
         from: Some(vec![FromItem {
             source: TableSource::Table(SchemaRef::new("t")),
             only: false,
-            sample: Some(TableSampleDef { method: SampleMethod::Bernoulli, percentage: 10.0, seed: None }),
+            sample: Some(TableSampleDef {
+                method: SampleMethod::Bernoulli,
+                percentage: 10.0,
+                seed: None,
+            }),
             index_hint: None,
         }]),
         ..simple_query()
@@ -263,7 +323,10 @@ fn inner_join() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" INNER JOIN "orders" ON "users"."id" = "orders"."user_id""#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" INNER JOIN "orders" ON "users"."id" = "orders"."user_id""#
+    );
 }
 
 #[test]
@@ -284,7 +347,10 @@ fn left_join() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" LEFT JOIN "orders" ON "users"."id" = "orders"."user_id""#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" LEFT JOIN "orders" ON "users"."id" = "orders"."user_id""#
+    );
 }
 
 #[test]
@@ -298,7 +364,10 @@ fn cross_join() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" CROSS JOIN "colors""#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" CROSS JOIN "colors""#
+    );
 }
 
 #[test]
@@ -312,7 +381,10 @@ fn natural_join() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" NATURAL INNER JOIN "profiles""#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" NATURAL INNER JOIN "profiles""#
+    );
 }
 
 #[test]
@@ -326,7 +398,10 @@ fn join_using() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" INNER JOIN "orders" USING ("user_id")"#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" INNER JOIN "orders" USING ("user_id")"#
+    );
 }
 
 #[test]
@@ -350,17 +425,19 @@ fn apply_unsupported() {
 #[test]
 fn where_simple() {
     let stmt = QueryStmt {
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "active")),
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(true)),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" WHERE "users"."active" = 1"#);
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "users"."active" = ?"#);
+    assert_eq!(params, vec![Value::Bool(true)]);
 }
 
 // ---------------------------------------------------------------------------
@@ -371,22 +448,35 @@ fn where_simple() {
 fn group_by_simple() {
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "status"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "status"),
+                alias: None,
+            },
             SelectColumn::Expr {
-                expr: Expr::Func { name: "COUNT".into(), args: vec![Expr::Field(FieldRef::new("users", "id"))] },
+                expr: Expr::Func {
+                    name: "COUNT".into(),
+                    args: vec![Expr::Field(FieldRef::new("users", "id"))],
+                },
                 alias: Some("cnt".into()),
             },
         ],
-        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new("users", "status")))]),
+        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
+            "users", "status",
+        )))]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT "users"."status", COUNT("users"."id") AS "cnt" FROM "users" GROUP BY "users"."status""#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT "users"."status", COUNT("users"."id") AS "cnt" FROM "users" GROUP BY "users"."status""#
+    );
 }
 
 #[test]
 fn rollup_unsupported() {
     let stmt = QueryStmt {
-        group_by: Some(vec![GroupByItem::Rollup(vec![Expr::Field(FieldRef::new("t", "a"))])]),
+        group_by: Some(vec![GroupByItem::Rollup(vec![Expr::Field(FieldRef::new(
+            "t", "a",
+        ))])]),
         ..simple_query()
     };
     assert!(render_err(&stmt).contains("ROLLUP"));
@@ -395,7 +485,9 @@ fn rollup_unsupported() {
 #[test]
 fn cube_unsupported() {
     let stmt = QueryStmt {
-        group_by: Some(vec![GroupByItem::Cube(vec![Expr::Field(FieldRef::new("t", "a"))])]),
+        group_by: Some(vec![GroupByItem::Cube(vec![Expr::Field(FieldRef::new(
+            "t", "a",
+        ))])]),
         ..simple_query()
     };
     assert!(render_err(&stmt).contains("CUBE"));
@@ -404,7 +496,9 @@ fn cube_unsupported() {
 #[test]
 fn grouping_sets_unsupported() {
     let stmt = QueryStmt {
-        group_by: Some(vec![GroupByItem::GroupingSets(vec![vec![Expr::Field(FieldRef::new("t", "a"))]])]),
+        group_by: Some(vec![GroupByItem::GroupingSets(vec![vec![Expr::Field(
+            FieldRef::new("t", "a"),
+        )]])]),
         ..simple_query()
     };
     assert!(render_err(&stmt).contains("GROUPING SETS"));
@@ -418,26 +512,38 @@ fn grouping_sets_unsupported() {
 fn having() {
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "status"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "status"),
+                alias: None,
+            },
             SelectColumn::Expr {
-                expr: Expr::Func { name: "COUNT".into(), args: vec![Expr::Field(FieldRef::new("users", "id"))] },
+                expr: Expr::Func {
+                    name: "COUNT".into(),
+                    args: vec![Expr::Field(FieldRef::new("users", "id"))],
+                },
                 alias: Some("cnt".into()),
             },
         ],
-        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new("users", "status")))]),
-        having: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
-                left: Expr::Func { name: "COUNT".into(), args: vec![Expr::Field(FieldRef::new("users", "id"))] },
+        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
+            "users", "status",
+        )))]),
+        having: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
+                left: Expr::Func {
+                    name: "COUNT".into(),
+                    args: vec![Expr::Field(FieldRef::new("users", "id"))],
+                },
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(5)),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, params) = render_with_params(&stmt);
     assert!(sql.contains("HAVING COUNT("));
-    assert!(sql.contains("> 5"));
+    assert!(sql.contains("> ?"));
+    assert_eq!(params, vec![Value::Int(5)]);
 }
 
 // ---------------------------------------------------------------------------
@@ -460,7 +566,10 @@ fn window_clause() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" WINDOW "w" AS (PARTITION BY "t"."dept" ORDER BY "t"."salary" DESC)"#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WINDOW "w" AS (PARTITION BY "t"."dept" ORDER BY "t"."salary" DESC)"#
+    );
 }
 
 #[test]
@@ -483,7 +592,10 @@ fn window_with_frame() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" WINDOW "w" AS (ORDER BY "t"."id" ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)"#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WINDOW "w" AS (ORDER BY "t"."id" ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)"#
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -494,12 +606,23 @@ fn window_with_frame() {
 fn order_by() {
     let stmt = QueryStmt {
         order_by: Some(vec![
-            OrderByDef { expr: Expr::Field(FieldRef::new("users", "name")), direction: OrderDir::Asc, nulls: None },
-            OrderByDef { expr: Expr::Field(FieldRef::new("users", "id")), direction: OrderDir::Desc, nulls: None },
+            OrderByDef {
+                expr: Expr::Field(FieldRef::new("users", "name")),
+                direction: OrderDir::Asc,
+                nulls: None,
+            },
+            OrderByDef {
+                expr: Expr::Field(FieldRef::new("users", "id")),
+                direction: OrderDir::Desc,
+                nulls: None,
+            },
         ]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" ORDER BY "users"."name" ASC, "users"."id" DESC"#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" ORDER BY "users"."name" ASC, "users"."id" DESC"#
+    );
 }
 
 #[test]
@@ -512,7 +635,10 @@ fn order_by_nulls() {
         }]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" ORDER BY "users"."name" ASC NULLS LAST"#);
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" ORDER BY "users"."name" ASC NULLS LAST"#
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -522,7 +648,10 @@ fn order_by_nulls() {
 #[test]
 fn limit_offset() {
     let stmt = QueryStmt {
-        limit: Some(LimitDef { kind: LimitKind::Limit(10), offset: Some(20) }),
+        limit: Some(LimitDef {
+            kind: LimitKind::Limit(10),
+            offset: Some(20),
+        }),
         ..simple_query()
     };
     assert_eq!(render(&stmt), r#"SELECT * FROM "users" LIMIT 10 OFFSET 20"#);
@@ -531,7 +660,10 @@ fn limit_offset() {
 #[test]
 fn limit_only() {
     let stmt = QueryStmt {
-        limit: Some(LimitDef { kind: LimitKind::Limit(5), offset: None }),
+        limit: Some(LimitDef {
+            kind: LimitKind::Limit(5),
+            offset: None,
+        }),
         ..simple_query()
     };
     assert_eq!(render(&stmt), r#"SELECT * FROM "users" LIMIT 5"#);
@@ -541,7 +673,11 @@ fn limit_only() {
 fn fetch_first_converts_to_limit() {
     let stmt = QueryStmt {
         limit: Some(LimitDef {
-            kind: LimitKind::FetchFirst { count: 10, with_ties: false, percent: false },
+            kind: LimitKind::FetchFirst {
+                count: 10,
+                with_ties: false,
+                percent: false,
+            },
             offset: None,
         }),
         ..simple_query()
@@ -553,7 +689,11 @@ fn fetch_first_converts_to_limit() {
 fn fetch_first_with_ties_unsupported() {
     let stmt = QueryStmt {
         limit: Some(LimitDef {
-            kind: LimitKind::FetchFirst { count: 10, with_ties: true, percent: false },
+            kind: LimitKind::FetchFirst {
+                count: 10,
+                with_ties: true,
+                percent: false,
+            },
             offset: None,
         }),
         ..simple_query()
@@ -565,7 +705,11 @@ fn fetch_first_with_ties_unsupported() {
 fn top_converts_to_limit() {
     let stmt = QueryStmt {
         limit: Some(LimitDef {
-            kind: LimitKind::Top { count: 5, with_ties: false, percent: false },
+            kind: LimitKind::Top {
+                count: 5,
+                with_ties: false,
+                percent: false,
+            },
             offset: None,
         }),
         ..simple_query()
@@ -583,14 +727,14 @@ fn cte_simple() {
         ctes: Some(vec![CteDef {
             name: "active_users".into(),
             query: Box::new(QueryStmt {
-                where_clause: Some(Conditions::and(vec![
-                    ConditionNode::Comparison(Comparison {
+                where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+                    Comparison {
                         left: Expr::Field(FieldRef::new("users", "active")),
                         op: CompareOp::Eq,
                         right: Expr::Value(Value::Bool(true)),
                         negate: false,
-                    }),
-                ])),
+                    },
+                )])),
                 ..simple_query()
             }),
             recursive: false,
@@ -600,7 +744,12 @@ fn cte_simple() {
         from: Some(vec![FromItem::table(SchemaRef::new("active_users"))]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"WITH "active_users" AS (SELECT * FROM "users" WHERE "users"."active" = 1) SELECT * FROM "active_users""#);
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(
+        sql,
+        r#"WITH "active_users" AS (SELECT * FROM "users" WHERE "users"."active" = ?) SELECT * FROM "active_users""#
+    );
+    assert_eq!(params, vec![Value::Bool(true)]);
 }
 
 #[test]
@@ -609,7 +758,10 @@ fn cte_recursive() {
         ctes: Some(vec![CteDef {
             name: "nums".into(),
             query: Box::new(QueryStmt {
-                columns: vec![SelectColumn::Expr { expr: Expr::Value(Value::Int(1)), alias: Some("n".into()) }],
+                columns: vec![SelectColumn::Expr {
+                    expr: Expr::Value(Value::Int(1)),
+                    alias: Some("n".into()),
+                }],
                 from: None,
                 ..simple_query()
             }),
@@ -620,7 +772,12 @@ fn cte_recursive() {
         from: Some(vec![FromItem::table(SchemaRef::new("nums"))]),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"WITH RECURSIVE "nums" ("n") AS (SELECT 1 AS "n") SELECT * FROM "nums""#);
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(
+        sql,
+        r#"WITH RECURSIVE "nums" ("n") AS (SELECT ? AS "n") SELECT * FROM "nums""#
+    );
+    assert_eq!(params, vec![Value::Int(1)]);
 }
 
 #[test]
@@ -721,14 +878,22 @@ fn full_query() {
     let stmt = QueryStmt {
         ctes: None,
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("u", "name"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("u", "name"),
+                alias: None,
+            },
             SelectColumn::Expr {
-                expr: Expr::Func { name: "COUNT".into(), args: vec![Expr::Field(FieldRef::new("o", "id"))] },
+                expr: Expr::Func {
+                    name: "COUNT".into(),
+                    args: vec![Expr::Field(FieldRef::new("o", "id"))],
+                },
                 alias: Some("order_count".into()),
             },
         ],
         distinct: None,
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_alias("u"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         joins: Some(vec![JoinDef {
             source: FromItem::table(SchemaRef::new("orders").with_alias("o")),
             condition: Some(JoinCondition::On(Conditions::and(vec![
@@ -742,35 +907,44 @@ fn full_query() {
             join_type: JoinType::Left,
             natural: false,
         }]),
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("u", "active")),
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(true)),
                 negate: false,
-            }),
-        ])),
-        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new("u", "name")))]),
-        having: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
-                left: Expr::Func { name: "COUNT".into(), args: vec![Expr::Field(FieldRef::new("o", "id"))] },
+            },
+        )])),
+        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
+            "u", "name",
+        )))]),
+        having: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
+                left: Expr::Func {
+                    name: "COUNT".into(),
+                    args: vec![Expr::Field(FieldRef::new("o", "id"))],
+                },
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(0)),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         window: None,
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("u", "name")),
             direction: OrderDir::Asc,
             nulls: None,
         }]),
-        limit: Some(LimitDef { kind: LimitKind::Limit(10), offset: Some(0) }),
+        limit: Some(LimitDef {
+            kind: LimitKind::Limit(10),
+            offset: Some(0),
+        }),
         lock: None,
     };
-    let sql = render(&stmt);
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
         sql,
-        r#"SELECT "u"."name", COUNT("o"."id") AS "order_count" FROM "users" AS "u" LEFT JOIN "orders" AS "o" ON "u"."id" = "o"."user_id" WHERE "u"."active" = 1 GROUP BY "u"."name" HAVING COUNT("o"."id") > 0 ORDER BY "u"."name" ASC LIMIT 10 OFFSET 0"#
+        r#"SELECT "u"."name", COUNT("o"."id") AS "order_count" FROM "users" AS "u" LEFT JOIN "orders" AS "o" ON "u"."id" = "o"."user_id" WHERE "u"."active" = ? GROUP BY "u"."name" HAVING COUNT("o"."id") > ? ORDER BY "u"."name" ASC LIMIT 10 OFFSET 0"#
     );
+    assert_eq!(params, vec![Value::Bool(true), Value::Int(0)]);
 }

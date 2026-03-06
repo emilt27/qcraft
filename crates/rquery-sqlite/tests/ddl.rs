@@ -1,5 +1,5 @@
 use rquery_core::ast::common::SchemaRef;
-use rquery_core::ast::conditions::{Comparison, CompareOp, ConditionNode, Conditions, Connector};
+use rquery_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use rquery_core::ast::ddl::*;
 use rquery_core::ast::expr::Expr;
 use rquery_core::ast::value::Value;
@@ -42,7 +42,10 @@ fn create_table_simple() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TABLE "users" ("id" INTEGER NOT NULL, "name" TEXT)"#);
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "users" ("id" INTEGER NOT NULL, "name" TEXT)"#
+    );
 }
 
 #[test]
@@ -64,7 +67,10 @@ fn create_table_if_not_exists() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TABLE IF NOT EXISTS "users" ("id" INTEGER)"#);
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE IF NOT EXISTS "users" ("id" INTEGER)"#
+    );
 }
 
 #[test]
@@ -86,7 +92,10 @@ fn create_table_temporary() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TEMP TABLE "temp_data" ("val" TEXT)"#);
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TEMP TABLE "temp_data" ("val" TEXT)"#
+    );
 }
 
 #[test]
@@ -132,7 +141,10 @@ fn create_table_with_namespace() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TABLE "main"."users" ("id" INTEGER)"#);
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "main"."users" ("id" INTEGER)"#
+    );
 }
 
 #[test]
@@ -176,7 +188,10 @@ fn create_table_with_generated_column() {
             not_null: false,
             default: None,
             generated: Some(GeneratedColumn {
-                expr: Expr::Raw { sql: "price * qty".into(), params: vec![] },
+                expr: Expr::Raw {
+                    sql: "price * qty".into(),
+                    params: vec![],
+                },
                 stored: false,
             }),
             identity: None,
@@ -216,7 +231,10 @@ fn create_table_generated_stored() {
         not_null: false,
         default: None,
         generated: Some(GeneratedColumn {
-            expr: Expr::Raw { sql: "first_name || ' ' || last_name".into(), params: vec![] },
+            expr: Expr::Raw {
+                sql: "first_name || ' ' || last_name".into(),
+                params: vec![],
+            },
             stored: true,
         }),
         identity: None,
@@ -277,14 +295,20 @@ fn create_table_identity_error() {
         strict: false,
     };
     let err = render_err(&stmt);
-    assert!(err.contains("IDENTITY"), "expected IDENTITY error, got: {err}");
+    assert!(
+        err.contains("IDENTITY"),
+        "expected IDENTITY error, got: {err}"
+    );
 }
 
 #[test]
 fn create_table_parameterized_type() {
     let mut schema = SchemaDef::new("data");
     schema.columns = vec![
-        ColumnDef::new("amount", FieldType::parameterized("DECIMAL", vec!["10", "2"])),
+        ColumnDef::new(
+            "amount",
+            FieldType::parameterized("DECIMAL", vec!["10", "2"]),
+        ),
         ColumnDef::new("code", FieldType::parameterized("VARCHAR", vec!["50"])),
     ];
     let stmt = SchemaMutationStmt::CreateTable {
@@ -399,7 +423,10 @@ fn create_table_unique_check() {
             name: Some("age_positive".into()),
             condition: Conditions {
                 children: vec![ConditionNode::Comparison(Comparison {
-                    left: Expr::Raw { sql: "\"age\"".into(), params: vec![] },
+                    left: Expr::Raw {
+                        sql: "\"age\"".into(),
+                        params: vec![],
+                    },
                     op: CompareOp::Gt,
                     right: Expr::Value(Value::Int(0)),
                     negate: false,
@@ -473,7 +500,10 @@ fn create_table_deferrable_fk() {
 #[test]
 fn create_table_array_type_error() {
     let mut schema = SchemaDef::new("t");
-    schema.columns = vec![ColumnDef::new("tags", FieldType::Array(Box::new(FieldType::scalar("TEXT"))))];
+    schema.columns = vec![ColumnDef::new(
+        "tags",
+        FieldType::Array(Box::new(FieldType::scalar("TEXT"))),
+    )];
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
         if_not_exists: false,
@@ -519,7 +549,10 @@ fn create_table_exclusion_error() {
         strict: false,
     };
     let err = render_err(&stmt);
-    assert!(err.contains("EXCLUDE"), "expected exclusion error, got: {err}");
+    assert!(
+        err.contains("EXCLUDE"),
+        "expected exclusion error, got: {err}"
+    );
 }
 
 // ==========================================================================
@@ -701,7 +734,10 @@ fn alter_table_rename() {
         schema_ref: SchemaRef::new("old_name"),
         new_name: "new_name".into(),
     };
-    assert_eq!(render(&stmt), r#"ALTER TABLE "old_name" RENAME TO "new_name""#);
+    assert_eq!(
+        render(&stmt),
+        r#"ALTER TABLE "old_name" RENAME TO "new_name""#
+    );
 }
 
 #[test]
@@ -725,7 +761,10 @@ fn alter_table_add_column() {
         if_not_exists: false,
         position: None,
     };
-    assert_eq!(render(&stmt), r#"ALTER TABLE "users" ADD COLUMN "email" TEXT"#);
+    assert_eq!(
+        render(&stmt),
+        r#"ALTER TABLE "users" ADD COLUMN "email" TEXT"#
+    );
 }
 
 #[test]
@@ -736,7 +775,10 @@ fn alter_table_drop_column() {
         if_exists: false,
         cascade: false,
     };
-    assert_eq!(render(&stmt), r#"ALTER TABLE "users" DROP COLUMN "old_field""#);
+    assert_eq!(
+        render(&stmt),
+        r#"ALTER TABLE "users" DROP COLUMN "old_field""#
+    );
 }
 
 // ==========================================================================
@@ -827,30 +869,40 @@ fn validate_constraint_error() {
 fn create_index_simple() {
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("users"),
-        index: IndexDef::new("idx_name", vec![IndexColumnDef {
-            expr: IndexExpr::Column("name".into()),
-            direction: None,
-            nulls: None,
-            opclass: None,
-            collation: None,
-        }]),
+        index: IndexDef::new(
+            "idx_name",
+            vec![IndexColumnDef {
+                expr: IndexExpr::Column("name".into()),
+                direction: None,
+                nulls: None,
+                opclass: None,
+                collation: None,
+            }],
+        ),
         if_not_exists: false,
         concurrently: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE INDEX "idx_name" ON "users" ("name")"#);
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE INDEX "idx_name" ON "users" ("name")"#
+    );
 }
 
 #[test]
 fn create_unique_index_if_not_exists() {
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("users"),
-        index: IndexDef::new("idx_email", vec![IndexColumnDef {
-            expr: IndexExpr::Column("email".into()),
-            direction: None,
-            nulls: None,
-            opclass: None,
-            collation: None,
-        }]).unique(),
+        index: IndexDef::new(
+            "idx_email",
+            vec![IndexColumnDef {
+                expr: IndexExpr::Column("email".into()),
+                direction: None,
+                nulls: None,
+                opclass: None,
+                collation: None,
+            }],
+        )
+        .unique(),
         if_not_exists: true,
         concurrently: false,
     };
@@ -864,13 +916,16 @@ fn create_unique_index_if_not_exists() {
 fn create_index_concurrently_ignored() {
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("t"),
-        index: IndexDef::new("idx_a", vec![IndexColumnDef {
-            expr: IndexExpr::Column("a".into()),
-            direction: None,
-            nulls: None,
-            opclass: None,
-            collation: None,
-        }]),
+        index: IndexDef::new(
+            "idx_a",
+            vec![IndexColumnDef {
+                expr: IndexExpr::Column("a".into()),
+                direction: None,
+                nulls: None,
+                opclass: None,
+                collation: None,
+            }],
+        ),
         if_not_exists: false,
         concurrently: true,
     };
@@ -882,22 +937,25 @@ fn create_index_concurrently_ignored() {
 fn create_index_with_direction() {
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("events"),
-        index: IndexDef::new("idx_events", vec![
-            IndexColumnDef {
-                expr: IndexExpr::Column("created_at".into()),
-                direction: Some(rquery_core::ast::common::OrderDir::Desc),
-                nulls: None,
-                opclass: None,
-                collation: None,
-            },
-            IndexColumnDef {
-                expr: IndexExpr::Column("priority".into()),
-                direction: Some(rquery_core::ast::common::OrderDir::Asc),
-                nulls: None,
-                opclass: None,
-                collation: None,
-            },
-        ]),
+        index: IndexDef::new(
+            "idx_events",
+            vec![
+                IndexColumnDef {
+                    expr: IndexExpr::Column("created_at".into()),
+                    direction: Some(rquery_core::ast::common::OrderDir::Desc),
+                    nulls: None,
+                    opclass: None,
+                    collation: None,
+                },
+                IndexColumnDef {
+                    expr: IndexExpr::Column("priority".into()),
+                    direction: Some(rquery_core::ast::common::OrderDir::Asc),
+                    nulls: None,
+                    opclass: None,
+                    collation: None,
+                },
+            ],
+        ),
         if_not_exists: false,
         concurrently: false,
     };
@@ -925,7 +983,10 @@ fn create_index_with_where() {
             include: None,
             condition: Some(Conditions {
                 children: vec![ConditionNode::Comparison(Comparison {
-                    left: Expr::Raw { sql: "\"active\"".into(), params: vec![] },
+                    left: Expr::Raw {
+                        sql: "\"active\"".into(),
+                        params: vec![],
+                    },
                     op: CompareOp::Eq,
                     right: Expr::Value(Value::Bool(true)),
                     negate: false,
@@ -950,18 +1011,22 @@ fn create_index_with_where() {
 fn create_index_expression() {
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("users"),
-        index: IndexDef::new("idx_lower_email", vec![
-            IndexColumnDef {
+        index: IndexDef::new(
+            "idx_lower_email",
+            vec![IndexColumnDef {
                 expr: IndexExpr::Expression(Expr::Func {
                     name: "lower".into(),
-                    args: vec![Expr::Raw { sql: "\"email\"".into(), params: vec![] }],
+                    args: vec![Expr::Raw {
+                        sql: "\"email\"".into(),
+                        params: vec![],
+                    }],
                 }),
                 direction: None,
                 nulls: None,
                 opclass: None,
                 collation: None,
-            },
-        ]),
+            }],
+        ),
         if_not_exists: false,
         concurrently: false,
     };
@@ -1083,7 +1148,10 @@ fn bool_rendered_as_integer() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(render(&stmt), r#"CREATE TABLE "t" ("flag" INTEGER DEFAULT 1)"#);
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "t" ("flag" INTEGER DEFAULT 1)"#
+    );
 }
 
 // ==========================================================================

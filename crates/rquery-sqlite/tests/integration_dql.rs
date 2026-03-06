@@ -1,24 +1,51 @@
 //! Integration tests for SQLite DQL (SELECT) statements
 //! that run against a real in-memory SQLite database.
 
-use rusqlite::Connection;
 use rquery_core::ast::common::*;
 use rquery_core::ast::conditions::*;
 use rquery_core::ast::expr::*;
 use rquery_core::ast::query::*;
 use rquery_core::ast::value::Value;
 use rquery_sqlite::SqliteRenderer;
+use rusqlite::Connection;
+use rusqlite::types::ToSql as RusqliteToSql;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-fn render(stmt: &QueryStmt) -> String {
+fn render(stmt: &QueryStmt) -> (String, Vec<Value>) {
     let renderer = SqliteRenderer::new();
-    let (sql, _) = renderer.render_query_stmt(stmt).unwrap();
-    sql
+    renderer.render_query_stmt(stmt).unwrap()
+}
+
+fn to_sqlite_params(values: &[Value]) -> Vec<Box<dyn RusqliteToSql>> {
+    values
+        .iter()
+        .map(|v| -> Box<dyn RusqliteToSql> {
+            match v {
+                Value::Null => Box::new(rusqlite::types::Null),
+                Value::Bool(b) => Box::new(*b),
+                Value::Int(n) => Box::new(*n),
+                Value::Float(f) => Box::new(*f),
+                Value::Str(s) => Box::new(s.clone()),
+                Value::Bytes(b) => Box::new(b.clone()),
+                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
+                Value::Decimal(s) => Box::new(s.clone()),
+                Value::Uuid(s) => Box::new(s.clone()),
+                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
+                Value::IpNetwork(s) => Box::new(s.clone()),
+                _ => Box::new(format!("{:?}", v)),
+            }
+        })
+        .collect()
+}
+
+fn as_sqlite_params(boxed: &[Box<dyn RusqliteToSql>]) -> Vec<&dyn RusqliteToSql> {
+    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn setup_db(conn: &Connection) {
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         CREATE TABLE \"users\" (
             \"id\" INTEGER PRIMARY KEY,
             \"name\" TEXT NOT NULL,
@@ -57,7 +84,9 @@ fn setup_db(conn: &Connection) {
         INSERT INTO \"products\" VALUES (2, 'Gadget', 25.00, 'electronics');
         INSERT INTO \"products\" VALUES (3, 'Gizmo', 50.00, 'electronics');
         INSERT INTO \"products\" VALUES (4, 'Doohickey', 5.00, 'hardware');
-    ").unwrap();
+    ",
+    )
+    .unwrap();
 }
 
 fn conn() -> Connection {
@@ -90,10 +119,12 @@ fn simple_query() -> QueryStmt {
 #[test]
 fn select_star() {
     let db = conn();
-    let sql = render(&simple_query());
+    let (sql, values) = render(&simple_query());
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut stmt = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = stmt
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -105,15 +136,23 @@ fn select_columns() {
     let db = conn();
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "id"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "id"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: None,
+            },
         ],
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(i64, String)> = st
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -126,20 +165,20 @@ fn select_columns() {
 fn select_with_alias() {
     let db = conn();
     let stmt = QueryStmt {
-        columns: vec![
-            SelectColumn::Field {
-                field: FieldRef::new("users", "name"),
-                alias: Some("user_name".into()),
-            },
-        ],
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: Some("user_name".into()),
+        }],
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let col_name = st.column_name(0).unwrap().to_string();
     assert_eq!(col_name, "user_name");
     let rows: Vec<String> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -159,8 +198,12 @@ fn select_expr() {
         }],
         ..simple_query()
     };
-    let sql = render(&stmt);
-    let cnt: i64 = db.query_row(&sql, [], |row| row.get(0)).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let cnt: i64 = db
+        .query_row(&sql, params.as_slice(), |row| row.get(0))
+        .unwrap();
     assert_eq!(cnt, 5);
 }
 
@@ -169,13 +212,17 @@ fn select_table_star() {
     let db = conn();
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(Some("u".into()))],
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_alias("u"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -193,8 +240,12 @@ fn select_no_from() {
         from: None,
         ..simple_query()
     };
-    let sql = render(&stmt);
-    let val: i64 = db.query_row(&sql, [], |row| row.get(0)).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let val: i64 = db
+        .query_row(&sql, params.as_slice(), |row| row.get(0))
+        .unwrap();
     assert_eq!(val, 1);
 }
 
@@ -209,10 +260,12 @@ fn select_distinct() {
         distinct: Some(DistinctDef::Distinct),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -229,13 +282,17 @@ fn select_distinct() {
 fn from_with_namespace() {
     let db = conn();
     let stmt = QueryStmt {
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_namespace("main"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_namespace("main"),
+        )]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -251,20 +308,22 @@ fn from_multiple_tables() {
             FromItem::table(SchemaRef::new("users")),
             FromItem::table(SchemaRef::new("orders")),
         ]),
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "id")),
                 op: CompareOp::Eq,
                 right: Expr::Field(FieldRef::new("orders", "user_id")),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -275,24 +334,26 @@ fn from_multiple_tables() {
 fn from_subquery() {
     let db = conn();
     let inner = QueryStmt {
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "active")),
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
     let stmt = QueryStmt {
         from: Some(vec![FromItem::subquery(inner, "sub".into())]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -325,10 +386,12 @@ fn from_table_function() {
         ctes: None,
         distinct: None,
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get::<_, i64>(1))
+        .query_map(params.as_slice(), |row| row.get::<_, i64>(1))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -343,8 +406,14 @@ fn from_values() {
         from: Some(vec![FromItem {
             source: TableSource::Values {
                 rows: vec![
-                    vec![Expr::Value(Value::Int(1)), Expr::Value(Value::Str("a".into()))],
-                    vec![Expr::Value(Value::Int(2)), Expr::Value(Value::Str("b".into()))],
+                    vec![
+                        Expr::Value(Value::Int(1)),
+                        Expr::Value(Value::Str("a".into())),
+                    ],
+                    vec![
+                        Expr::Value(Value::Int(2)),
+                        Expr::Value(Value::Str("b".into())),
+                    ],
                 ],
                 alias: "t".into(),
                 column_aliases: None,
@@ -364,10 +433,12 @@ fn from_values() {
         ctes: None,
         distinct: None,
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(i64, String)> = st
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -384,20 +455,22 @@ fn from_values() {
 fn where_simple() {
     let db = conn();
     let stmt = QueryStmt {
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "active")),
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -424,10 +497,12 @@ fn where_and() {
         ])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
-        .query_map([], |row| row.get::<_, String>(1))
+        .query_map(params.as_slice(), |row| row.get::<_, String>(1))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -457,10 +532,12 @@ fn where_or() {
         ])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -471,46 +548,55 @@ fn where_or() {
 fn where_comparison_operators() {
     let db = conn();
     let stmt = QueryStmt {
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "age")),
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(28)),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, i64)> = st
-        .query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?)))
+        .query_map(params.as_slice(), |row| {
+            Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?))
+        })
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().any(|(name, age)| name == "Alice" && *age == 30));
-    assert!(rows.iter().any(|(name, age)| name == "Charlie" && *age == 35));
+    assert!(
+        rows.iter()
+            .any(|(name, age)| name == "Charlie" && *age == 35)
+    );
 }
 
 #[test]
 fn where_is_null() {
     let db = conn();
     let stmt = QueryStmt {
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "age")),
                 op: CompareOp::IsNull,
                 right: Expr::Value(Value::Null),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
-        .query_map([], |row| row.get::<_, String>(1))
+        .query_map(params.as_slice(), |row| row.get::<_, String>(1))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -522,20 +608,22 @@ fn where_is_null() {
 fn where_is_not_null() {
     let db = conn();
     let stmt = QueryStmt {
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "age")),
                 op: CompareOp::IsNull,
                 right: Expr::Value(Value::Null),
                 negate: true,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -546,20 +634,22 @@ fn where_is_not_null() {
 fn where_like() {
     let db = conn();
     let stmt = QueryStmt {
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "name")),
                 op: CompareOp::Like,
                 right: Expr::Value(Value::Str("A%".into())),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
-        .query_map([], |row| row.get::<_, String>(1))
+        .query_map(params.as_slice(), |row| row.get::<_, String>(1))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -571,8 +661,8 @@ fn where_like() {
 fn where_between() {
     let db = conn();
     let stmt = QueryStmt {
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "age")),
                 op: CompareOp::Between,
                 right: Expr::Raw {
@@ -580,14 +670,16 @@ fn where_between() {
                     params: vec![],
                 },
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
-        .query_map([], |row| row.get::<_, String>(1))
+        .query_map(params.as_slice(), |row| row.get::<_, String>(1))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -598,8 +690,8 @@ fn where_between() {
 fn where_in_list() {
     let db = conn();
     let stmt = QueryStmt {
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "department")),
                 op: CompareOp::In,
                 right: Expr::Raw {
@@ -607,14 +699,16 @@ fn where_in_list() {
                     params: vec![],
                 },
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -625,20 +719,22 @@ fn where_in_list() {
 fn where_negated() {
     let db = conn();
     let stmt = QueryStmt {
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("users", "active")),
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(0)),
                 negate: true,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -668,10 +764,12 @@ fn inner_join() {
         }]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -684,8 +782,14 @@ fn left_join() {
     let db = conn();
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("orders", "id"), alias: Some("order_id".into()) },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("orders", "id"),
+                alias: Some("order_id".into()),
+            },
         ],
         joins: Some(vec![JoinDef {
             source: FromItem::table(SchemaRef::new("orders")),
@@ -702,18 +806,28 @@ fn left_join() {
         }]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, Option<i64>)> = st
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)))
+        .query_map(params.as_slice(), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+        })
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     // 5 orders + Charlie(NULL) + Eve(NULL) = 7 rows
     assert_eq!(rows.len(), 7);
     // Charlie and Eve have no orders
-    assert!(rows.iter().any(|(name, oid)| name == "Charlie" && oid.is_none()));
-    assert!(rows.iter().any(|(name, oid)| name == "Eve" && oid.is_none()));
+    assert!(
+        rows.iter()
+            .any(|(name, oid)| name == "Charlie" && oid.is_none())
+    );
+    assert!(
+        rows.iter()
+            .any(|(name, oid)| name == "Eve" && oid.is_none())
+    );
 }
 
 #[test]
@@ -738,10 +852,12 @@ fn cross_join() {
         ctes: None,
         distinct: None,
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -774,10 +890,12 @@ fn natural_join() {
         ctes: None,
         distinct: None,
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -789,14 +907,17 @@ fn natural_join() {
 fn join_using() {
     // Create a temp table with user_id to test USING
     let db = conn();
-    db.execute_batch("
+    db.execute_batch(
+        "
         CREATE TABLE \"user_prefs\" (
             \"user_id\" INTEGER NOT NULL,
             \"theme\" TEXT NOT NULL
         );
         INSERT INTO \"user_prefs\" VALUES (1, 'dark');
         INSERT INTO \"user_prefs\" VALUES (2, 'light');
-    ").unwrap();
+    ",
+    )
+    .unwrap();
 
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
@@ -817,10 +938,12 @@ fn join_using() {
         ctes: None,
         distinct: None,
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -837,7 +960,10 @@ fn group_by_simple() {
     let db = conn();
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "department"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "department"),
+                alias: None,
+            },
             SelectColumn::Expr {
                 expr: Expr::Func {
                     name: "COUNT".into(),
@@ -846,18 +972,26 @@ fn group_by_simple() {
                 alias: Some("cnt".into()),
             },
         ],
-        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new("users", "department")))]),
+        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
+            "users",
+            "department",
+        )))]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, i64)> = st
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(rows.len(), 2);
-    assert!(rows.iter().any(|(dept, cnt)| dept == "engineering" && *cnt == 3));
+    assert!(
+        rows.iter()
+            .any(|(dept, cnt)| dept == "engineering" && *cnt == 3)
+    );
     assert!(rows.iter().any(|(dept, cnt)| dept == "sales" && *cnt == 2));
 }
 
@@ -866,7 +1000,10 @@ fn group_by_with_having() {
     let db = conn();
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "department"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "department"),
+                alias: None,
+            },
             SelectColumn::Expr {
                 expr: Expr::Func {
                     name: "COUNT".into(),
@@ -875,9 +1012,12 @@ fn group_by_with_having() {
                 alias: Some("cnt".into()),
             },
         ],
-        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new("users", "department")))]),
-        having: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
+            "users",
+            "department",
+        )))]),
+        having: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Func {
                     name: "COUNT".into(),
                     args: vec![Expr::Field(FieldRef::new("users", "id"))],
@@ -885,14 +1025,16 @@ fn group_by_with_having() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(2)),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, i64)> = st
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -907,21 +1049,36 @@ fn group_by_aggregate_functions() {
     let db = conn();
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "department"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "department"),
+                alias: None,
+            },
             SelectColumn::Expr {
-                expr: Expr::Func { name: "COUNT".into(), args: vec![Expr::Value(Value::Int(1))] },
+                expr: Expr::Func {
+                    name: "COUNT".into(),
+                    args: vec![Expr::Value(Value::Int(1))],
+                },
                 alias: Some("cnt".into()),
             },
             SelectColumn::Expr {
-                expr: Expr::Func { name: "AVG".into(), args: vec![Expr::Field(FieldRef::new("users", "age"))] },
+                expr: Expr::Func {
+                    name: "AVG".into(),
+                    args: vec![Expr::Field(FieldRef::new("users", "age"))],
+                },
                 alias: Some("avg_age".into()),
             },
             SelectColumn::Expr {
-                expr: Expr::Func { name: "MAX".into(), args: vec![Expr::Field(FieldRef::new("users", "age"))] },
+                expr: Expr::Func {
+                    name: "MAX".into(),
+                    args: vec![Expr::Field(FieldRef::new("users", "age"))],
+                },
                 alias: Some("max_age".into()),
             },
         ],
-        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new("users", "department")))]),
+        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
+            "users",
+            "department",
+        )))]),
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("users", "department")),
             direction: OrderDir::Asc,
@@ -929,10 +1086,14 @@ fn group_by_aggregate_functions() {
         }]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, i64, f64, i64)> = st
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .query_map(params.as_slice(), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -957,7 +1118,10 @@ fn group_by_aggregate_functions() {
 fn order_by_asc() {
     let db = conn();
     let stmt = QueryStmt {
-        columns: vec![SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None }],
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("users", "name")),
             direction: OrderDir::Asc,
@@ -965,10 +1129,12 @@ fn order_by_asc() {
         }]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -979,7 +1145,10 @@ fn order_by_asc() {
 fn order_by_desc() {
     let db = conn();
     let stmt = QueryStmt {
-        columns: vec![SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None }],
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("users", "name")),
             direction: OrderDir::Desc,
@@ -987,10 +1156,12 @@ fn order_by_desc() {
         }]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1002,8 +1173,14 @@ fn order_by_multiple() {
     let db = conn();
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "department"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "department"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: None,
+            },
         ],
         order_by: Some(vec![
             OrderByDef {
@@ -1019,10 +1196,12 @@ fn order_by_multiple() {
         ]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, String)> = st
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1040,8 +1219,14 @@ fn order_by_nulls_last() {
     let db = conn();
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("users", "age"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "age"),
+                alias: None,
+            },
         ],
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("users", "age")),
@@ -1050,10 +1235,12 @@ fn order_by_nulls_last() {
         }]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, Option<i64>)> = st
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1070,13 +1257,18 @@ fn order_by_nulls_last() {
 fn limit_only() {
     let db = conn();
     let stmt = QueryStmt {
-        limit: Some(LimitDef { kind: LimitKind::Limit(2), offset: None }),
+        limit: Some(LimitDef {
+            kind: LimitKind::Limit(2),
+            offset: None,
+        }),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1092,13 +1284,18 @@ fn limit_offset() {
             direction: OrderDir::Asc,
             nulls: None,
         }]),
-        limit: Some(LimitDef { kind: LimitKind::Limit(2), offset: Some(2) }),
+        limit: Some(LimitDef {
+            kind: LimitKind::Limit(2),
+            offset: Some(2),
+        }),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1113,15 +1310,21 @@ fn fetch_first_converts_to_limit() {
     let db = conn();
     let stmt = QueryStmt {
         limit: Some(LimitDef {
-            kind: LimitKind::FetchFirst { count: 3, with_ties: false, percent: false },
+            kind: LimitKind::FetchFirst {
+                count: 3,
+                with_ties: false,
+                percent: false,
+            },
             offset: None,
         }),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1139,14 +1342,14 @@ fn cte_simple() {
         ctes: Some(vec![CteDef {
             name: "active_users".into(),
             query: Box::new(QueryStmt {
-                where_clause: Some(Conditions::and(vec![
-                    ConditionNode::Comparison(Comparison {
+                where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+                    Comparison {
                         left: Expr::Field(FieldRef::new("users", "active")),
                         op: CompareOp::Eq,
                         right: Expr::Value(Value::Int(1)),
                         negate: false,
-                    }),
-                ])),
+                    },
+                )])),
                 ..simple_query()
             }),
             recursive: false,
@@ -1156,10 +1359,12 @@ fn cte_simple() {
         from: Some(vec![FromItem::table(SchemaRef::new("active_users"))]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1195,10 +1400,12 @@ fn cte_recursive() {
     // For a proper recursive CTE we use raw SQL to verify the concept works,
     // but the AST-based approach here only defines the base case.
     // Let's verify it at least runs and returns the base case.
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1216,15 +1423,27 @@ fn union_all() {
     let db = conn();
     let left = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "id"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "id"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: None,
+            },
         ],
         ..simple_query()
     };
     let right = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "id"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "id"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: None,
+            },
         ],
         ..simple_query()
     };
@@ -1251,10 +1470,12 @@ fn union_all() {
         ctes: None,
         distinct: None,
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1267,15 +1488,27 @@ fn union_distinct() {
     let db = conn();
     let left = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "id"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "id"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: None,
+            },
         ],
         ..simple_query()
     };
     let right = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "id"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "id"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: None,
+            },
         ],
         ..simple_query()
     };
@@ -1302,10 +1535,12 @@ fn union_distinct() {
         ctes: None,
         distinct: None,
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1322,11 +1557,20 @@ fn window_row_number() {
     let db = conn();
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "id"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "id"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: None,
+            },
             SelectColumn::Expr {
                 expr: Expr::Window(WindowDef {
-                    expression: Box::new(Expr::Func { name: "ROW_NUMBER".into(), args: vec![] }),
+                    expression: Box::new(Expr::Func {
+                        name: "ROW_NUMBER".into(),
+                        args: vec![],
+                    }),
                     partition_by: None,
                     order_by: Some(vec![OrderByDef {
                         expr: Expr::Field(FieldRef::new("users", "id")),
@@ -1345,10 +1589,14 @@ fn window_row_number() {
         }]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(i64, String, i64)> = st
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .query_map(params.as_slice(), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1363,11 +1611,20 @@ fn window_partition_by() {
     let db = conn();
     let stmt = QueryStmt {
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("users", "department"), alias: None },
-            SelectColumn::Field { field: FieldRef::new("users", "name"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "department"),
+                alias: None,
+            },
+            SelectColumn::Field {
+                field: FieldRef::new("users", "name"),
+                alias: None,
+            },
             SelectColumn::Expr {
                 expr: Expr::Window(WindowDef {
-                    expression: Box::new(Expr::Func { name: "ROW_NUMBER".into(), args: vec![] }),
+                    expression: Box::new(Expr::Func {
+                        name: "ROW_NUMBER".into(),
+                        args: vec![],
+                    }),
                     partition_by: Some(vec![Expr::Field(FieldRef::new("users", "department"))]),
                     order_by: Some(vec![OrderByDef {
                         expr: Expr::Field(FieldRef::new("users", "name")),
@@ -1393,10 +1650,14 @@ fn window_partition_by() {
         ]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, String, i64)> = st
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .query_map(params.as_slice(), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -1424,7 +1685,10 @@ fn full_query_with_join_group_having_order_limit() {
     let stmt = QueryStmt {
         ctes: None,
         columns: vec![
-            SelectColumn::Field { field: FieldRef::new("u", "name"), alias: None },
+            SelectColumn::Field {
+                field: FieldRef::new("u", "name"),
+                alias: None,
+            },
             SelectColumn::Expr {
                 expr: Expr::Func {
                     name: "COUNT".into(),
@@ -1441,7 +1705,9 @@ fn full_query_with_join_group_having_order_limit() {
             },
         ],
         distinct: None,
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_alias("u"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         joins: Some(vec![JoinDef {
             source: FromItem::table(SchemaRef::new("orders").with_alias("o")),
             condition: Some(JoinCondition::On(Conditions::and(vec![
@@ -1455,17 +1721,19 @@ fn full_query_with_join_group_having_order_limit() {
             join_type: JoinType::Inner,
             natural: false,
         }]),
-        where_clause: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Field(FieldRef::new("u", "active")),
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
-            }),
-        ])),
-        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new("u", "name")))]),
-        having: Some(Conditions::and(vec![
-            ConditionNode::Comparison(Comparison {
+            },
+        )])),
+        group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
+            "u", "name",
+        )))]),
+        having: Some(Conditions::and(vec![ConditionNode::Comparison(
+            Comparison {
                 left: Expr::Func {
                     name: "COUNT".into(),
                     args: vec![Expr::Field(FieldRef::new("o", "id"))],
@@ -1473,21 +1741,28 @@ fn full_query_with_join_group_having_order_limit() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
-            }),
-        ])),
+            },
+        )])),
         window: None,
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("u", "name")),
             direction: OrderDir::Asc,
             nulls: None,
         }]),
-        limit: Some(LimitDef { kind: LimitKind::Limit(10), offset: None }),
+        limit: Some(LimitDef {
+            kind: LimitKind::Limit(10),
+            offset: None,
+        }),
         lock: None,
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, i64, f64)> = st
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .query_map(params.as_slice(), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();

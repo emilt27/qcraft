@@ -1,24 +1,45 @@
 //! Integration tests for DQL features that are silently ignored
 //! by the SQLite renderer (PG-specific features that don't cause errors).
 
-use rusqlite::Connection;
 use rquery_core::ast::common::*;
 use rquery_core::ast::conditions::*;
 use rquery_core::ast::expr::*;
 use rquery_core::ast::query::*;
 use rquery_core::ast::value::Value;
 use rquery_sqlite::SqliteRenderer;
+use rusqlite::Connection;
+use rusqlite::types::ToSql as RusqliteToSql;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-fn render(stmt: &QueryStmt) -> String {
+fn render(stmt: &QueryStmt) -> (String, Vec<Value>) {
     let renderer = SqliteRenderer::new();
-    let (sql, _) = renderer.render_query_stmt(stmt).unwrap();
-    sql
+    renderer.render_query_stmt(stmt).unwrap()
+}
+
+fn to_sqlite_params(values: &[Value]) -> Vec<Box<dyn RusqliteToSql>> {
+    values
+        .iter()
+        .map(|v| -> Box<dyn RusqliteToSql> {
+            match v {
+                Value::Null => Box::new(rusqlite::types::Null),
+                Value::Bool(b) => Box::new(*b),
+                Value::Int(n) => Box::new(*n),
+                Value::Float(f) => Box::new(*f),
+                Value::Str(s) => Box::new(s.clone()),
+                _ => Box::new(format!("{:?}", v)),
+            }
+        })
+        .collect()
+}
+
+fn as_sqlite_params(boxed: &[Box<dyn RusqliteToSql>]) -> Vec<&dyn RusqliteToSql> {
+    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn setup_db(conn: &Connection) {
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         CREATE TABLE \"users\" (
             \"id\" INTEGER PRIMARY KEY,
             \"name\" TEXT NOT NULL,
@@ -31,7 +52,9 @@ fn setup_db(conn: &Connection) {
         INSERT INTO \"users\" VALUES (1, 'Alice', 'alice@example.com', 30, 1, 'engineering');
         INSERT INTO \"users\" VALUES (2, 'Bob', 'bob@example.com', 25, 1, 'engineering');
         INSERT INTO \"users\" VALUES (3, 'Charlie', 'charlie@example.com', 35, 0, 'sales');
-    ").unwrap();
+    ",
+    )
+    .unwrap();
 }
 
 fn conn() -> Connection {
@@ -73,13 +96,15 @@ fn from_only_ignored() {
         }]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
     // ONLY should not appear in the rendered SQL
     assert!(!sql.contains("ONLY"));
     // Should still execute correctly
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -97,14 +122,14 @@ fn cte_materialized_ignored() {
         ctes: Some(vec![CteDef {
             name: "active_users".into(),
             query: Box::new(QueryStmt {
-                where_clause: Some(Conditions::and(vec![
-                    ConditionNode::Comparison(Comparison {
+                where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
+                    Comparison {
                         left: Expr::Field(FieldRef::new("users", "active")),
                         op: CompareOp::Eq,
                         right: Expr::Value(Value::Int(1)),
                         negate: false,
-                    }),
-                ])),
+                    },
+                )])),
                 ..simple_query()
             }),
             recursive: false,
@@ -114,13 +139,15 @@ fn cte_materialized_ignored() {
         from: Some(vec![FromItem::table(SchemaRef::new("active_users"))]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
     // MATERIALIZED hint should not appear
     assert!(!sql.contains("MATERIALIZED"));
     // Should still execute correctly
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
-        .query_map([], |row| row.get(0))
+        .query_map(params.as_slice(), |row| row.get(0))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();

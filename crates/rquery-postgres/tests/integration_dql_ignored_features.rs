@@ -1,22 +1,53 @@
 //! Integration tests verifying that PG renderer silently ignores
 //! features from other database dialects (e.g. SQLite index hints, TOP).
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use postgres::{Client, NoTls};
-use testcontainers::runners::SyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::SyncRunner;
 use testcontainers_modules::postgres::Postgres;
+
+use postgres::types::ToSql;
 
 use rquery_core::ast::common::*;
 use rquery_core::ast::query::*;
+use rquery_core::ast::value::Value;
 use rquery_postgres::PostgresRenderer;
 
-fn render(stmt: &QueryStmt) -> String {
+fn render(stmt: &QueryStmt) -> (String, Vec<Value>) {
     let renderer = PostgresRenderer::new();
-    let (sql, _) = renderer.render_query_stmt(stmt).unwrap();
-    sql
+    renderer.render_query_stmt(stmt).unwrap()
+}
+
+fn to_pg_params(values: &[Value]) -> Vec<Box<dyn ToSql + Sync>> {
+    values
+        .iter()
+        .map(|v| -> Box<dyn ToSql + Sync> {
+            match v {
+                Value::Null => Box::new(Option::<String>::None),
+                Value::Bool(b) => Box::new(*b),
+                Value::Int(n) => match i32::try_from(*n) {
+                    Ok(i) => Box::new(i),
+                    Err(_) => Box::new(*n),
+                },
+                Value::Float(f) => Box::new(*f),
+                Value::Str(s) => Box::new(s.clone()),
+                Value::Bytes(b) => Box::new(b.clone()),
+                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
+                Value::Decimal(s) => Box::new(s.clone()),
+                Value::Uuid(s) => Box::new(s.clone()),
+                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
+                Value::IpNetwork(s) => Box::new(s.clone()),
+                _ => Box::new(format!("{:?}", v)),
+            }
+        })
+        .collect()
+}
+
+fn as_pg_params(boxed: &[Box<dyn ToSql + Sync>]) -> Vec<&(dyn ToSql + Sync)> {
+    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn simple_query() -> QueryStmt {
@@ -47,9 +78,8 @@ static TEST_DB: LazyLock<TestDb> = LazyLock::new(|| {
     let host = node.get_host().unwrap().to_string();
     let port = node.get_host_port_ipv4(5432).unwrap();
 
-    let conn_str = format!(
-        "host={host} port={port} user=postgres password=postgres dbname=postgres"
-    );
+    let conn_str =
+        format!("host={host} port={port} user=postgres password=postgres dbname=postgres");
     let mut client = Client::connect(&conn_str, NoTls).unwrap();
 
     client
@@ -57,9 +87,8 @@ static TEST_DB: LazyLock<TestDb> = LazyLock::new(|| {
         .unwrap();
     drop(client);
 
-    let template_conn = format!(
-        "host={host} port={port} user=postgres password=postgres dbname=template_ignored"
-    );
+    let template_conn =
+        format!("host={host} port={port} user=postgres password=postgres dbname=template_ignored");
     let mut tmpl = Client::connect(&template_conn, NoTls).unwrap();
     tmpl.batch_execute(
         "
@@ -127,11 +156,13 @@ fn index_hint_ignored() {
         }]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
     // The SQL should NOT contain INDEXED BY (PG ignores it)
     assert!(!sql.contains("INDEXED BY"));
     // But the query should still execute fine
-    let rows = client.query(&sql, &[]).unwrap();
+    let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 3);
 }
 
@@ -148,9 +179,11 @@ fn not_indexed_hint_ignored() {
         }]),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
     assert!(!sql.contains("NOT INDEXED"));
-    let rows = client.query(&sql, &[]).unwrap();
+    let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 3);
 }
 
@@ -174,10 +207,12 @@ fn top_converts_to_limit() {
         }),
         ..simple_query()
     };
-    let sql = render(&stmt);
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
     // Should render as LIMIT, not TOP
     assert!(sql.contains("LIMIT 2"));
     assert!(!sql.contains("TOP"));
-    let rows = client.query(&sql, &[]).unwrap();
+    let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
 }

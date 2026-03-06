@@ -2,8 +2,8 @@
 //! while still producing valid, executable SQL.
 
 use postgres::{Client, NoTls};
-use testcontainers::runners::SyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::SyncRunner;
 use testcontainers_modules::postgres::Postgres;
 
 use rquery_core::ast::ddl::*;
@@ -136,8 +136,12 @@ fn autoincrement_in_pk_ignored() {
     client.execute(&render(&stmt), &[]).unwrap();
 
     // Table should work with auto-incrementing SERIAL
-    client.execute("INSERT INTO \"events\" (\"name\") VALUES ('a')", &[]).unwrap();
-    client.execute("INSERT INTO \"events\" (\"name\") VALUES ('b')", &[]).unwrap();
+    client
+        .execute("INSERT INTO \"events\" (\"name\") VALUES ('a')", &[])
+        .unwrap();
+    client
+        .execute("INSERT INTO \"events\" (\"name\") VALUES ('b')", &[])
+        .unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM \"events\"", &[])
@@ -175,7 +179,9 @@ fn all_sqlite_features_ignored_together() {
     };
     client.execute(&render(&stmt), &[]).unwrap();
 
-    client.execute("INSERT INTO \"t\" (\"id\") VALUES (42)", &[]).unwrap();
+    client
+        .execute("INSERT INTO \"t\" (\"id\") VALUES (42)", &[])
+        .unwrap();
     let val: i32 = client
         .query_one("SELECT \"id\" FROM \"t\"", &[])
         .unwrap()

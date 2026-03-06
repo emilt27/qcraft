@@ -17,7 +17,6 @@ fn render_with_params(stmt: &SchemaMutationStmt) -> (String, Vec<Value>) {
     renderer.render_schema_stmt(stmt).unwrap()
 }
 
-
 // ==========================================================================
 // CREATE TABLE
 // ==========================================================================
@@ -139,10 +138,7 @@ fn create_table_with_namespace() {
         without_rowid: false,
         strict: false,
     };
-    assert_eq!(
-        render(&stmt),
-        r#"CREATE TABLE "public"."users" ("id" INT)"#
-    );
+    assert_eq!(render(&stmt), r#"CREATE TABLE "public"."users" ("id" INT)"#);
 }
 
 #[test]
@@ -294,8 +290,14 @@ fn create_table_parameterized_types() {
             namespace: None,
             columns: vec![
                 ColumnDef::new("name", FieldType::parameterized("VARCHAR", vec!["255"])),
-                ColumnDef::new("amount", FieldType::parameterized("NUMERIC", vec!["10", "2"])),
-                ColumnDef::new("tags", FieldType::Array(Box::new(FieldType::scalar("TEXT")))),
+                ColumnDef::new(
+                    "amount",
+                    FieldType::parameterized("NUMERIC", vec!["10", "2"]),
+                ),
+                ColumnDef::new(
+                    "tags",
+                    FieldType::Array(Box::new(FieldType::scalar("TEXT"))),
+                ),
                 ColumnDef::new("embedding", FieldType::Vector(1536)),
             ],
             constraints: None,
@@ -428,7 +430,10 @@ fn create_table_unique_check() {
                     name: Some("ck_age".into()),
                     condition: Conditions {
                         children: vec![ConditionNode::Comparison(Comparison {
-                            left: Expr::Raw { sql: "\"age\"".into(), params: vec![] },
+                            left: Expr::Raw {
+                                sql: "\"age\"".into(),
+                                params: vec![],
+                            },
                             op: CompareOp::Gt,
                             right: Expr::Value(Value::Int(0)),
                             negate: false,
@@ -744,15 +749,16 @@ fn alter_table_rename_constraint() {
 fn create_index_simple() {
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("users"),
-        index: IndexDef::new("idx_users_email", vec![
-            IndexColumnDef {
+        index: IndexDef::new(
+            "idx_users_email",
+            vec![IndexColumnDef {
                 expr: IndexExpr::Column("email".into()),
                 direction: None,
                 nulls: None,
                 opclass: None,
                 collation: None,
-            },
-        ]),
+            }],
+        ),
         if_not_exists: false,
         concurrently: false,
     };
@@ -766,15 +772,17 @@ fn create_index_simple() {
 fn create_unique_index_concurrently() {
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("users"),
-        index: IndexDef::new("idx_users_email", vec![
-            IndexColumnDef {
+        index: IndexDef::new(
+            "idx_users_email",
+            vec![IndexColumnDef {
                 expr: IndexExpr::Column("email".into()),
                 direction: None,
                 nulls: None,
                 opclass: None,
                 collation: None,
-            },
-        ]).unique(),
+            }],
+        )
+        .unique(),
         if_not_exists: true,
         concurrently: true,
     };
@@ -818,22 +826,25 @@ fn create_index_with_type_and_options() {
 fn create_index_multi_column_with_direction() {
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("events"),
-        index: IndexDef::new("idx_events_composite", vec![
-            IndexColumnDef {
-                expr: IndexExpr::Column("created_at".into()),
-                direction: Some(OrderDir::Desc),
-                nulls: Some(NullsOrder::Last),
-                opclass: None,
-                collation: None,
-            },
-            IndexColumnDef {
-                expr: IndexExpr::Column("priority".into()),
-                direction: Some(OrderDir::Asc),
-                nulls: None,
-                opclass: None,
-                collation: None,
-            },
-        ]),
+        index: IndexDef::new(
+            "idx_events_composite",
+            vec![
+                IndexColumnDef {
+                    expr: IndexExpr::Column("created_at".into()),
+                    direction: Some(OrderDir::Desc),
+                    nulls: Some(NullsOrder::Last),
+                    opclass: None,
+                    collation: None,
+                },
+                IndexColumnDef {
+                    expr: IndexExpr::Column("priority".into()),
+                    direction: Some(OrderDir::Asc),
+                    nulls: None,
+                    opclass: None,
+                    collation: None,
+                },
+            ],
+        ),
         if_not_exists: false,
         concurrently: false,
     };
@@ -861,7 +872,10 @@ fn create_index_with_include_and_where() {
             include: Some(vec!["name".into()]),
             condition: Some(Conditions {
                 children: vec![ConditionNode::Comparison(Comparison {
-                    left: Expr::Raw { sql: "\"active\"".into(), params: vec![] },
+                    left: Expr::Raw {
+                        sql: "\"active\"".into(),
+                        params: vec![],
+                    },
                     op: CompareOp::Eq,
                     right: Expr::Value(Value::Bool(true)),
                     negate: false,
@@ -886,18 +900,22 @@ fn create_index_with_include_and_where() {
 fn create_index_expression() {
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("users"),
-        index: IndexDef::new("idx_lower_email", vec![
-            IndexColumnDef {
+        index: IndexDef::new(
+            "idx_lower_email",
+            vec![IndexColumnDef {
                 expr: IndexExpr::Expression(Expr::Func {
                     name: "lower".into(),
-                    args: vec![Expr::Raw { sql: "\"email\"".into(), params: vec![] }],
+                    args: vec![Expr::Raw {
+                        sql: "\"email\"".into(),
+                        params: vec![],
+                    }],
                 }),
                 direction: None,
                 nulls: None,
                 opclass: None,
                 collation: None,
-            },
-        ]),
+            }],
+        ),
         if_not_exists: false,
         concurrently: false,
     };
@@ -1020,7 +1038,10 @@ fn truncate_table_restart_identity_cascade() {
         restart_identity: true,
         cascade: true,
     };
-    assert_eq!(render(&stmt), r#"TRUNCATE TABLE "orders" RESTART IDENTITY CASCADE"#);
+    assert_eq!(
+        render(&stmt),
+        r#"TRUNCATE TABLE "orders" RESTART IDENTITY CASCADE"#
+    );
 }
 
 // ==========================================================================
@@ -1083,7 +1104,10 @@ fn create_table_partition_by_list_with_expression() {
             columns: vec![PartitionColumnDef {
                 expr: IndexExpr::Expression(Expr::Func {
                     name: "lower".into(),
-                    args: vec![Expr::Raw { sql: "region".into(), params: vec![] }],
+                    args: vec![Expr::Raw {
+                        sql: "region".into(),
+                        params: vec![],
+                    }],
                 }),
                 collation: None,
                 opclass: None,
@@ -1214,8 +1238,14 @@ fn create_table_like() {
     schema.like_tables = Some(vec![LikeTableDef {
         source_table: SchemaRef::new("users"),
         options: vec![
-            LikeOption { kind: LikeOptionKind::All, include: true },
-            LikeOption { kind: LikeOptionKind::Indexes, include: false },
+            LikeOption {
+                kind: LikeOptionKind::All,
+                include: true,
+            },
+            LikeOption {
+                kind: LikeOptionKind::Indexes,
+                include: false,
+            },
         ],
     }]);
     let stmt = SchemaMutationStmt::CreateTable {

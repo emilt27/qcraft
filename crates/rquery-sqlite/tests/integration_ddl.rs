@@ -1,10 +1,10 @@
-use rusqlite::Connection;
 use rquery_core::ast::common::SchemaRef;
 use rquery_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use rquery_core::ast::ddl::*;
 use rquery_core::ast::expr::Expr;
 use rquery_core::ast::value::Value;
 use rquery_sqlite::SqliteRenderer;
+use rusqlite::Connection;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,9 @@ struct ColInfo {
 }
 
 fn table_info(conn: &Connection, table: &str) -> Vec<ColInfo> {
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info(\"{}\")", table)).unwrap();
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info(\"{}\")", table))
+        .unwrap();
     stmt.query_map([], |row| {
         Ok(ColInfo {
             name: row.get(1)?,
@@ -54,7 +56,9 @@ struct IndexInfo {
 }
 
 fn index_list(conn: &Connection, table: &str) -> Vec<IndexInfo> {
-    let mut stmt = conn.prepare(&format!("PRAGMA index_list(\"{}\")", table)).unwrap();
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA index_list(\"{}\")", table))
+        .unwrap();
     stmt.query_map([], |row| {
         Ok(IndexInfo {
             name: row.get(1)?,
@@ -67,7 +71,9 @@ fn index_list(conn: &Connection, table: &str) -> Vec<IndexInfo> {
 }
 
 fn index_columns(conn: &Connection, index: &str) -> Vec<String> {
-    let mut stmt = conn.prepare(&format!("PRAGMA index_info(\"{}\")", index)).unwrap();
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA index_info(\"{}\")", index))
+        .unwrap();
     stmt.query_map([], |row| row.get(2))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
@@ -84,7 +90,9 @@ struct FkInfo {
 }
 
 fn foreign_keys(conn: &Connection, table: &str) -> Vec<FkInfo> {
-    let mut stmt = conn.prepare(&format!("PRAGMA foreign_key_list(\"{}\")", table)).unwrap();
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA foreign_key_list(\"{}\")", table))
+        .unwrap();
     stmt.query_map([], |row| {
         Ok(FkInfo {
             table: row.get(2)?,
@@ -167,7 +175,10 @@ fn create_table_parameterized_types() {
     let db = conn();
     let mut schema = SchemaDef::new("data");
     schema.columns = vec![
-        ColumnDef::new("amount", FieldType::parameterized("DECIMAL", vec!["10", "2"])),
+        ColumnDef::new(
+            "amount",
+            FieldType::parameterized("DECIMAL", vec!["10", "2"]),
+        ),
         ColumnDef::new("code", FieldType::parameterized("VARCHAR", vec!["50"])),
     ];
     let stmt = SchemaMutationStmt::CreateTable {
@@ -202,8 +213,7 @@ fn create_table_default_value() {
         ColumnDef::new("key", FieldType::scalar("TEXT")).not_null(),
         ColumnDef::new("value", FieldType::scalar("TEXT"))
             .default(Expr::Value(Value::Str("default_val".into()))),
-        ColumnDef::new("count", FieldType::scalar("INTEGER"))
-            .default(Expr::Value(Value::Int(0))),
+        ColumnDef::new("count", FieldType::scalar("INTEGER")).default(Expr::Value(Value::Int(0))),
     ];
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -223,13 +233,16 @@ fn create_table_default_value() {
     db.execute(&render(&stmt), []).unwrap();
 
     // Insert without specifying default columns
-    db.execute("INSERT INTO \"config\" (\"key\") VALUES ('test')", []).unwrap();
+    db.execute("INSERT INTO \"config\" (\"key\") VALUES ('test')", [])
+        .unwrap();
 
-    let (val, count): (String, i64) = db.query_row(
-        "SELECT \"value\", \"count\" FROM \"config\" WHERE \"key\" = 'test'",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    ).unwrap();
+    let (val, count): (String, i64) = db
+        .query_row(
+            "SELECT \"value\", \"count\" FROM \"config\" WHERE \"key\" = 'test'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
     assert_eq!(val, "default_val");
     assert_eq!(count, 0);
 }
@@ -274,8 +287,15 @@ fn create_table_primary_key() {
     assert_eq!(pk_col.name, "id");
 
     // Duplicate PK should fail
-    db.execute("INSERT INTO \"users\" (\"id\", \"name\") VALUES (1, 'a')", []).unwrap();
-    let err = db.execute("INSERT INTO \"users\" (\"id\", \"name\") VALUES (1, 'b')", []);
+    db.execute(
+        "INSERT INTO \"users\" (\"id\", \"name\") VALUES (1, 'a')",
+        [],
+    )
+    .unwrap();
+    let err = db.execute(
+        "INSERT INTO \"users\" (\"id\", \"name\") VALUES (1, 'b')",
+        [],
+    );
     assert!(err.is_err());
 }
 
@@ -310,11 +330,15 @@ fn create_table_autoincrement() {
     };
     db.execute(&render(&stmt), []).unwrap();
 
-    db.execute("INSERT INTO \"events\" (\"name\") VALUES ('first')", []).unwrap();
-    db.execute("INSERT INTO \"events\" (\"name\") VALUES ('second')", []).unwrap();
+    db.execute("INSERT INTO \"events\" (\"name\") VALUES ('first')", [])
+        .unwrap();
+    db.execute("INSERT INTO \"events\" (\"name\") VALUES ('second')", [])
+        .unwrap();
 
     let ids: Vec<i64> = {
-        let mut s = db.prepare("SELECT \"id\" FROM \"events\" ORDER BY \"id\"").unwrap();
+        let mut s = db
+            .prepare("SELECT \"id\" FROM \"events\" ORDER BY \"id\"")
+            .unwrap();
         s.query_map([], |row| row.get(0))
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
@@ -363,7 +387,8 @@ fn create_table_unique_constraint() {
     };
     db.execute(&render(&stmt), []).unwrap();
 
-    db.execute("INSERT INTO \"users\" (\"email\") VALUES ('a@b.com')", []).unwrap();
+    db.execute("INSERT INTO \"users\" (\"email\") VALUES ('a@b.com')", [])
+        .unwrap();
     let err = db.execute("INSERT INTO \"users\" (\"email\") VALUES ('a@b.com')", []);
     assert!(err.is_err(), "duplicate email should fail");
 }
@@ -380,7 +405,10 @@ fn create_table_check_constraint() {
         name: Some("age_positive".into()),
         condition: Conditions {
             children: vec![ConditionNode::Comparison(Comparison {
-                left: Expr::Raw { sql: "\"age\"".into(), params: vec![] },
+                left: Expr::Raw {
+                    sql: "\"age\"".into(),
+                    params: vec![],
+                },
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(0)),
                 negate: false,
@@ -408,7 +436,8 @@ fn create_table_check_constraint() {
     };
     db.execute(&render(&stmt), []).unwrap();
 
-    db.execute("INSERT INTO \"users\" (\"id\", \"age\") VALUES (1, 25)", []).unwrap();
+    db.execute("INSERT INTO \"users\" (\"id\", \"age\") VALUES (1, 25)", [])
+        .unwrap();
     let err = db.execute("INSERT INTO \"users\" (\"id\", \"age\") VALUES (2, -5)", []);
     assert!(err.is_err(), "negative age should violate CHECK");
 }
@@ -418,7 +447,8 @@ fn create_table_foreign_key() {
     let db = conn();
 
     // Parent table
-    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER PRIMARY KEY)", []).unwrap();
+    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER PRIMARY KEY)", [])
+        .unwrap();
 
     // Child table via AST
     let mut schema = SchemaDef::new("posts");
@@ -463,16 +493,27 @@ fn create_table_foreign_key() {
     assert_eq!(fks[0].on_update, "NO ACTION");
 
     // FK enforcement: insert with non-existent parent should fail
-    let err = db.execute("INSERT INTO \"posts\" (\"id\", \"user_id\") VALUES (1, 999)", []);
+    let err = db.execute(
+        "INSERT INTO \"posts\" (\"id\", \"user_id\") VALUES (1, 999)",
+        [],
+    );
     assert!(err.is_err(), "FK violation should fail");
 
     // Valid FK reference
-    db.execute("INSERT INTO \"users\" (\"id\") VALUES (1)", []).unwrap();
-    db.execute("INSERT INTO \"posts\" (\"id\", \"user_id\") VALUES (1, 1)", []).unwrap();
+    db.execute("INSERT INTO \"users\" (\"id\") VALUES (1)", [])
+        .unwrap();
+    db.execute(
+        "INSERT INTO \"posts\" (\"id\", \"user_id\") VALUES (1, 1)",
+        [],
+    )
+    .unwrap();
 
     // CASCADE delete: deleting parent should delete child
-    db.execute("DELETE FROM \"users\" WHERE \"id\" = 1", []).unwrap();
-    let count: i64 = db.query_row("SELECT COUNT(*) FROM \"posts\"", [], |r| r.get(0)).unwrap();
+    db.execute("DELETE FROM \"users\" WHERE \"id\" = 1", [])
+        .unwrap();
+    let count: i64 = db
+        .query_row("SELECT COUNT(*) FROM \"posts\"", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(count, 0, "CASCADE should delete child rows");
 }
 
@@ -512,12 +553,18 @@ fn create_table_without_rowid() {
     db.execute(&render(&stmt), []).unwrap();
 
     // WITHOUT ROWID tables work — verify via insert/select
-    db.execute("INSERT INTO \"kv\" (\"key\", \"value\") VALUES ('k1', X'CAFE')", []).unwrap();
-    let val: Vec<u8> = db.query_row(
-        "SELECT \"value\" FROM \"kv\" WHERE \"key\" = 'k1'",
+    db.execute(
+        "INSERT INTO \"kv\" (\"key\", \"value\") VALUES ('k1', X'CAFE')",
         [],
-        |r| r.get(0),
-    ).unwrap();
+    )
+    .unwrap();
+    let val: Vec<u8> = db
+        .query_row(
+            "SELECT \"value\" FROM \"kv\" WHERE \"key\" = 'k1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(val, vec![0xCA, 0xFE]);
 }
 
@@ -547,7 +594,10 @@ fn create_table_strict_mode() {
     db.execute(&render(&stmt), []).unwrap();
 
     // STRICT mode enforces types — inserting text into INTEGER should fail
-    let err = db.execute("INSERT INTO \"strict_t\" (\"id\", \"name\") VALUES ('not_int', 'a')", []);
+    let err = db.execute(
+        "INSERT INTO \"strict_t\" (\"id\", \"name\") VALUES ('not_int', 'a')",
+        [],
+    );
     assert!(err.is_err(), "STRICT should reject wrong types");
 }
 
@@ -592,7 +642,10 @@ fn create_table_generated_column() {
             not_null: false,
             default: None,
             generated: Some(GeneratedColumn {
-                expr: Expr::Raw { sql: "price * qty".into(), params: vec![] },
+                expr: Expr::Raw {
+                    sql: "price * qty".into(),
+                    params: vec![],
+                },
                 stored: true,
             }),
             identity: None,
@@ -619,13 +672,15 @@ fn create_table_generated_column() {
     };
     db.execute(&render(&stmt), []).unwrap();
 
-    db.execute("INSERT INTO \"products\" (\"price\", \"qty\") VALUES (10.5, 3)", []).unwrap();
-
-    let total: f64 = db.query_row(
-        "SELECT \"total\" FROM \"products\"",
+    db.execute(
+        "INSERT INTO \"products\" (\"price\", \"qty\") VALUES (10.5, 3)",
         [],
-        |r| r.get(0),
-    ).unwrap();
+    )
+    .unwrap();
+
+    let total: f64 = db
+        .query_row("SELECT \"total\" FROM \"products\"", [], |r| r.get(0))
+        .unwrap();
     assert!((total - 31.5).abs() < f64::EPSILON);
 }
 
@@ -636,17 +691,24 @@ fn create_table_generated_column() {
 #[test]
 fn create_index_and_verify() {
     let db = conn();
-    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER, \"email\" TEXT, \"name\" TEXT)", []).unwrap();
+    db.execute(
+        "CREATE TABLE \"users\" (\"id\" INTEGER, \"email\" TEXT, \"name\" TEXT)",
+        [],
+    )
+    .unwrap();
 
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("users"),
-        index: IndexDef::new("idx_email", vec![IndexColumnDef {
-            expr: IndexExpr::Column("email".into()),
-            direction: None,
-            nulls: None,
-            opclass: None,
-            collation: None,
-        }]),
+        index: IndexDef::new(
+            "idx_email",
+            vec![IndexColumnDef {
+                expr: IndexExpr::Column("email".into()),
+                direction: None,
+                nulls: None,
+                opclass: None,
+                collation: None,
+            }],
+        ),
         if_not_exists: false,
         concurrently: false,
     };
@@ -663,17 +725,25 @@ fn create_index_and_verify() {
 #[test]
 fn create_unique_index() {
     let db = conn();
-    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER, \"email\" TEXT)", []).unwrap();
+    db.execute(
+        "CREATE TABLE \"users\" (\"id\" INTEGER, \"email\" TEXT)",
+        [],
+    )
+    .unwrap();
 
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("users"),
-        index: IndexDef::new("idx_email", vec![IndexColumnDef {
-            expr: IndexExpr::Column("email".into()),
-            direction: None,
-            nulls: None,
-            opclass: None,
-            collation: None,
-        }]).unique(),
+        index: IndexDef::new(
+            "idx_email",
+            vec![IndexColumnDef {
+                expr: IndexExpr::Column("email".into()),
+                direction: None,
+                nulls: None,
+                opclass: None,
+                collation: None,
+            }],
+        )
+        .unique(),
         if_not_exists: false,
         concurrently: false,
     };
@@ -684,7 +754,8 @@ fn create_unique_index() {
     assert!(idx.unique);
 
     // Unique index enforced
-    db.execute("INSERT INTO \"users\" VALUES (1, 'a@b.com')", []).unwrap();
+    db.execute("INSERT INTO \"users\" VALUES (1, 'a@b.com')", [])
+        .unwrap();
     let err = db.execute("INSERT INTO \"users\" VALUES (2, 'a@b.com')", []);
     assert!(err.is_err(), "unique index should prevent duplicates");
 }
@@ -692,26 +763,33 @@ fn create_unique_index() {
 #[test]
 fn create_index_multi_column() {
     let db = conn();
-    db.execute("CREATE TABLE \"events\" (\"created_at\" TEXT, \"priority\" INTEGER)", []).unwrap();
+    db.execute(
+        "CREATE TABLE \"events\" (\"created_at\" TEXT, \"priority\" INTEGER)",
+        [],
+    )
+    .unwrap();
 
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("events"),
-        index: IndexDef::new("idx_composite", vec![
-            IndexColumnDef {
-                expr: IndexExpr::Column("created_at".into()),
-                direction: Some(rquery_core::ast::common::OrderDir::Desc),
-                nulls: None,
-                opclass: None,
-                collation: None,
-            },
-            IndexColumnDef {
-                expr: IndexExpr::Column("priority".into()),
-                direction: Some(rquery_core::ast::common::OrderDir::Asc),
-                nulls: None,
-                opclass: None,
-                collation: None,
-            },
-        ]),
+        index: IndexDef::new(
+            "idx_composite",
+            vec![
+                IndexColumnDef {
+                    expr: IndexExpr::Column("created_at".into()),
+                    direction: Some(rquery_core::ast::common::OrderDir::Desc),
+                    nulls: None,
+                    opclass: None,
+                    collation: None,
+                },
+                IndexColumnDef {
+                    expr: IndexExpr::Column("priority".into()),
+                    direction: Some(rquery_core::ast::common::OrderDir::Asc),
+                    nulls: None,
+                    opclass: None,
+                    collation: None,
+                },
+            ],
+        ),
         if_not_exists: false,
         concurrently: false,
     };
@@ -724,7 +802,11 @@ fn create_index_multi_column() {
 #[test]
 fn create_index_partial_with_where() {
     let db = conn();
-    db.execute("CREATE TABLE \"users\" (\"email\" TEXT, \"active\" INTEGER)", []).unwrap();
+    db.execute(
+        "CREATE TABLE \"users\" (\"email\" TEXT, \"active\" INTEGER)",
+        [],
+    )
+    .unwrap();
 
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("users"),
@@ -742,7 +824,10 @@ fn create_index_partial_with_where() {
             include: None,
             condition: Some(Conditions {
                 children: vec![ConditionNode::Comparison(Comparison {
-                    left: Expr::Raw { sql: "\"active\"".into(), params: vec![] },
+                    left: Expr::Raw {
+                        sql: "\"active\"".into(),
+                        params: vec![],
+                    },
                     op: CompareOp::Eq,
                     right: Expr::Value(Value::Bool(true)),
                     negate: false,
@@ -760,44 +845,60 @@ fn create_index_partial_with_where() {
     db.execute(&render(&stmt), []).unwrap();
 
     // Partial unique: two inactive rows with same email — ok
-    db.execute("INSERT INTO \"users\" VALUES ('a@b.com', 0)", []).unwrap();
-    db.execute("INSERT INTO \"users\" VALUES ('a@b.com', 0)", []).unwrap();
+    db.execute("INSERT INTO \"users\" VALUES ('a@b.com', 0)", [])
+        .unwrap();
+    db.execute("INSERT INTO \"users\" VALUES ('a@b.com', 0)", [])
+        .unwrap();
 
     // Two active rows with same email — fails
-    db.execute("INSERT INTO \"users\" VALUES ('x@y.com', 1)", []).unwrap();
+    db.execute("INSERT INTO \"users\" VALUES ('x@y.com', 1)", [])
+        .unwrap();
     let err = db.execute("INSERT INTO \"users\" VALUES ('x@y.com', 1)", []);
-    assert!(err.is_err(), "partial unique index should prevent active duplicates");
+    assert!(
+        err.is_err(),
+        "partial unique index should prevent active duplicates"
+    );
 }
 
 #[test]
 fn create_index_expression() {
     let db = conn();
-    db.execute("CREATE TABLE \"users\" (\"email\" TEXT)", []).unwrap();
+    db.execute("CREATE TABLE \"users\" (\"email\" TEXT)", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("users"),
-        index: IndexDef::new("idx_lower_email", vec![IndexColumnDef {
-            expr: IndexExpr::Expression(Expr::Func {
-                name: "lower".into(),
-                args: vec![Expr::Raw { sql: "\"email\"".into(), params: vec![] }],
-            }),
-            direction: None,
-            nulls: None,
-            opclass: None,
-            collation: None,
-        }]),
+        index: IndexDef::new(
+            "idx_lower_email",
+            vec![IndexColumnDef {
+                expr: IndexExpr::Expression(Expr::Func {
+                    name: "lower".into(),
+                    args: vec![Expr::Raw {
+                        sql: "\"email\"".into(),
+                        params: vec![],
+                    }],
+                }),
+                direction: None,
+                nulls: None,
+                opclass: None,
+                collation: None,
+            }],
+        ),
         if_not_exists: false,
         concurrently: false,
     };
     db.execute(&render(&stmt), []).unwrap();
 
     // Expression index works — insert and query by lower
-    db.execute("INSERT INTO \"users\" VALUES ('Hello@World.COM')", []).unwrap();
-    let count: i64 = db.query_row(
-        "SELECT COUNT(*) FROM \"users\" WHERE lower(\"email\") = 'hello@world.com'",
-        [],
-        |r| r.get(0),
-    ).unwrap();
+    db.execute("INSERT INTO \"users\" VALUES ('Hello@World.COM')", [])
+        .unwrap();
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM \"users\" WHERE lower(\"email\") = 'hello@world.com'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(count, 1);
 }
 
@@ -808,7 +909,8 @@ fn create_index_expression() {
 #[test]
 fn drop_table() {
     let db = conn();
-    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER)", []).unwrap();
+    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER)", [])
+        .unwrap();
     assert!(table_exists(&db, "users"));
 
     let stmt = SchemaMutationStmt::DropTable {
@@ -835,8 +937,10 @@ fn drop_table_if_exists() {
 #[test]
 fn drop_index() {
     let db = conn();
-    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER)", []).unwrap();
-    db.execute("CREATE INDEX \"idx_a\" ON \"t\" (\"a\")", []).unwrap();
+    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER)", [])
+        .unwrap();
+    db.execute("CREATE INDEX \"idx_a\" ON \"t\" (\"a\")", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::DropIndex {
         schema_ref: SchemaRef::new("t"),
@@ -858,7 +962,8 @@ fn drop_index() {
 #[test]
 fn alter_table_rename() {
     let db = conn();
-    db.execute("CREATE TABLE \"old_name\" (\"id\" INTEGER)", []).unwrap();
+    db.execute("CREATE TABLE \"old_name\" (\"id\" INTEGER)", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::RenameTable {
         schema_ref: SchemaRef::new("old_name"),
@@ -873,7 +978,8 @@ fn alter_table_rename() {
 #[test]
 fn alter_table_rename_column() {
     let db = conn();
-    db.execute("CREATE TABLE \"users\" (\"name\" TEXT)", []).unwrap();
+    db.execute("CREATE TABLE \"users\" (\"name\" TEXT)", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::RenameColumn {
         schema_ref: SchemaRef::new("users"),
@@ -889,7 +995,8 @@ fn alter_table_rename_column() {
 #[test]
 fn alter_table_add_column() {
     let db = conn();
-    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER)", []).unwrap();
+    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER)", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::AddColumn {
         schema_ref: SchemaRef::new("users"),
@@ -908,7 +1015,11 @@ fn alter_table_add_column() {
 #[test]
 fn alter_table_drop_column() {
     let db = conn();
-    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER, \"old_field\" TEXT)", []).unwrap();
+    db.execute(
+        "CREATE TABLE \"users\" (\"id\" INTEGER, \"old_field\" TEXT)",
+        [],
+    )
+    .unwrap();
 
     let stmt = SchemaMutationStmt::DropColumn {
         schema_ref: SchemaRef::new("users"),
@@ -930,7 +1041,8 @@ fn alter_table_drop_column() {
 #[test]
 fn truncate_table() {
     let db = conn();
-    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER)", []).unwrap();
+    db.execute("CREATE TABLE \"users\" (\"id\" INTEGER)", [])
+        .unwrap();
     db.execute("INSERT INTO \"users\" VALUES (1)", []).unwrap();
     db.execute("INSERT INTO \"users\" VALUES (2)", []).unwrap();
 
@@ -941,6 +1053,8 @@ fn truncate_table() {
     };
     db.execute(&render(&stmt), []).unwrap();
 
-    let count: i64 = db.query_row("SELECT COUNT(*) FROM \"users\"", [], |r| r.get(0)).unwrap();
+    let count: i64 = db
+        .query_row("SELECT COUNT(*) FROM \"users\"", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(count, 0);
 }

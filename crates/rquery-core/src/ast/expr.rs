@@ -30,10 +30,7 @@ pub enum Expr {
     Aggregate(AggregationDef),
 
     /// Type cast: `expr::type` (PG) or `CAST(expr AS type)`.
-    Cast {
-        expr: Box<Expr>,
-        to_type: String,
-    },
+    Cast { expr: Box<Expr>, to_type: String },
 
     /// CASE WHEN ... THEN ... ELSE ... END.
     Case(CaseDef),

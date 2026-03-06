@@ -1,24 +1,23 @@
 use rquery_core::ast::common::{FieldRef, NullsOrder, OrderByDef, OrderDir};
 use rquery_core::ast::conditions::{CompareOp, ConditionNode, Conditions, Connector};
 use rquery_core::ast::ddl::{
-    ColumnDef, ConstraintDef, DeferrableConstraint, FieldType,
-    IndexColumnDef, IndexDef, IndexExpr,
+    ColumnDef, ConstraintDef, DeferrableConstraint, FieldType, IndexColumnDef, IndexDef, IndexExpr,
     ReferentialAction, SchemaDef, SchemaMutationStmt,
 };
 use rquery_core::ast::dml::{
-    ConflictAction, ConflictResolution, ConflictTarget, DeleteStmt, InsertSource,
-    InsertStmt, MutationStmt, OnConflictDef, UpdateStmt,
+    ConflictAction, ConflictResolution, ConflictTarget, DeleteStmt, InsertSource, InsertStmt,
+    MutationStmt, OnConflictDef, UpdateStmt,
 };
-use rquery_core::ast::tcl::{SqliteLockType, TransactionStmt};
 use rquery_core::ast::expr::{
-    AggregationDef, BinaryOp, CaseDef, Expr, UnaryOp, WindowDef, WindowFrameBound,
-    WindowFrameDef, WindowFrameType,
+    AggregationDef, BinaryOp, CaseDef, Expr, UnaryOp, WindowDef, WindowFrameBound, WindowFrameDef,
+    WindowFrameType,
 };
 use rquery_core::ast::query::{
-    CteDef, DistinctDef, FromItem, GroupByItem, JoinCondition, JoinDef, JoinType,
-    LimitDef, LimitKind, QueryStmt, SelectColumn, SelectLockDef,
-    SetOpDef, SetOperationType, SqliteIndexHint, TableSource, WindowNameDef,
+    CteDef, DistinctDef, FromItem, GroupByItem, JoinCondition, JoinDef, JoinType, LimitDef,
+    LimitKind, QueryStmt, SelectColumn, SelectLockDef, SetOpDef, SetOperationType, SqliteIndexHint,
+    TableSource, WindowNameDef,
 };
+use rquery_core::ast::tcl::{SqliteLockType, TransactionStmt};
 use rquery_core::ast::value::Value;
 use rquery_core::error::{RenderError, RenderResult};
 use rquery_core::render::ctx::{ParamStyle, RenderCtx};
@@ -31,26 +30,32 @@ impl SqliteRenderer {
         Self
     }
 
-    pub fn render_schema_stmt(&self, stmt: &SchemaMutationStmt) -> RenderResult<(String, Vec<Value>)> {
+    pub fn render_schema_stmt(
+        &self,
+        stmt: &SchemaMutationStmt,
+    ) -> RenderResult<(String, Vec<Value>)> {
         let mut ctx = RenderCtx::new(ParamStyle::QMark);
         self.render_schema_mutation(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 
-    pub fn render_transaction_stmt(&self, stmt: &TransactionStmt) -> RenderResult<(String, Vec<Value>)> {
+    pub fn render_transaction_stmt(
+        &self,
+        stmt: &TransactionStmt,
+    ) -> RenderResult<(String, Vec<Value>)> {
         let mut ctx = RenderCtx::new(ParamStyle::QMark);
         self.render_transaction(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 
     pub fn render_mutation_stmt(&self, stmt: &MutationStmt) -> RenderResult<(String, Vec<Value>)> {
-        let mut ctx = RenderCtx::new(ParamStyle::QMark);
+        let mut ctx = RenderCtx::new(ParamStyle::QMark).with_parameterize(true);
         self.render_mutation(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 
     pub fn render_query_stmt(&self, stmt: &QueryStmt) -> RenderResult<(String, Vec<Value>)> {
-        let mut ctx = RenderCtx::new(ParamStyle::QMark);
+        let mut ctx = RenderCtx::new(ParamStyle::QMark).with_parameterize(true);
         self.render_query(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
@@ -82,14 +87,21 @@ impl Renderer for SqliteRenderer {
                 unlogged: _,
                 tablespace: _,
                 partition_by: _,  // SQLite doesn't support PARTITION BY
-                inherits: _,     // SQLite doesn't support INHERITS
-                using_method: _, // SQLite doesn't support USING method
-                with_options: _, // SQLite doesn't support WITH options
-                on_commit: _,    // SQLite doesn't support ON COMMIT
+                inherits: _,      // SQLite doesn't support INHERITS
+                using_method: _,  // SQLite doesn't support USING method
+                with_options: _,  // SQLite doesn't support WITH options
+                on_commit: _,     // SQLite doesn't support ON COMMIT
                 table_options: _, // SQLite doesn't support generic table options
                 without_rowid,
                 strict,
-            } => self.sqlite_create_table(schema, *if_not_exists, *temporary, *without_rowid, *strict, ctx),
+            } => self.sqlite_create_table(
+                schema,
+                *if_not_exists,
+                *temporary,
+                *without_rowid,
+                *strict,
+                ctx,
+            ),
 
             SchemaMutationStmt::DropTable {
                 schema_ref,
@@ -117,7 +129,7 @@ impl Renderer for SqliteRenderer {
             SchemaMutationStmt::TruncateTable {
                 schema_ref,
                 restart_identity: _, // SQLite doesn't have RESTART IDENTITY
-                cascade: _, // SQLite doesn't support CASCADE
+                cascade: _,          // SQLite doesn't support CASCADE
             } => {
                 // SQLite has no TRUNCATE — use DELETE FROM (equivalent semantics)
                 ctx.keyword("DELETE FROM");
@@ -129,7 +141,7 @@ impl Renderer for SqliteRenderer {
                 schema_ref,
                 column,
                 if_not_exists: _, // SQLite ADD COLUMN doesn't support IF NOT EXISTS
-                position: _, // SQLite doesn't support FIRST/AFTER
+                position: _,      // SQLite doesn't support FIRST/AFTER
             } => {
                 ctx.keyword("ALTER TABLE");
                 self.sqlite_schema_ref(schema_ref, ctx);
@@ -141,7 +153,7 @@ impl Renderer for SqliteRenderer {
                 schema_ref,
                 name,
                 if_exists: _, // SQLite DROP COLUMN doesn't support IF EXISTS
-                cascade: _, // SQLite doesn't support CASCADE
+                cascade: _,   // SQLite doesn't support CASCADE
             } => {
                 ctx.keyword("ALTER TABLE");
                 self.sqlite_schema_ref(schema_ref, ctx);
@@ -156,7 +168,10 @@ impl Renderer for SqliteRenderer {
             } => {
                 ctx.keyword("ALTER TABLE");
                 self.sqlite_schema_ref(schema_ref, ctx);
-                ctx.keyword("RENAME COLUMN").ident(old_name).keyword("TO").ident(new_name);
+                ctx.keyword("RENAME COLUMN")
+                    .ident(old_name)
+                    .keyword("TO")
+                    .ident(new_name);
                 Ok(())
             }
 
@@ -203,7 +218,7 @@ impl Renderer for SqliteRenderer {
                 index_name,
                 if_exists,
                 concurrently: _, // Ignore
-                cascade: _, // Ignore
+                cascade: _,      // Ignore
             } => {
                 ctx.keyword("DROP INDEX");
                 if *if_exists {
@@ -361,9 +376,9 @@ impl Renderer for SqliteRenderer {
             ConstraintDef::Unique {
                 name,
                 columns,
-                include: _, // Ignore
+                include: _,        // Ignore
                 nulls_distinct: _, // Ignore
-                condition: _, // Ignore
+                condition: _,      // Ignore
             } => {
                 if let Some(n) = name {
                     ctx.keyword("CONSTRAINT").ident(n);
@@ -377,7 +392,7 @@ impl Renderer for SqliteRenderer {
                 name,
                 condition,
                 no_inherit: _, // Ignore
-                enforced: _, // Ignore
+                enforced: _,   // Ignore
             } => {
                 if let Some(n) = name {
                     ctx.keyword("CONSTRAINT").ident(n);
@@ -463,7 +478,10 @@ impl Renderer for SqliteRenderer {
 
             Expr::Aggregate(agg) => self.render_aggregate(agg, ctx),
 
-            Expr::Cast { expr: inner, to_type } => {
+            Expr::Cast {
+                expr: inner,
+                to_type,
+            } => {
                 ctx.keyword("CAST").paren_open();
                 self.render_expr(inner, ctx)?;
                 ctx.keyword("AS").keyword(to_type);
@@ -694,10 +712,13 @@ impl Renderer for SqliteRenderer {
         // DISTINCT
         if let Some(distinct) = &stmt.distinct {
             match distinct {
-                DistinctDef::Distinct => { ctx.keyword("DISTINCT"); }
+                DistinctDef::Distinct => {
+                    ctx.keyword("DISTINCT");
+                }
                 DistinctDef::DistinctOn(_) => {
                     return Err(RenderError::unsupported(
-                        "DISTINCT ON", "not supported in SQLite",
+                        "DISTINCT ON",
+                        "not supported in SQLite",
                     ));
                 }
             }
@@ -710,7 +731,9 @@ impl Renderer for SqliteRenderer {
         if let Some(from) = &stmt.from {
             ctx.keyword("FROM");
             for (i, item) in from.iter().enumerate() {
-                if i > 0 { ctx.comma(); }
+                if i > 0 {
+                    ctx.comma();
+                }
                 self.sqlite_render_from_item(item, ctx)?;
             }
         }
@@ -755,7 +778,8 @@ impl Renderer for SqliteRenderer {
         if let Some(locks) = &stmt.lock {
             if !locks.is_empty() {
                 return Err(RenderError::unsupported(
-                    "FOR UPDATE/SHARE", "row locking not supported in SQLite",
+                    "FOR UPDATE/SHARE",
+                    "row locking not supported in SQLite",
                 ));
             }
         }
@@ -763,11 +787,19 @@ impl Renderer for SqliteRenderer {
         Ok(())
     }
 
-    fn render_select_columns(&self, cols: &[SelectColumn], ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn render_select_columns(
+        &self,
+        cols: &[SelectColumn],
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()> {
         for (i, col) in cols.iter().enumerate() {
-            if i > 0 { ctx.comma(); }
+            if i > 0 {
+                ctx.comma();
+            }
             match col {
-                SelectColumn::Star(None) => { ctx.keyword("*"); }
+                SelectColumn::Star(None) => {
+                    ctx.keyword("*");
+                }
                 SelectColumn::Star(Some(table)) => {
                     ctx.ident(table).operator(".").keyword("*");
                 }
@@ -814,7 +846,9 @@ impl Renderer for SqliteRenderer {
             TableSource::Function { name, args, alias } => {
                 ctx.keyword(name).write("(");
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 { ctx.comma(); }
+                    if i > 0 {
+                        ctx.comma();
+                    }
                     self.render_expr(arg, ctx)?;
                 }
                 ctx.paren_close();
@@ -822,13 +856,21 @@ impl Renderer for SqliteRenderer {
                     ctx.keyword("AS").ident(a);
                 }
             }
-            TableSource::Values { rows, alias, column_aliases } => {
+            TableSource::Values {
+                rows,
+                alias,
+                column_aliases,
+            } => {
                 ctx.paren_open().keyword("VALUES");
                 for (i, row) in rows.iter().enumerate() {
-                    if i > 0 { ctx.comma(); }
+                    if i > 0 {
+                        ctx.comma();
+                    }
                     ctx.paren_open();
                     for (j, val) in row.iter().enumerate() {
-                        if j > 0 { ctx.comma(); }
+                        if j > 0 {
+                            ctx.comma();
+                        }
                         self.render_expr(val, ctx)?;
                     }
                     ctx.paren_close();
@@ -837,7 +879,9 @@ impl Renderer for SqliteRenderer {
                 if let Some(cols) = column_aliases {
                     ctx.paren_open();
                     for (i, c) in cols.iter().enumerate() {
-                        if i > 0 { ctx.comma(); }
+                        if i > 0 {
+                            ctx.comma();
+                        }
                         ctx.ident(c);
                     }
                     ctx.paren_close();
@@ -865,7 +909,8 @@ impl Renderer for SqliteRenderer {
                 JoinType::Cross => "CROSS JOIN",
                 JoinType::CrossApply | JoinType::OuterApply => {
                     return Err(RenderError::unsupported(
-                        "APPLY", "CROSS/OUTER APPLY not supported in SQLite",
+                        "APPLY",
+                        "CROSS/OUTER APPLY not supported in SQLite",
                     ));
                 }
             });
@@ -899,19 +944,25 @@ impl Renderer for SqliteRenderer {
             LimitKind::Limit(n) => {
                 ctx.keyword("LIMIT").space().write(&n.to_string());
             }
-            LimitKind::FetchFirst { count, with_ties, .. } => {
+            LimitKind::FetchFirst {
+                count, with_ties, ..
+            } => {
                 if *with_ties {
                     return Err(RenderError::unsupported(
-                        "FETCH FIRST WITH TIES", "not supported in SQLite",
+                        "FETCH FIRST WITH TIES",
+                        "not supported in SQLite",
                     ));
                 }
                 // Convert FETCH FIRST to LIMIT
                 ctx.keyword("LIMIT").space().write(&count.to_string());
             }
-            LimitKind::Top { count, with_ties, .. } => {
+            LimitKind::Top {
+                count, with_ties, ..
+            } => {
                 if *with_ties {
                     return Err(RenderError::unsupported(
-                        "TOP WITH TIES", "not supported in SQLite",
+                        "TOP WITH TIES",
+                        "not supported in SQLite",
                     ));
                 }
                 // Convert TOP to LIMIT
@@ -930,7 +981,9 @@ impl Renderer for SqliteRenderer {
             ctx.keyword("RECURSIVE");
         }
         for (i, cte) in ctes.iter().enumerate() {
-            if i > 0 { ctx.comma(); }
+            if i > 0 {
+                ctx.comma();
+            }
             ctx.ident(&cte.name);
             if let Some(col_names) = &cte.column_names {
                 ctx.paren_open();
@@ -946,7 +999,8 @@ impl Renderer for SqliteRenderer {
     }
     fn render_lock(&self, _lock: &SelectLockDef, _ctx: &mut RenderCtx) -> RenderResult<()> {
         Err(RenderError::unsupported(
-            "FOR UPDATE/SHARE", "row locking not supported in SQLite",
+            "FOR UPDATE/SHARE",
+            "row locking not supported in SQLite",
         ))
     }
 
@@ -1168,7 +1222,10 @@ impl Renderer for SqliteRenderer {
         // Target
         if let Some(target) = &oc.target {
             match target {
-                ConflictTarget::Columns { columns, where_clause } => {
+                ConflictTarget::Columns {
+                    columns,
+                    where_clause,
+                } => {
                     ctx.paren_open();
                     self.sqlite_comma_idents(columns, ctx);
                     ctx.paren_close();
@@ -1191,7 +1248,10 @@ impl Renderer for SqliteRenderer {
             ConflictAction::DoNothing => {
                 ctx.keyword("DO NOTHING");
             }
-            ConflictAction::DoUpdate { assignments, where_clause } => {
+            ConflictAction::DoUpdate {
+                assignments,
+                where_clause,
+            } => {
                 ctx.keyword("DO UPDATE SET");
                 for (i, (col, expr)) in assignments.iter().enumerate() {
                     if i > 0 {
@@ -1217,7 +1277,9 @@ impl Renderer for SqliteRenderer {
                 ctx.comma();
             }
             match col {
-                SelectColumn::Star(None) => { ctx.keyword("*"); }
+                SelectColumn::Star(None) => {
+                    ctx.keyword("*");
+                }
                 SelectColumn::Star(Some(table)) => {
                     ctx.ident(table).operator(".").keyword("*");
                 }
@@ -1273,24 +1335,30 @@ impl Renderer for SqliteRenderer {
                 ctx.keyword("RELEASE").keyword("SAVEPOINT").ident(&s.name);
                 Ok(())
             }
-            TransactionStmt::SetTransaction(_) => {
-                Err(RenderError::unsupported("SET TRANSACTION", "not supported in SQLite"))
-            }
-            TransactionStmt::LockTable(_) => {
-                Err(RenderError::unsupported("LOCK TABLE", "not supported in SQLite (use BEGIN EXCLUSIVE)"))
-            }
-            TransactionStmt::PrepareTransaction(_) => {
-                Err(RenderError::unsupported("PREPARE TRANSACTION", "not supported in SQLite"))
-            }
-            TransactionStmt::CommitPrepared(_) => {
-                Err(RenderError::unsupported("COMMIT PREPARED", "not supported in SQLite"))
-            }
-            TransactionStmt::RollbackPrepared(_) => {
-                Err(RenderError::unsupported("ROLLBACK PREPARED", "not supported in SQLite"))
-            }
-            TransactionStmt::Custom(_) => {
-                Err(RenderError::unsupported("Custom TCL", "not supported by SqliteRenderer"))
-            }
+            TransactionStmt::SetTransaction(_) => Err(RenderError::unsupported(
+                "SET TRANSACTION",
+                "not supported in SQLite",
+            )),
+            TransactionStmt::LockTable(_) => Err(RenderError::unsupported(
+                "LOCK TABLE",
+                "not supported in SQLite (use BEGIN EXCLUSIVE)",
+            )),
+            TransactionStmt::PrepareTransaction(_) => Err(RenderError::unsupported(
+                "PREPARE TRANSACTION",
+                "not supported in SQLite",
+            )),
+            TransactionStmt::CommitPrepared(_) => Err(RenderError::unsupported(
+                "COMMIT PREPARED",
+                "not supported in SQLite",
+            )),
+            TransactionStmt::RollbackPrepared(_) => Err(RenderError::unsupported(
+                "ROLLBACK PREPARED",
+                "not supported in SQLite",
+            )),
+            TransactionStmt::Custom(_) => Err(RenderError::unsupported(
+                "Custom TCL",
+                "not supported by SqliteRenderer",
+            )),
         }
     }
 }
@@ -1300,7 +1368,11 @@ impl Renderer for SqliteRenderer {
 // ==========================================================================
 
 impl SqliteRenderer {
-    fn sqlite_schema_ref(&self, schema_ref: &rquery_core::ast::common::SchemaRef, ctx: &mut RenderCtx) {
+    fn sqlite_schema_ref(
+        &self,
+        schema_ref: &rquery_core::ast::common::SchemaRef,
+        ctx: &mut RenderCtx,
+    ) {
         if let Some(ns) = &schema_ref.namespace {
             ctx.ident(ns).operator(".");
         }
@@ -1308,7 +1380,9 @@ impl SqliteRenderer {
     }
 
     fn sqlite_field_ref(&self, field_ref: &FieldRef, ctx: &mut RenderCtx) {
-        ctx.ident(&field_ref.table_name).operator(".").ident(&field_ref.field.name);
+        ctx.ident(&field_ref.table_name)
+            .operator(".")
+            .ident(&field_ref.field.name);
     }
 
     fn sqlite_comma_idents(&self, names: &[String], ctx: &mut RenderCtx) {
@@ -1321,32 +1395,14 @@ impl SqliteRenderer {
     }
 
     fn sqlite_value(&self, val: &Value, ctx: &mut RenderCtx) -> RenderResult<()> {
+        // NULL is always rendered as keyword, never as parameter.
+        if matches!(val, Value::Null) {
+            ctx.keyword("NULL");
+            return Ok(());
+        }
+
+        // Unsupported types always error, regardless of parameterize mode.
         match val {
-            Value::Null => { ctx.keyword("NULL"); }
-            Value::Bool(b) => { ctx.keyword(if *b { "1" } else { "0" }); }
-            Value::Int(n) => { ctx.keyword(&n.to_string()); }
-            Value::Float(f) => { ctx.keyword(&f.to_string()); }
-            Value::Str(s) => { ctx.string_literal(s); }
-            Value::Bytes(b) => {
-                ctx.write("X'");
-                for byte in b {
-                    ctx.write(&format!("{byte:02x}"));
-                }
-                ctx.write("'");
-            }
-            Value::Date(s) | Value::DateTime(s) | Value::Time(s) => {
-                ctx.string_literal(s);
-            }
-            Value::Decimal(s) => { ctx.keyword(s); }
-            Value::Uuid(s) => { ctx.string_literal(s); }
-            Value::Json(s) | Value::Jsonb(s) => {
-                // SQLite stores JSON as TEXT; json1 extension handles parsing
-                ctx.string_literal(s);
-            }
-            Value::IpNetwork(s) => {
-                // SQLite stores IP addresses as TEXT
-                ctx.string_literal(s);
-            }
             Value::Array(_) => {
                 return Err(RenderError::unsupported(
                     "ArrayValue",
@@ -1365,15 +1421,81 @@ impl SqliteRenderer {
                     "SQLite does not support INTERVAL type. Use string expressions with datetime functions.",
                 ));
             }
+            _ => {}
+        }
+
+        // In parameterized mode, send values as bind parameters.
+        if ctx.parameterize() {
+            ctx.param(val.clone());
+            return Ok(());
+        }
+
+        // Inline literal mode (DDL defaults, etc.)
+        self.sqlite_value_literal(val, ctx)
+    }
+
+    fn sqlite_value_literal(&self, val: &Value, ctx: &mut RenderCtx) -> RenderResult<()> {
+        match val {
+            Value::Null => {
+                ctx.keyword("NULL");
+            }
+            Value::Bool(b) => {
+                ctx.keyword(if *b { "1" } else { "0" });
+            }
+            Value::Int(n) => {
+                ctx.keyword(&n.to_string());
+            }
+            Value::Float(f) => {
+                ctx.keyword(&f.to_string());
+            }
+            Value::Str(s) => {
+                ctx.string_literal(s);
+            }
+            Value::Bytes(b) => {
+                ctx.write("X'");
+                for byte in b {
+                    ctx.write(&format!("{byte:02x}"));
+                }
+                ctx.write("'");
+            }
+            Value::Date(s) | Value::DateTime(s) | Value::Time(s) => {
+                ctx.string_literal(s);
+            }
+            Value::Decimal(s) => {
+                ctx.keyword(s);
+            }
+            Value::Uuid(s) => {
+                ctx.string_literal(s);
+            }
+            Value::Json(s) | Value::Jsonb(s) => {
+                ctx.string_literal(s);
+            }
+            Value::IpNetwork(s) => {
+                ctx.string_literal(s);
+            }
+            _ => {
+                // Array, Vector, TimeDelta — already caught in sqlite_value
+                unreachable!()
+            }
         }
         Ok(())
     }
 
-    fn sqlite_referential_action(&self, action: &ReferentialAction, ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn sqlite_referential_action(
+        &self,
+        action: &ReferentialAction,
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()> {
         match action {
-            ReferentialAction::NoAction => { ctx.keyword("NO ACTION"); }
-            ReferentialAction::Restrict => { ctx.keyword("RESTRICT"); }
-            ReferentialAction::Cascade => { ctx.keyword("CASCADE"); }
+            ReferentialAction::NoAction => {
+                ctx.keyword("NO ACTION");
+            }
+            ReferentialAction::Restrict => {
+                ctx.keyword("RESTRICT");
+            }
+            ReferentialAction::Cascade => {
+                ctx.keyword("CASCADE");
+            }
             ReferentialAction::SetNull(cols) => {
                 ctx.keyword("SET NULL");
                 if cols.is_some() {
@@ -1430,38 +1552,57 @@ impl SqliteRenderer {
         // TABLESAMPLE
         if item.sample.is_some() {
             return Err(RenderError::unsupported(
-                "TABLESAMPLE", "not supported in SQLite",
+                "TABLESAMPLE",
+                "not supported in SQLite",
             ));
         }
         Ok(())
     }
 
-    fn sqlite_render_group_by(&self, items: &[GroupByItem], ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn sqlite_render_group_by(
+        &self,
+        items: &[GroupByItem],
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()> {
         ctx.keyword("GROUP BY");
         for (i, item) in items.iter().enumerate() {
-            if i > 0 { ctx.comma(); }
+            if i > 0 {
+                ctx.comma();
+            }
             match item {
                 GroupByItem::Expr(expr) => {
                     self.render_expr(expr, ctx)?;
                 }
                 GroupByItem::Rollup(_) => {
-                    return Err(RenderError::unsupported("ROLLUP", "not supported in SQLite"));
+                    return Err(RenderError::unsupported(
+                        "ROLLUP",
+                        "not supported in SQLite",
+                    ));
                 }
                 GroupByItem::Cube(_) => {
                     return Err(RenderError::unsupported("CUBE", "not supported in SQLite"));
                 }
                 GroupByItem::GroupingSets(_) => {
-                    return Err(RenderError::unsupported("GROUPING SETS", "not supported in SQLite"));
+                    return Err(RenderError::unsupported(
+                        "GROUPING SETS",
+                        "not supported in SQLite",
+                    ));
                 }
             }
         }
         Ok(())
     }
 
-    fn sqlite_render_window_clause(&self, windows: &[WindowNameDef], ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn sqlite_render_window_clause(
+        &self,
+        windows: &[WindowNameDef],
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()> {
         ctx.keyword("WINDOW");
         for (i, win) in windows.iter().enumerate() {
-            if i > 0 { ctx.comma(); }
+            if i > 0 {
+                ctx.comma();
+            }
             ctx.ident(&win.name).keyword("AS").paren_open();
             if let Some(base) = &win.base_window {
                 ctx.ident(base);
@@ -1469,7 +1610,9 @@ impl SqliteRenderer {
             if let Some(partition_by) = &win.partition_by {
                 ctx.keyword("PARTITION BY");
                 for (j, expr) in partition_by.iter().enumerate() {
-                    if j > 0 { ctx.comma(); }
+                    if j > 0 {
+                        ctx.comma();
+                    }
                     self.render_expr(expr, ctx)?;
                 }
             }
@@ -1503,12 +1646,18 @@ impl SqliteRenderer {
 
     fn sqlite_frame_bound(&self, bound: &WindowFrameBound, ctx: &mut RenderCtx) {
         match bound {
-            WindowFrameBound::CurrentRow => { ctx.keyword("CURRENT ROW"); }
-            WindowFrameBound::Preceding(None) => { ctx.keyword("UNBOUNDED PRECEDING"); }
+            WindowFrameBound::CurrentRow => {
+                ctx.keyword("CURRENT ROW");
+            }
+            WindowFrameBound::Preceding(None) => {
+                ctx.keyword("UNBOUNDED PRECEDING");
+            }
             WindowFrameBound::Preceding(Some(n)) => {
                 ctx.keyword(&n.to_string()).keyword("PRECEDING");
             }
-            WindowFrameBound::Following(None) => { ctx.keyword("UNBOUNDED FOLLOWING"); }
+            WindowFrameBound::Following(None) => {
+                ctx.keyword("UNBOUNDED FOLLOWING");
+            }
             WindowFrameBound::Following(Some(n)) => {
                 ctx.keyword(&n.to_string()).keyword("FOLLOWING");
             }
@@ -1523,10 +1672,16 @@ impl SqliteRenderer {
             SetOperationType::Intersect => "INTERSECT",
             SetOperationType::Except => "EXCEPT",
             SetOperationType::IntersectAll => {
-                return Err(RenderError::unsupported("INTERSECT ALL", "not supported in SQLite"));
+                return Err(RenderError::unsupported(
+                    "INTERSECT ALL",
+                    "not supported in SQLite",
+                ));
             }
             SetOperationType::ExceptAll => {
-                return Err(RenderError::unsupported("EXCEPT ALL", "not supported in SQLite"));
+                return Err(RenderError::unsupported(
+                    "EXCEPT ALL",
+                    "not supported in SQLite",
+                ));
             }
         });
         self.render_query(&set_op.right, ctx)
@@ -1557,7 +1712,12 @@ impl SqliteRenderer {
         // Detect AUTOINCREMENT PK — must be rendered inline on the column in SQLite
         let autoincrement_pk_col = schema.constraints.as_ref().and_then(|cs| {
             cs.iter().find_map(|c| {
-                if let ConstraintDef::PrimaryKey { columns, autoincrement: true, .. } = c {
+                if let ConstraintDef::PrimaryKey {
+                    columns,
+                    autoincrement: true,
+                    ..
+                } = c
+                {
                     if columns.len() == 1 {
                         return Some(columns[0].as_str());
                     }
@@ -1582,7 +1742,12 @@ impl SqliteRenderer {
         if let Some(constraints) = &schema.constraints {
             for constraint in constraints {
                 // Skip the AUTOINCREMENT PK — already rendered inline
-                if let ConstraintDef::PrimaryKey { autoincrement: true, columns, .. } = constraint {
+                if let ConstraintDef::PrimaryKey {
+                    autoincrement: true,
+                    columns,
+                    ..
+                } = constraint
+                {
                     if columns.len() == 1 {
                         continue;
                     }
@@ -1650,13 +1815,19 @@ impl SqliteRenderer {
         Ok(())
     }
 
-    fn sqlite_index_columns(&self, columns: &[IndexColumnDef], ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn sqlite_index_columns(
+        &self,
+        columns: &[IndexColumnDef],
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()> {
         for (i, col) in columns.iter().enumerate() {
             if i > 0 {
                 ctx.comma();
             }
             match &col.expr {
-                IndexExpr::Column(name) => { ctx.ident(name); }
+                IndexExpr::Column(name) => {
+                    ctx.ident(name);
+                }
                 IndexExpr::Expression(expr) => {
                     ctx.paren_open();
                     self.render_expr(expr, ctx)?;
@@ -1678,7 +1849,11 @@ impl SqliteRenderer {
         Ok(())
     }
 
-    fn sqlite_order_by_list(&self, order_by: &[OrderByDef], ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn sqlite_order_by_list(
+        &self,
+        order_by: &[OrderByDef],
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()> {
         for (i, ob) in order_by.iter().enumerate() {
             if i > 0 {
                 ctx.comma();

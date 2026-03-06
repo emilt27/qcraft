@@ -33,15 +33,11 @@ impl TransactionStmt {
     }
 
     pub fn savepoint(name: impl Into<String>) -> Self {
-        Self::Savepoint(SavepointStmt {
-            name: name.into(),
-        })
+        Self::Savepoint(SavepointStmt { name: name.into() })
     }
 
     pub fn release(name: impl Into<String>) -> Self {
-        Self::ReleaseSavepoint(ReleaseSavepointStmt {
-            name: name.into(),
-        })
+        Self::ReleaseSavepoint(ReleaseSavepointStmt { name: name.into() })
     }
 
     pub fn rollback_to(name: impl Into<String>) -> Self {
@@ -56,7 +52,7 @@ impl TransactionStmt {
 // BEGIN / START TRANSACTION
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BeginStmt {
     /// Transaction modes (isolation level, access mode, deferrable).
     pub modes: Option<Vec<TransactionMode>>,
@@ -66,17 +62,6 @@ pub struct BeginStmt {
     pub name: Option<String>,
     /// SQL Server: WITH MARK 'description'.
     pub with_mark: Option<String>,
-}
-
-impl Default for BeginStmt {
-    fn default() -> Self {
-        Self {
-            modes: None,
-            lock_type: None,
-            name: None,
-            with_mark: None,
-        }
-    }
 }
 
 impl BeginStmt {
@@ -128,7 +113,7 @@ pub enum SqliteLockType {
 // COMMIT
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CommitStmt {
     /// PG/MySQL: AND CHAIN — start new transaction immediately.
     pub and_chain: bool,
@@ -142,19 +127,6 @@ pub struct CommitStmt {
     pub write_mode: Option<OracleWriteMode>,
     /// Oracle: FORCE 'transaction_id' for in-doubt distributed txns.
     pub force: Option<String>,
-}
-
-impl Default for CommitStmt {
-    fn default() -> Self {
-        Self {
-            and_chain: false,
-            release: false,
-            name: None,
-            comment: None,
-            write_mode: None,
-            force: None,
-        }
-    }
 }
 
 /// Oracle COMMIT WRITE options.
@@ -180,7 +152,7 @@ pub enum OracleWriteFlush {
 // ROLLBACK
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RollbackStmt {
     /// Roll back to a savepoint instead of the whole transaction.
     pub to_savepoint: Option<String>,
@@ -192,18 +164,6 @@ pub struct RollbackStmt {
     pub name: Option<String>,
     /// Oracle: FORCE 'transaction_id' for in-doubt distributed txns.
     pub force: Option<String>,
-}
-
-impl Default for RollbackStmt {
-    fn default() -> Self {
-        Self {
-            to_savepoint: None,
-            and_chain: false,
-            release: false,
-            name: None,
-            force: None,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

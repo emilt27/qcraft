@@ -11,6 +11,11 @@ fn render(stmt: &QueryStmt) -> String {
     sql
 }
 
+fn render_with_params(stmt: &QueryStmt) -> (String, Vec<Value>) {
+    let renderer = PostgresRenderer::new();
+    renderer.render_query_stmt(stmt).unwrap()
+}
+
 fn simple_query() -> QueryStmt {
     QueryStmt {
         ctes: None,
@@ -72,7 +77,9 @@ fn select_expr_with_alias() {
         }],
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT 1 AS "one""#);
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"SELECT $1 AS "one""#);
+    assert_eq!(params, vec![Value::Int(1)]);
 }
 
 #[test]
@@ -113,10 +120,12 @@ fn select_multiple_columns() {
         )]),
         ..simple_query()
     };
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"SELECT "u"."id", "u"."name", 42 AS "answer" FROM "users" AS "u""#
+        sql,
+        r#"SELECT "u"."id", "u"."name", $1 AS "answer" FROM "users" AS "u""#
     );
+    assert_eq!(params, vec![Value::Int(42)]);
 }
 
 #[test]
@@ -128,7 +137,9 @@ fn select_no_from() {
         }],
         ..simple_query()
     };
-    assert_eq!(render(&stmt), "SELECT 1");
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, "SELECT $1");
+    assert_eq!(params, vec![Value::Int(1)]);
 }
 
 // ==========================================================================
@@ -316,9 +327,19 @@ fn from_values() {
         }]),
         ..simple_query()
     };
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS "t" ("id", "name")"#
+        sql,
+        r#"SELECT * FROM (VALUES ($1, $2), ($3, $4)) AS "t" ("id", "name")"#
+    );
+    assert_eq!(
+        params,
+        vec![
+            Value::Int(1),
+            Value::Str("a".into()),
+            Value::Int(2),
+            Value::Str("b".into()),
+        ]
     );
 }
 
@@ -342,10 +363,9 @@ fn from_function() {
         }]),
         ..simple_query()
     };
-    assert_eq!(
-        render(&stmt),
-        r#"SELECT * FROM generate_series(1, 10) AS "s""#
-    );
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"SELECT * FROM generate_series($1, $2) AS "s""#);
+    assert_eq!(params, vec![Value::Int(1), Value::Int(10)]);
 }
 
 // ==========================================================================
@@ -356,7 +376,9 @@ fn from_function() {
 fn inner_join() {
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_alias("u"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         joins: Some(vec![JoinDef {
             source: FromItem::table(SchemaRef::new("orders").with_alias("o")),
             condition: Some(JoinCondition::On(simple_cond_eq(
@@ -378,7 +400,9 @@ fn inner_join() {
 fn left_join() {
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_alias("u"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         joins: Some(vec![JoinDef {
             source: FromItem::table(SchemaRef::new("orders").with_alias("o")),
             condition: Some(JoinCondition::On(simple_cond_eq(
@@ -400,7 +424,9 @@ fn left_join() {
 fn right_join() {
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_alias("u"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         joins: Some(vec![JoinDef {
             source: FromItem::table(SchemaRef::new("orders").with_alias("o")),
             condition: Some(JoinCondition::On(simple_cond_eq(
@@ -469,10 +495,7 @@ fn natural_join() {
         }]),
         ..simple_query()
     };
-    assert_eq!(
-        render(&stmt),
-        r#"SELECT * FROM "a" NATURAL INNER JOIN "b""#
-    );
+    assert_eq!(render(&stmt), r#"SELECT * FROM "a" NATURAL INNER JOIN "b""#);
 }
 
 #[test]
@@ -507,7 +530,9 @@ fn lateral_join() {
     };
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_alias("u"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         joins: Some(vec![JoinDef {
             source: FromItem {
                 source: TableSource::Lateral(Box::new(FromItem::subquery(
@@ -547,10 +572,9 @@ fn where_clause() {
         )),
         ..simple_query()
     };
-    assert_eq!(
-        render(&stmt),
-        r#"SELECT * FROM "users" WHERE "users"."id" = 1"#
-    );
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "users"."id" = $1"#);
+    assert_eq!(params, vec![Value::Int(1)]);
 }
 
 #[test]
@@ -574,10 +598,12 @@ fn where_and_conditions() {
         ])),
         ..simple_query()
     };
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"SELECT * FROM "users" WHERE "users"."active" = TRUE AND "users"."age" > 18"#
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."active" = $1 AND "users"."age" > $2"#
     );
+    assert_eq!(params, vec![Value::Bool(true), Value::Int(18)]);
 }
 
 // ==========================================================================
@@ -606,10 +632,12 @@ fn group_by_simple() {
         )))]),
         ..simple_query()
     };
+    let (sql, params) = render_with_params(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"SELECT "users"."country", COUNT(1) AS "cnt" FROM "users" GROUP BY "users"."country""#
+        sql,
+        r#"SELECT "users"."country", COUNT($1) AS "cnt" FROM "users" GROUP BY "users"."country""#
     );
+    assert_eq!(params, vec![Value::Int(1)]);
 }
 
 #[test]
@@ -704,8 +732,10 @@ fn having_clause() {
         )])),
         ..simple_query()
     };
-    let sql = render(&stmt);
-    assert!(sql.contains("HAVING COUNT(1) > 5"));
+    let (sql, params) = render_with_params(&stmt);
+    // SELECT has COUNT($1), HAVING has COUNT($2) > $3
+    assert!(sql.contains("HAVING COUNT($2) > $3"), "sql: {sql}");
+    assert_eq!(params, vec![Value::Int(1), Value::Int(1), Value::Int(5)]);
 }
 
 // ==========================================================================
@@ -731,7 +761,9 @@ fn window_clause() {
         ..simple_query()
     };
     let sql = render(&stmt);
-    assert!(sql.contains(r#"WINDOW "w" AS (PARTITION BY "sales"."region" ORDER BY "sales"."amount" DESC)"#));
+    assert!(sql.contains(
+        r#"WINDOW "w" AS (PARTITION BY "sales"."region" ORDER BY "sales"."amount" DESC)"#
+    ));
 }
 
 #[test]
@@ -904,10 +936,7 @@ fn limit_with_offset() {
         }),
         ..simple_query()
     };
-    assert_eq!(
-        render(&stmt),
-        r#"SELECT * FROM "users" LIMIT 10 OFFSET 20"#
-    );
+    assert_eq!(render(&stmt), r#"SELECT * FROM "users" LIMIT 10 OFFSET 20"#);
 }
 
 #[test]
@@ -1164,17 +1193,16 @@ fn for_update() {
         }]),
         ..simple_query()
     };
-    assert_eq!(
-        render(&stmt),
-        r#"SELECT * FROM "users" FOR UPDATE"#
-    );
+    assert_eq!(render(&stmt), r#"SELECT * FROM "users" FOR UPDATE"#);
 }
 
 #[test]
 fn for_share_of_table() {
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
-        from: Some(vec![FromItem::table(SchemaRef::new("users").with_alias("u"))]),
+        from: Some(vec![FromItem::table(
+            SchemaRef::new("users").with_alias("u"),
+        )]),
         lock: Some(vec![SelectLockDef {
             strength: LockStrength::Share,
             of: Some(vec![SchemaRef::new("users")]),
@@ -1202,10 +1230,7 @@ fn for_update_nowait() {
         }]),
         ..simple_query()
     };
-    assert_eq!(
-        render(&stmt),
-        r#"SELECT * FROM "users" FOR UPDATE NOWAIT"#
-    );
+    assert_eq!(render(&stmt), r#"SELECT * FROM "users" FOR UPDATE NOWAIT"#);
 }
 
 #[test]
@@ -1242,10 +1267,7 @@ fn for_no_key_update() {
         }]),
         ..simple_query()
     };
-    assert_eq!(
-        render(&stmt),
-        r#"SELECT * FROM "users" FOR NO KEY UPDATE"#
-    );
+    assert_eq!(render(&stmt), r#"SELECT * FROM "users" FOR NO KEY UPDATE"#);
 }
 
 #[test]
@@ -1262,10 +1284,7 @@ fn for_key_share() {
         }]),
         ..simple_query()
     };
-    assert_eq!(
-        render(&stmt),
-        r#"SELECT * FROM "users" FOR KEY SHARE"#
-    );
+    assert_eq!(render(&stmt), r#"SELECT * FROM "users" FOR KEY SHARE"#);
 }
 
 #[test]
@@ -1533,16 +1552,25 @@ fn full_pipeline() {
         distinct: None,
         window: None,
     };
-    let sql = render(&stmt);
+    let (sql, params) = render_with_params(&stmt);
     assert!(sql.starts_with("WITH"));
     assert!(sql.contains(r#""active" AS (SELECT"#));
     assert!(sql.contains(r#"SELECT "u"."id", "u"."name""#));
     assert!(sql.contains(r#"FROM "active" AS "u""#));
     assert!(sql.contains(r#"INNER JOIN "orders" AS "o" ON "u"."id" = "o"."user_id""#));
-    assert!(sql.contains(r#"WHERE "o"."amount" > 100"#));
+    assert!(sql.contains(r#"WHERE "o"."amount" > $2"#), "sql: {sql}");
     assert!(sql.contains(r#"GROUP BY "u"."id", "u"."name""#));
-    assert!(sql.contains("HAVING COUNT(1) > 2"));
+    assert!(sql.contains("HAVING COUNT($3) > $4"), "sql: {sql}");
     assert!(sql.contains(r#"ORDER BY "u"."name" ASC"#));
     assert!(sql.contains("LIMIT 10 OFFSET 5"));
     assert!(sql.contains("FOR UPDATE"));
+    assert_eq!(
+        params,
+        vec![
+            Value::Bool(true),
+            Value::Int(100),
+            Value::Int(1),
+            Value::Int(2),
+        ]
+    );
 }

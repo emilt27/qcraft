@@ -1,17 +1,12 @@
+use crate::ast::common::OrderByDef;
 use crate::ast::conditions::{CompareOp, Conditions};
-use crate::ast::ddl::{
-    ColumnDef, ConstraintDef, FieldType, IndexDef, SchemaMutationStmt,
+use crate::ast::ddl::{ColumnDef, ConstraintDef, FieldType, IndexDef, SchemaMutationStmt};
+use crate::ast::dml::{DeleteStmt, InsertStmt, MutationStmt, OnConflictDef, UpdateStmt};
+use crate::ast::expr::{AggregationDef, CaseDef, Expr, WindowDef};
+use crate::ast::query::{
+    CteDef, JoinDef, LimitDef, QueryStmt, SelectColumn, SelectLockDef, TableSource,
 };
 use crate::ast::tcl::TransactionStmt;
-use crate::ast::dml::{
-    DeleteStmt, InsertStmt, MutationStmt, OnConflictDef, UpdateStmt,
-};
-use crate::ast::expr::{AggregationDef, CaseDef, Expr, WindowDef};
-use crate::ast::common::OrderByDef;
-use crate::ast::query::{
-    CteDef, JoinDef, LimitDef, QueryStmt, SelectColumn,
-    SelectLockDef, TableSource,
-};
 use crate::error::RenderResult;
 use crate::render::ctx::RenderCtx;
 
@@ -29,19 +24,12 @@ pub trait Renderer {
         stmt: &SchemaMutationStmt,
         ctx: &mut RenderCtx,
     ) -> RenderResult<()>;
-    fn render_transaction(
-        &self,
-        stmt: &TransactionStmt,
-        ctx: &mut RenderCtx,
-    ) -> RenderResult<()>;
+    fn render_transaction(&self, stmt: &TransactionStmt, ctx: &mut RenderCtx) -> RenderResult<()>;
 
     // ── SELECT parts ──
 
-    fn render_select_columns(
-        &self,
-        cols: &[SelectColumn],
-        ctx: &mut RenderCtx,
-    ) -> RenderResult<()>;
+    fn render_select_columns(&self, cols: &[SelectColumn], ctx: &mut RenderCtx)
+    -> RenderResult<()>;
     fn render_from(&self, source: &TableSource, ctx: &mut RenderCtx) -> RenderResult<()>;
     fn render_joins(&self, joins: &[JoinDef], ctx: &mut RenderCtx) -> RenderResult<()>;
     fn render_where(&self, cond: &Conditions, ctx: &mut RenderCtx) -> RenderResult<()>;

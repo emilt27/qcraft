@@ -3,8 +3,8 @@
 //! while still producing valid, executable SQL.
 
 use postgres::{Client, NoTls};
-use testcontainers::runners::SyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::SyncRunner;
 use testcontainers_modules::postgres::Postgres;
 
 use rquery_core::ast::tcl::*;

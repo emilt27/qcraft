@@ -8,7 +8,7 @@ use super::expr::Expr;
 // ---------------------------------------------------------------------------
 
 /// A SELECT query statement.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct QueryStmt {
     pub ctes: Option<Vec<CteDef>>,
     pub columns: Vec<SelectColumn>,
@@ -26,25 +26,6 @@ pub struct QueryStmt {
     pub lock: Option<Vec<SelectLockDef>>,
 }
 
-impl Default for QueryStmt {
-    fn default() -> Self {
-        Self {
-            ctes: None,
-            columns: vec![],
-            distinct: None,
-            from: None,
-            joins: None,
-            where_clause: None,
-            group_by: None,
-            having: None,
-            window: None,
-            order_by: None,
-            limit: None,
-            lock: None,
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // SELECT columns
 // ---------------------------------------------------------------------------
@@ -56,10 +37,7 @@ pub enum SelectColumn {
     Star(Option<String>),
 
     /// An expression, optionally aliased.
-    Expr {
-        expr: Expr,
-        alias: Option<String>,
-    },
+    Expr { expr: Expr, alias: Option<String> },
 
     /// A field reference, optionally aliased.
     Field {

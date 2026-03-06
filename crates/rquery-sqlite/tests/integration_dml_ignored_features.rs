@@ -1,7 +1,6 @@
 //! Integration tests that verify the SQLite renderer silently ignores
 //! database-specific fields (PG, MySQL) and still produces valid SQL.
 
-use rusqlite::Connection;
 use rquery_core::ast::common::SchemaRef;
 use rquery_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use rquery_core::ast::dml::*;
@@ -9,6 +8,8 @@ use rquery_core::ast::expr::Expr;
 use rquery_core::ast::query::TableSource;
 use rquery_core::ast::value::Value;
 use rquery_sqlite::SqliteRenderer;
+use rusqlite::Connection;
+use rusqlite::types::ToSql as RusqliteToSql;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -16,10 +17,35 @@ fn conn() -> Connection {
     Connection::open_in_memory().unwrap()
 }
 
-fn render(stmt: &MutationStmt) -> String {
+fn render(stmt: &MutationStmt) -> (String, Vec<Value>) {
     let renderer = SqliteRenderer::new();
-    let (sql, _) = renderer.render_mutation_stmt(stmt).unwrap();
-    sql
+    renderer.render_mutation_stmt(stmt).unwrap()
+}
+
+fn to_sqlite_params(values: &[Value]) -> Vec<Box<dyn RusqliteToSql>> {
+    values
+        .iter()
+        .map(|v| -> Box<dyn RusqliteToSql> {
+            match v {
+                Value::Null => Box::new(rusqlite::types::Null),
+                Value::Bool(b) => Box::new(*b),
+                Value::Int(n) => Box::new(*n),
+                Value::Float(f) => Box::new(*f),
+                Value::Str(s) => Box::new(s.clone()),
+                Value::Bytes(b) => Box::new(b.clone()),
+                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
+                Value::Decimal(s) => Box::new(s.clone()),
+                Value::Uuid(s) => Box::new(s.clone()),
+                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
+                Value::IpNetwork(s) => Box::new(s.clone()),
+                _ => Box::new(format!("{:?}", v)),
+            }
+        })
+        .collect()
+}
+
+fn as_sqlite_params(boxed: &[Box<dyn RusqliteToSql>]) -> Vec<&dyn RusqliteToSql> {
+    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn setup_users(conn: &Connection) {
@@ -70,7 +96,10 @@ fn insert_overriding_ignored() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 1);
 }
 
@@ -95,7 +124,10 @@ fn insert_partition_ignored() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 1);
 }
 
@@ -120,7 +152,10 @@ fn insert_ignore_flag_ignored() {
         ignore: true,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 1);
 }
 
@@ -162,7 +197,10 @@ fn update_only_ignored() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
         .query_row(r#"SELECT "name" FROM "users" WHERE "id" = 1"#, [], |row| {
@@ -206,7 +244,10 @@ fn update_partition_ignored() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
         .query_row(r#"SELECT "name" FROM "users" WHERE "id" = 1"#, [], |row| {
@@ -250,7 +291,10 @@ fn update_ignore_flag_ignored() {
         ignore: true,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
         .query_row(r#"SELECT "name" FROM "users" WHERE "id" = 1"#, [], |row| {
@@ -297,7 +341,10 @@ fn delete_using_ignored() {
     });
 
     // USING is silently dropped — the DELETE should still work
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 0);
 }
 
@@ -333,7 +380,10 @@ fn delete_only_ignored() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 0);
 }
 
@@ -369,7 +419,10 @@ fn delete_partition_ignored() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 0);
 }
 
@@ -405,6 +458,9 @@ fn delete_ignore_flag_ignored() {
         ignore: true,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 0);
 }

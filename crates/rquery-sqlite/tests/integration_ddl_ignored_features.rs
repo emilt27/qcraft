@@ -1,10 +1,10 @@
 //! Tests that verify SQLite silently ignores unsupported DDL features
 //! while still producing valid, executable SQL.
 
-use rusqlite::Connection;
 use rquery_core::ast::common::{OrderDir, SchemaRef};
 use rquery_core::ast::ddl::*;
 use rquery_sqlite::SqliteRenderer;
+use rusqlite::Connection;
 
 fn conn() -> Connection {
     Connection::open_in_memory().unwrap()
@@ -109,7 +109,8 @@ fn unlogged_and_tablespace_together_ignored() {
 #[test]
 fn drop_table_cascade_ignored() {
     let db = conn();
-    db.execute("CREATE TABLE \"t\" (\"id\" INTEGER)", []).unwrap();
+    db.execute("CREATE TABLE \"t\" (\"id\" INTEGER)", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::DropTable {
         schema_ref: SchemaRef::new("t"),
@@ -127,28 +128,34 @@ fn drop_table_cascade_ignored() {
 #[test]
 fn index_concurrently_ignored() {
     let db = conn();
-    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER)", []).unwrap();
+    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER)", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("t"),
-        index: IndexDef::new("idx_a", vec![IndexColumnDef {
-            expr: IndexExpr::Column("a".into()),
-            direction: None,
-            nulls: None,
-            opclass: None,
-            collation: None,
-        }]),
+        index: IndexDef::new(
+            "idx_a",
+            vec![IndexColumnDef {
+                expr: IndexExpr::Column("a".into()),
+                direction: None,
+                nulls: None,
+                opclass: None,
+                collation: None,
+            }],
+        ),
         if_not_exists: false,
         concurrently: true,
     };
     db.execute(&render(&stmt), []).unwrap();
 
     // Index was created despite CONCURRENTLY
-    let count: i32 = db.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_a'",
-        [],
-        |r| r.get(0),
-    ).unwrap();
+    let count: i32 = db
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_a'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(count, 1);
 }
 
@@ -185,7 +192,8 @@ fn index_type_ignored() {
 #[test]
 fn index_include_ignored() {
     let db = conn();
-    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER, \"b\" TEXT)", []).unwrap();
+    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER, \"b\" TEXT)", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("t"),
@@ -215,7 +223,8 @@ fn index_include_ignored() {
 #[test]
 fn index_parameters_and_tablespace_ignored() {
     let db = conn();
-    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER)", []).unwrap();
+    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER)", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("t"),
@@ -249,13 +258,16 @@ fn index_opclass_ignored() {
 
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("t"),
-        index: IndexDef::new("idx_a", vec![IndexColumnDef {
-            expr: IndexExpr::Column("a".into()),
-            direction: Some(OrderDir::Asc),
-            nulls: None,
-            opclass: Some("text_pattern_ops".into()),
-            collation: None,
-        }]),
+        index: IndexDef::new(
+            "idx_a",
+            vec![IndexColumnDef {
+                expr: IndexExpr::Column("a".into()),
+                direction: Some(OrderDir::Asc),
+                nulls: None,
+                opclass: Some("text_pattern_ops".into()),
+                collation: None,
+            }],
+        ),
         if_not_exists: false,
         concurrently: false,
     };
@@ -265,7 +277,8 @@ fn index_opclass_ignored() {
 #[test]
 fn index_all_pg_features_ignored_together() {
     let db = conn();
-    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER, \"b\" TEXT)", []).unwrap();
+    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER, \"b\" TEXT)", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::CreateIndex {
         schema_ref: SchemaRef::new("t"),
@@ -304,8 +317,10 @@ fn index_all_pg_features_ignored_together() {
 #[test]
 fn drop_index_concurrently_and_cascade_ignored() {
     let db = conn();
-    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER)", []).unwrap();
-    db.execute("CREATE INDEX \"idx_a\" ON \"t\" (\"a\")", []).unwrap();
+    db.execute("CREATE TABLE \"t\" (\"a\" INTEGER)", [])
+        .unwrap();
+    db.execute("CREATE INDEX \"idx_a\" ON \"t\" (\"a\")", [])
+        .unwrap();
 
     let stmt = SchemaMutationStmt::DropIndex {
         schema_ref: SchemaRef::new("t"),
@@ -316,10 +331,12 @@ fn drop_index_concurrently_and_cascade_ignored() {
     };
     db.execute(&render(&stmt), []).unwrap();
 
-    let count: i32 = db.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_a'",
-        [],
-        |r| r.get(0),
-    ).unwrap();
+    let count: i32 = db
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_a'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(count, 0);
 }

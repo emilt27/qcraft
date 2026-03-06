@@ -37,13 +37,16 @@ fn simple_query() -> QueryStmt {
 #[test]
 fn distinct_on_unsupported() {
     let stmt = QueryStmt {
-        distinct: Some(DistinctDef::DistinctOn(vec![
-            Expr::Field(FieldRef::new("users", "id")),
-        ])),
+        distinct: Some(DistinctDef::DistinctOn(vec![Expr::Field(FieldRef::new(
+            "users", "id",
+        ))])),
         ..simple_query()
     };
     let err = render_err(&stmt);
-    assert!(err.contains("DISTINCT ON"), "expected DISTINCT ON error, got: {err}");
+    assert!(
+        err.contains("DISTINCT ON"),
+        "expected DISTINCT ON error, got: {err}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -66,7 +69,10 @@ fn tablesample_unsupported() {
         ..simple_query()
     };
     let err = render_err(&stmt);
-    assert!(err.contains("TABLESAMPLE"), "expected TABLESAMPLE error, got: {err}");
+    assert!(
+        err.contains("TABLESAMPLE"),
+        "expected TABLESAMPLE error, got: {err}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +91,10 @@ fn lateral_unsupported() {
         ..simple_query()
     };
     let err = render_err(&stmt);
-    assert!(err.contains("LATERAL"), "expected LATERAL error, got: {err}");
+    assert!(
+        err.contains("LATERAL"),
+        "expected LATERAL error, got: {err}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -95,9 +104,9 @@ fn lateral_unsupported() {
 #[test]
 fn rollup_unsupported() {
     let stmt = QueryStmt {
-        group_by: Some(vec![GroupByItem::Rollup(vec![
-            Expr::Field(FieldRef::new("t", "a")),
-        ])]),
+        group_by: Some(vec![GroupByItem::Rollup(vec![Expr::Field(FieldRef::new(
+            "t", "a",
+        ))])]),
         ..simple_query()
     };
     let err = render_err(&stmt);
@@ -111,9 +120,9 @@ fn rollup_unsupported() {
 #[test]
 fn cube_unsupported() {
     let stmt = QueryStmt {
-        group_by: Some(vec![GroupByItem::Cube(vec![
-            Expr::Field(FieldRef::new("t", "a")),
-        ])]),
+        group_by: Some(vec![GroupByItem::Cube(vec![Expr::Field(FieldRef::new(
+            "t", "a",
+        ))])]),
         ..simple_query()
     };
     let err = render_err(&stmt);
@@ -127,13 +136,16 @@ fn cube_unsupported() {
 #[test]
 fn grouping_sets_unsupported() {
     let stmt = QueryStmt {
-        group_by: Some(vec![GroupByItem::GroupingSets(vec![
-            vec![Expr::Field(FieldRef::new("t", "a"))],
-        ])]),
+        group_by: Some(vec![GroupByItem::GroupingSets(vec![vec![Expr::Field(
+            FieldRef::new("t", "a"),
+        )]])]),
         ..simple_query()
     };
     let err = render_err(&stmt);
-    assert!(err.contains("GROUPING SETS"), "expected GROUPING SETS error, got: {err}");
+    assert!(
+        err.contains("GROUPING SETS"),
+        "expected GROUPING SETS error, got: {err}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +165,10 @@ fn for_update_unsupported() {
         ..simple_query()
     };
     let err = render_err(&stmt);
-    assert!(err.contains("FOR UPDATE"), "expected FOR UPDATE error, got: {err}");
+    assert!(
+        err.contains("FOR UPDATE"),
+        "expected FOR UPDATE error, got: {err}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -183,13 +198,20 @@ fn apply_unsupported() {
 fn fetch_first_with_ties_unsupported() {
     let stmt = QueryStmt {
         limit: Some(LimitDef {
-            kind: LimitKind::FetchFirst { count: 10, with_ties: true, percent: false },
+            kind: LimitKind::FetchFirst {
+                count: 10,
+                with_ties: true,
+                percent: false,
+            },
             offset: None,
         }),
         ..simple_query()
     };
     let err = render_err(&stmt);
-    assert!(err.contains("WITH TIES"), "expected WITH TIES error, got: {err}");
+    assert!(
+        err.contains("WITH TIES"),
+        "expected WITH TIES error, got: {err}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -214,5 +236,8 @@ fn intersect_all_unsupported() {
         ..simple_query()
     };
     let err = render_err(&stmt);
-    assert!(err.contains("INTERSECT ALL"), "expected INTERSECT ALL error, got: {err}");
+    assert!(
+        err.contains("INTERSECT ALL"),
+        "expected INTERSECT ALL error, got: {err}"
+    );
 }

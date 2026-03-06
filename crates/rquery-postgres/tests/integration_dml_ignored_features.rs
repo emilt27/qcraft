@@ -1,9 +1,10 @@
 //! Tests that verify PostgreSQL renderer silently ignores SQLite/MySQL-specific DML features
 //! while still producing valid, executable SQL.
 
+use postgres::types::ToSql;
 use postgres::{Client, NoTls};
-use testcontainers::runners::SyncRunner;
 use testcontainers::ImageExt;
+use testcontainers::runners::SyncRunner;
 use testcontainers_modules::postgres::Postgres;
 
 use rquery_core::ast::common::{OrderByDef, OrderDir, SchemaRef};
@@ -13,10 +14,38 @@ use rquery_core::ast::expr::Expr;
 use rquery_core::ast::value::Value;
 use rquery_postgres::PostgresRenderer;
 
-fn render(stmt: &MutationStmt) -> String {
+fn render(stmt: &MutationStmt) -> (String, Vec<Value>) {
     let renderer = PostgresRenderer::new();
-    let (sql, _) = renderer.render_mutation_stmt(stmt).unwrap();
-    sql
+    renderer.render_mutation_stmt(stmt).unwrap()
+}
+
+fn to_pg_params(values: &[Value]) -> Vec<Box<dyn ToSql + Sync>> {
+    values
+        .iter()
+        .map(|v| -> Box<dyn ToSql + Sync> {
+            match v {
+                Value::Null => Box::new(Option::<String>::None),
+                Value::Bool(b) => Box::new(*b),
+                Value::Int(n) => match i32::try_from(*n) {
+                    Ok(i) => Box::new(i),
+                    Err(_) => Box::new(*n),
+                },
+                Value::Float(f) => Box::new(*f),
+                Value::Str(s) => Box::new(s.clone()),
+                Value::Bytes(b) => Box::new(b.clone()),
+                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
+                Value::Decimal(s) => Box::new(s.clone()),
+                Value::Uuid(s) => Box::new(s.clone()),
+                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
+                Value::IpNetwork(s) => Box::new(s.clone()),
+                _ => Box::new(format!("{:?}", v)),
+            }
+        })
+        .collect()
+}
+
+fn as_pg_params(boxed: &[Box<dyn ToSql + Sync>]) -> Vec<&(dyn ToSql + Sync)> {
+    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn connect() -> (impl std::any::Any, Client) {
@@ -53,12 +82,12 @@ fn insert_conflict_resolution_ignored() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
-    let val: String = client
-        .query_one("SELECT val FROM t", &[])
-        .unwrap()
-        .get(0);
+    let val: String = client.query_one("SELECT val FROM t", &[]).unwrap().get(0);
     assert_eq!(val, "x");
 }
 
@@ -81,7 +110,10 @@ fn insert_partition_ignored() {
         partition: Some(vec!["p1".into()]),
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM t", &[])
@@ -109,7 +141,10 @@ fn insert_ignore_flag_ignored() {
         partition: None,
         ignore: true,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM t", &[])
@@ -159,7 +194,10 @@ fn update_conflict_resolution_ignored() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let val: String = client
         .query_one("SELECT val FROM t WHERE id = 1", &[])
@@ -200,7 +238,10 @@ fn update_order_by_ignored() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM t WHERE val = 'updated'", &[])
@@ -234,7 +275,10 @@ fn update_limit_ignored() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM t WHERE val = 'updated'", &[])
@@ -268,12 +312,12 @@ fn update_partition_ignored() {
         partition: Some(vec!["p1".into()]),
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
-    let val: String = client
-        .query_one("SELECT val FROM t", &[])
-        .unwrap()
-        .get(0);
+    let val: String = client.query_one("SELECT val FROM t", &[]).unwrap().get(0);
     assert_eq!(val, "new");
 }
 
@@ -302,12 +346,12 @@ fn update_ignore_flag_ignored() {
         partition: None,
         ignore: true,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
-    let val: String = client
-        .query_one("SELECT val FROM t", &[])
-        .unwrap()
-        .get(0);
+    let val: String = client.query_one("SELECT val FROM t", &[]).unwrap().get(0);
     assert_eq!(val, "new");
 }
 
@@ -345,7 +389,10 @@ fn delete_order_by_ignored() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM t", &[])
@@ -377,7 +424,10 @@ fn delete_limit_ignored() {
         partition: None,
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM t", &[])
@@ -409,7 +459,10 @@ fn delete_partition_ignored() {
         partition: Some(vec!["p1".into()]),
         ignore: false,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM t", &[])
@@ -441,7 +494,10 @@ fn delete_ignore_flag_ignored() {
         partition: None,
         ignore: true,
     });
-    client.execute(&render(&stmt), &[]).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
         .query_one("SELECT COUNT(*) FROM t", &[])

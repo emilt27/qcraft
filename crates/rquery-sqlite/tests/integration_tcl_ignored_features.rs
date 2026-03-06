@@ -1,9 +1,9 @@
 //! Tests that verify SQLite silently ignores unsupported TCL features
 //! while still producing valid, executable SQL.
 
-use rusqlite::Connection;
 use rquery_core::ast::tcl::*;
 use rquery_sqlite::SqliteRenderer;
+use rusqlite::Connection;
 
 fn conn() -> Connection {
     Connection::open_in_memory().unwrap()
@@ -16,8 +16,11 @@ fn render(stmt: &TransactionStmt) -> String {
 }
 
 fn setup_table(conn: &Connection) {
-    conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)", [])
-        .unwrap();
+    conn.execute(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+        [],
+    )
+    .unwrap();
 }
 
 fn count_rows(conn: &Connection) -> i64 {

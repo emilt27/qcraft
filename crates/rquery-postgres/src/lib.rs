@@ -1,64 +1,79 @@
 use rquery_core::ast::common::{FieldRef, NullsOrder, OrderByDef, OrderDir, SchemaRef};
 use rquery_core::ast::conditions::{CompareOp, ConditionNode, Conditions, Connector};
 use rquery_core::ast::ddl::{
-    ColumnDef, ConstraintDef, DeferrableConstraint, FieldType,
-    IdentityColumn, IndexColumnDef, IndexDef, IndexExpr, LikeTableDef,
-    MatchType, OnCommitAction, PartitionByDef, PartitionStrategy,
-    ReferentialAction, SchemaDef, SchemaMutationStmt,
+    ColumnDef, ConstraintDef, DeferrableConstraint, FieldType, IdentityColumn, IndexColumnDef,
+    IndexDef, IndexExpr, LikeTableDef, MatchType, OnCommitAction, PartitionByDef,
+    PartitionStrategy, ReferentialAction, SchemaDef, SchemaMutationStmt,
 };
 use rquery_core::ast::dml::{
-    ConflictAction, ConflictTarget, DeleteStmt, InsertSource, InsertStmt,
-    MutationStmt, OnConflictDef, OverridingKind, UpdateStmt,
-};
-use rquery_core::ast::tcl::{
-    BeginStmt, CommitStmt, IsolationLevel, LockMode, LockTableStmt, RollbackStmt,
-    SetTransactionStmt, TransactionMode, TransactionScope, TransactionStmt,
+    ConflictAction, ConflictTarget, DeleteStmt, InsertSource, InsertStmt, MutationStmt,
+    OnConflictDef, OverridingKind, UpdateStmt,
 };
 use rquery_core::ast::expr::{
-    AggregationDef, BinaryOp, CaseDef, Expr, UnaryOp, WindowDef, WindowFrameBound,
-    WindowFrameDef, WindowFrameType,
+    AggregationDef, BinaryOp, CaseDef, Expr, UnaryOp, WindowDef, WindowFrameBound, WindowFrameDef,
+    WindowFrameType,
 };
 use rquery_core::ast::query::{
     CteDef, CteMaterialized, DistinctDef, FromItem, GroupByItem, JoinCondition, JoinDef, JoinType,
     LimitDef, LimitKind, LockStrength, QueryStmt, SampleMethod, SelectColumn, SelectLockDef,
     SetOpDef, SetOperationType, TableSource, WindowNameDef,
 };
+use rquery_core::ast::tcl::{
+    BeginStmt, CommitStmt, IsolationLevel, LockMode, LockTableStmt, RollbackStmt,
+    SetTransactionStmt, TransactionMode, TransactionScope, TransactionStmt,
+};
 use rquery_core::ast::value::Value;
 use rquery_core::error::{RenderError, RenderResult};
 use rquery_core::render::ctx::{ParamStyle, RenderCtx};
 use rquery_core::render::renderer::Renderer;
 
-pub struct PostgresRenderer;
+pub struct PostgresRenderer {
+    param_style: ParamStyle,
+}
 
 impl PostgresRenderer {
     pub fn new() -> Self {
-        Self
+        Self {
+            param_style: ParamStyle::Dollar,
+        }
+    }
+
+    /// Use `%s` placeholders (psycopg / DB-API 2.0) instead of `$1`.
+    pub fn with_param_style(mut self, style: ParamStyle) -> Self {
+        self.param_style = style;
+        self
     }
 
     /// Convenience: render a DDL statement to SQL string + params.
-    pub fn render_schema_stmt(&self, stmt: &SchemaMutationStmt) -> RenderResult<(String, Vec<Value>)> {
-        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+    pub fn render_schema_stmt(
+        &self,
+        stmt: &SchemaMutationStmt,
+    ) -> RenderResult<(String, Vec<Value>)> {
+        let mut ctx = RenderCtx::new(self.param_style);
         self.render_schema_mutation(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 
     /// Convenience: render a TCL statement to SQL string + params.
-    pub fn render_transaction_stmt(&self, stmt: &TransactionStmt) -> RenderResult<(String, Vec<Value>)> {
-        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+    pub fn render_transaction_stmt(
+        &self,
+        stmt: &TransactionStmt,
+    ) -> RenderResult<(String, Vec<Value>)> {
+        let mut ctx = RenderCtx::new(self.param_style);
         self.render_transaction(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 
     /// Convenience: render a DML statement to SQL string + params.
     pub fn render_mutation_stmt(&self, stmt: &MutationStmt) -> RenderResult<(String, Vec<Value>)> {
-        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+        let mut ctx = RenderCtx::new(self.param_style).with_parameterize(true);
         self.render_mutation(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 
     /// Convenience: render a SELECT query to SQL string + params.
     pub fn render_query_stmt(&self, stmt: &QueryStmt) -> RenderResult<(String, Vec<Value>)> {
-        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+        let mut ctx = RenderCtx::new(self.param_style).with_parameterize(true);
         self.render_query(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
@@ -96,11 +111,19 @@ impl Renderer for PostgresRenderer {
                 on_commit,
                 table_options: _, // PG uses WITH options instead
                 without_rowid: _, // SQLite-specific — Ignore
-                strict: _, // SQLite-specific — Ignore
+                strict: _,        // SQLite-specific — Ignore
             } => self.pg_create_table(
-                schema, *if_not_exists, *temporary, *unlogged, tablespace.as_deref(),
-                partition_by.as_ref(), inherits.as_deref(), using_method.as_deref(),
-                with_options.as_deref(), on_commit.as_ref(), ctx,
+                schema,
+                *if_not_exists,
+                *temporary,
+                *unlogged,
+                tablespace.as_deref(),
+                partition_by.as_ref(),
+                inherits.as_deref(),
+                using_method.as_deref(),
+                with_options.as_deref(),
+                on_commit.as_ref(),
+                ctx,
             ),
 
             SchemaMutationStmt::DropTable {
@@ -186,7 +209,10 @@ impl Renderer for PostgresRenderer {
             } => {
                 ctx.keyword("ALTER TABLE");
                 self.pg_schema_ref(schema_ref, ctx);
-                ctx.keyword("RENAME COLUMN").ident(old_name).keyword("TO").ident(new_name);
+                ctx.keyword("RENAME COLUMN")
+                    .ident(old_name)
+                    .keyword("TO")
+                    .ident(new_name);
                 Ok(())
             }
 
@@ -198,7 +224,9 @@ impl Renderer for PostgresRenderer {
             } => {
                 ctx.keyword("ALTER TABLE");
                 self.pg_schema_ref(schema_ref, ctx);
-                ctx.keyword("ALTER COLUMN").ident(column_name).keyword("SET DATA TYPE");
+                ctx.keyword("ALTER COLUMN")
+                    .ident(column_name)
+                    .keyword("SET DATA TYPE");
                 self.render_column_type(new_type, ctx)?;
                 if let Some(expr) = using_expr {
                     ctx.keyword("USING");
@@ -284,7 +312,10 @@ impl Renderer for PostgresRenderer {
             } => {
                 ctx.keyword("ALTER TABLE");
                 self.pg_schema_ref(schema_ref, ctx);
-                ctx.keyword("RENAME CONSTRAINT").ident(old_name).keyword("TO").ident(new_name);
+                ctx.keyword("RENAME CONSTRAINT")
+                    .ident(old_name)
+                    .keyword("TO")
+                    .ident(new_name);
                 Ok(())
             }
 
@@ -431,7 +462,10 @@ impl Renderer for PostgresRenderer {
                 ctx.write("[]");
             }
             FieldType::Vector(dim) => {
-                ctx.keyword("VECTOR").write("(").write(&dim.to_string()).paren_close();
+                ctx.keyword("VECTOR")
+                    .write("(")
+                    .write(&dim.to_string())
+                    .paren_close();
             }
             FieldType::Custom(_) => {
                 return Err(RenderError::unsupported(
@@ -554,12 +588,16 @@ impl Renderer for PostgresRenderer {
                 if let Some(n) = name {
                     ctx.keyword("CONSTRAINT").ident(n);
                 }
-                ctx.keyword("EXCLUDE USING").keyword(index_method).paren_open();
+                ctx.keyword("EXCLUDE USING")
+                    .keyword(index_method)
+                    .paren_open();
                 for (i, elem) in elements.iter().enumerate() {
                     if i > 0 {
                         ctx.comma();
                     }
-                    ctx.ident(&elem.column).keyword("WITH").keyword(&elem.operator);
+                    ctx.ident(&elem.column)
+                        .keyword("WITH")
+                        .keyword(&elem.operator);
                 }
                 ctx.paren_close();
                 if let Some(cond) = condition {
@@ -605,12 +643,19 @@ impl Renderer for PostgresRenderer {
 
             Expr::Binary { left, op, right } => {
                 self.render_expr(left, ctx)?;
+                // When using %s placeholders (psycopg), literal '%' must be
+                // escaped as '%%' so the driver doesn't treat it as a placeholder.
+                let mod_op = if self.param_style == ParamStyle::Percent {
+                    "%%"
+                } else {
+                    "%"
+                };
                 ctx.keyword(match op {
                     BinaryOp::Add => "+",
                     BinaryOp::Sub => "-",
                     BinaryOp::Mul => "*",
                     BinaryOp::Div => "/",
-                    BinaryOp::Mod => "%",
+                    BinaryOp::Mod => mod_op,
                     BinaryOp::BitwiseAnd => "&",
                     BinaryOp::BitwiseOr => "|",
                     BinaryOp::ShiftLeft => "<<",
@@ -643,7 +688,10 @@ impl Renderer for PostgresRenderer {
 
             Expr::Aggregate(agg) => self.render_aggregate(agg, ctx),
 
-            Expr::Cast { expr: inner, to_type } => {
+            Expr::Cast {
+                expr: inner,
+                to_type,
+            } => {
                 self.render_expr(inner, ctx)?;
                 ctx.operator("::");
                 ctx.write(to_type);
@@ -841,9 +889,27 @@ impl Renderer for PostgresRenderer {
             CompareOp::JsonbHasAnyKey => ctx.write(" ?| "),
             CompareOp::JsonbHasAllKeys => ctx.write(" ?& "),
             CompareOp::FtsMatch => ctx.write(" @@ "),
-            CompareOp::TrigramSimilar => ctx.write(" % "),
-            CompareOp::TrigramWordSimilar => ctx.write(" <% "),
-            CompareOp::TrigramStrictWordSimilar => ctx.write(" <<% "),
+            CompareOp::TrigramSimilar => {
+                if self.param_style == ParamStyle::Percent {
+                    ctx.write(" %% ")
+                } else {
+                    ctx.write(" % ")
+                }
+            }
+            CompareOp::TrigramWordSimilar => {
+                if self.param_style == ParamStyle::Percent {
+                    ctx.write(" <%% ")
+                } else {
+                    ctx.write(" <% ")
+                }
+            }
+            CompareOp::TrigramStrictWordSimilar => {
+                if self.param_style == ParamStyle::Percent {
+                    ctx.write(" <<%% ")
+                } else {
+                    ctx.write(" <<% ")
+                }
+            }
             CompareOp::RangeContains => ctx.write(" @> "),
             CompareOp::RangeContainedBy => ctx.write(" <@ "),
             CompareOp::RangeOverlap => ctx.write(" && "),
@@ -947,7 +1013,11 @@ impl Renderer for PostgresRenderer {
         Ok(())
     }
 
-    fn render_select_columns(&self, cols: &[SelectColumn], ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn render_select_columns(
+        &self,
+        cols: &[SelectColumn],
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()> {
         for (i, col) in cols.iter().enumerate() {
             if i > 0 {
                 ctx.comma();
@@ -1000,7 +1070,9 @@ impl Renderer for PostgresRenderer {
             TableSource::Function { name, args, alias } => {
                 ctx.keyword(name).write("(");
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 { ctx.comma(); }
+                    if i > 0 {
+                        ctx.comma();
+                    }
                     self.render_expr(arg, ctx)?;
                 }
                 ctx.paren_close();
@@ -1008,13 +1080,21 @@ impl Renderer for PostgresRenderer {
                     ctx.keyword("AS").ident(a);
                 }
             }
-            TableSource::Values { rows, alias, column_aliases } => {
+            TableSource::Values {
+                rows,
+                alias,
+                column_aliases,
+            } => {
                 ctx.paren_open().keyword("VALUES");
                 for (i, row) in rows.iter().enumerate() {
-                    if i > 0 { ctx.comma(); }
+                    if i > 0 {
+                        ctx.comma();
+                    }
                     ctx.paren_open();
                     for (j, val) in row.iter().enumerate() {
-                        if j > 0 { ctx.comma(); }
+                        if j > 0 {
+                            ctx.comma();
+                        }
                         self.render_expr(val, ctx)?;
                     }
                     ctx.paren_close();
@@ -1023,7 +1103,9 @@ impl Renderer for PostgresRenderer {
                 if let Some(cols) = column_aliases {
                     ctx.paren_open();
                     for (i, c) in cols.iter().enumerate() {
-                        if i > 0 { ctx.comma(); }
+                        if i > 0 {
+                            ctx.comma();
+                        }
                         ctx.ident(c);
                     }
                     ctx.paren_close();
@@ -1086,9 +1168,16 @@ impl Renderer for PostgresRenderer {
             LimitKind::Limit(n) => {
                 ctx.keyword("LIMIT").space().write(&n.to_string());
             }
-            LimitKind::FetchFirst { count, with_ties, percent } => {
+            LimitKind::FetchFirst {
+                count,
+                with_ties,
+                percent,
+            } => {
                 if let Some(offset) = limit.offset {
-                    ctx.keyword("OFFSET").space().write(&offset.to_string()).keyword("ROWS");
+                    ctx.keyword("OFFSET")
+                        .space()
+                        .write(&offset.to_string())
+                        .keyword("ROWS");
                 }
                 ctx.keyword("FETCH FIRST");
                 if *percent {
@@ -1358,7 +1447,10 @@ impl Renderer for PostgresRenderer {
         // Target
         if let Some(target) = &oc.target {
             match target {
-                ConflictTarget::Columns { columns, where_clause } => {
+                ConflictTarget::Columns {
+                    columns,
+                    where_clause,
+                } => {
                     ctx.paren_open();
                     self.pg_comma_idents(columns, ctx);
                     ctx.paren_close();
@@ -1378,7 +1470,10 @@ impl Renderer for PostgresRenderer {
             ConflictAction::DoNothing => {
                 ctx.keyword("DO NOTHING");
             }
-            ConflictAction::DoUpdate { assignments, where_clause } => {
+            ConflictAction::DoUpdate {
+                assignments,
+                where_clause,
+            } => {
                 ctx.keyword("DO UPDATE SET");
                 for (i, (col, expr)) in assignments.iter().enumerate() {
                     if i > 0 {
@@ -1404,7 +1499,9 @@ impl Renderer for PostgresRenderer {
                 ctx.comma();
             }
             match col {
-                SelectColumn::Star(None) => { ctx.keyword("*"); }
+                SelectColumn::Star(None) => {
+                    ctx.keyword("*");
+                }
                 SelectColumn::Star(Some(table)) => {
                     ctx.ident(table).operator(".").keyword("*");
                 }
@@ -1443,20 +1540,27 @@ impl Renderer for PostgresRenderer {
             TransactionStmt::SetTransaction(s) => self.pg_set_transaction(s, ctx),
             TransactionStmt::LockTable(s) => self.pg_lock_table(s, ctx),
             TransactionStmt::PrepareTransaction(s) => {
-                ctx.keyword("PREPARE").keyword("TRANSACTION").string_literal(&s.transaction_id);
+                ctx.keyword("PREPARE")
+                    .keyword("TRANSACTION")
+                    .string_literal(&s.transaction_id);
                 Ok(())
             }
             TransactionStmt::CommitPrepared(s) => {
-                ctx.keyword("COMMIT").keyword("PREPARED").string_literal(&s.transaction_id);
+                ctx.keyword("COMMIT")
+                    .keyword("PREPARED")
+                    .string_literal(&s.transaction_id);
                 Ok(())
             }
             TransactionStmt::RollbackPrepared(s) => {
-                ctx.keyword("ROLLBACK").keyword("PREPARED").string_literal(&s.transaction_id);
+                ctx.keyword("ROLLBACK")
+                    .keyword("PREPARED")
+                    .string_literal(&s.transaction_id);
                 Ok(())
             }
-            TransactionStmt::Custom(_) => {
-                Err(RenderError::unsupported("Custom TCL", "not supported by PostgresRenderer"))
-            }
+            TransactionStmt::Custom(_) => Err(RenderError::unsupported(
+                "Custom TCL",
+                "not supported by PostgresRenderer",
+            )),
         }
     }
 }
@@ -1495,11 +1599,18 @@ impl PostgresRenderer {
         Ok(())
     }
 
-    fn pg_set_transaction(&self, stmt: &SetTransactionStmt, ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn pg_set_transaction(
+        &self,
+        stmt: &SetTransactionStmt,
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()> {
         ctx.keyword("SET");
         match &stmt.scope {
             Some(TransactionScope::Session) => {
-                ctx.keyword("SESSION").keyword("CHARACTERISTICS").keyword("AS").keyword("TRANSACTION");
+                ctx.keyword("SESSION")
+                    .keyword("CHARACTERISTICS")
+                    .keyword("AS")
+                    .keyword("TRANSACTION");
             }
             _ => {
                 ctx.keyword("TRANSACTION");
@@ -1529,10 +1640,18 @@ impl PostgresRenderer {
                         IsolationLevel::Snapshot => "SERIALIZABLE", // PG doesn't have SNAPSHOT
                     });
                 }
-                TransactionMode::ReadOnly => { ctx.keyword("READ ONLY"); }
-                TransactionMode::ReadWrite => { ctx.keyword("READ WRITE"); }
-                TransactionMode::Deferrable => { ctx.keyword("DEFERRABLE"); }
-                TransactionMode::NotDeferrable => { ctx.keyword("NOT DEFERRABLE"); }
+                TransactionMode::ReadOnly => {
+                    ctx.keyword("READ ONLY");
+                }
+                TransactionMode::ReadWrite => {
+                    ctx.keyword("READ WRITE");
+                }
+                TransactionMode::Deferrable => {
+                    ctx.keyword("DEFERRABLE");
+                }
+                TransactionMode::NotDeferrable => {
+                    ctx.keyword("NOT DEFERRABLE");
+                }
                 TransactionMode::WithConsistentSnapshot => {} // MySQL only, skip
             }
         }
@@ -1584,7 +1703,9 @@ impl PostgresRenderer {
     }
 
     fn pg_field_ref(&self, field_ref: &FieldRef, ctx: &mut RenderCtx) {
-        ctx.ident(&field_ref.table_name).operator(".").ident(&field_ref.field.name);
+        ctx.ident(&field_ref.table_name)
+            .operator(".")
+            .ident(&field_ref.field.name);
     }
 
     fn pg_comma_idents(&self, names: &[String], ctx: &mut RenderCtx) {
@@ -1597,12 +1718,41 @@ impl PostgresRenderer {
     }
 
     fn pg_value(&self, val: &Value, ctx: &mut RenderCtx) -> RenderResult<()> {
+        // NULL is always rendered as keyword, never as parameter.
+        if matches!(val, Value::Null) {
+            ctx.keyword("NULL");
+            return Ok(());
+        }
+
+        // In parameterized mode, send values as bind parameters (no casts —
+        // the driver transmits types via the binary protocol and PG infers
+        // from column context).
+        if ctx.parameterize() {
+            ctx.param(val.clone());
+            return Ok(());
+        }
+
+        // Inline literal mode (DDL defaults, TCL, etc.)
+        self.pg_value_literal(val, ctx)
+    }
+
+    fn pg_value_literal(&self, val: &Value, ctx: &mut RenderCtx) -> RenderResult<()> {
         match val {
-            Value::Null => { ctx.keyword("NULL"); }
-            Value::Bool(b) => { ctx.keyword(if *b { "TRUE" } else { "FALSE" }); }
-            Value::Int(n) => { ctx.keyword(&n.to_string()); }
-            Value::Float(f) => { ctx.keyword(&f.to_string()); }
-            Value::Str(s) => { ctx.string_literal(s); }
+            Value::Null => {
+                ctx.keyword("NULL");
+            }
+            Value::Bool(b) => {
+                ctx.keyword(if *b { "TRUE" } else { "FALSE" });
+            }
+            Value::Int(n) => {
+                ctx.keyword(&n.to_string());
+            }
+            Value::Float(f) => {
+                ctx.keyword(&f.to_string());
+            }
+            Value::Str(s) => {
+                ctx.string_literal(s);
+            }
             Value::Bytes(b) => {
                 ctx.write("'\\x");
                 for byte in b {
@@ -1613,8 +1763,12 @@ impl PostgresRenderer {
             Value::Date(s) | Value::DateTime(s) | Value::Time(s) => {
                 ctx.string_literal(s);
             }
-            Value::Decimal(s) => { ctx.keyword(s); }
-            Value::Uuid(s) => { ctx.string_literal(s); }
+            Value::Decimal(s) => {
+                ctx.keyword(s);
+            }
+            Value::Uuid(s) => {
+                ctx.string_literal(s);
+            }
             Value::Json(s) => {
                 ctx.string_literal(s);
                 ctx.write("::json");
@@ -1633,7 +1787,7 @@ impl PostgresRenderer {
                     if i > 0 {
                         ctx.comma();
                     }
-                    self.pg_value(item, ctx)?;
+                    self.pg_value_literal(item, ctx)?;
                 }
                 ctx.write("]");
             }
@@ -1643,15 +1797,33 @@ impl PostgresRenderer {
                 ctx.string_literal(&literal);
                 ctx.write("::vector");
             }
-            Value::TimeDelta { years, months, days, seconds, microseconds } => {
+            Value::TimeDelta {
+                years,
+                months,
+                days,
+                seconds,
+                microseconds,
+            } => {
                 ctx.keyword("INTERVAL");
                 let mut parts = Vec::new();
-                if *years != 0 { parts.push(format!("{years} years")); }
-                if *months != 0 { parts.push(format!("{months} months")); }
-                if *days != 0 { parts.push(format!("{days} days")); }
-                if *seconds != 0 { parts.push(format!("{seconds} seconds")); }
-                if *microseconds != 0 { parts.push(format!("{microseconds} microseconds")); }
-                if parts.is_empty() { parts.push("0 seconds".into()); }
+                if *years != 0 {
+                    parts.push(format!("{years} years"));
+                }
+                if *months != 0 {
+                    parts.push(format!("{months} months"));
+                }
+                if *days != 0 {
+                    parts.push(format!("{days} days"));
+                }
+                if *seconds != 0 {
+                    parts.push(format!("{seconds} seconds"));
+                }
+                if *microseconds != 0 {
+                    parts.push(format!("{microseconds} microseconds"));
+                }
+                if parts.is_empty() {
+                    parts.push("0 seconds".into());
+                }
                 ctx.string_literal(&parts.join(" "));
             }
         }
@@ -1660,9 +1832,15 @@ impl PostgresRenderer {
 
     fn pg_referential_action(&self, action: &ReferentialAction, ctx: &mut RenderCtx) {
         match action {
-            ReferentialAction::NoAction => { ctx.keyword("NO ACTION"); }
-            ReferentialAction::Restrict => { ctx.keyword("RESTRICT"); }
-            ReferentialAction::Cascade => { ctx.keyword("CASCADE"); }
+            ReferentialAction::NoAction => {
+                ctx.keyword("NO ACTION");
+            }
+            ReferentialAction::Restrict => {
+                ctx.keyword("RESTRICT");
+            }
+            ReferentialAction::Cascade => {
+                ctx.keyword("CASCADE");
+            }
             ReferentialAction::SetNull(cols) => {
                 ctx.keyword("SET NULL");
                 if let Some(cols) = cols {
@@ -1748,9 +1926,14 @@ impl PostgresRenderer {
                 SampleMethod::System => "SYSTEM",
                 SampleMethod::Block => "SYSTEM", // Block maps to SYSTEM on PG
             });
-            ctx.paren_open().write(&sample.percentage.to_string()).paren_close();
+            ctx.paren_open()
+                .write(&sample.percentage.to_string())
+                .paren_close();
             if let Some(seed) = sample.seed {
-                ctx.keyword("REPEATABLE").paren_open().write(&seed.to_string()).paren_close();
+                ctx.keyword("REPEATABLE")
+                    .paren_open()
+                    .write(&seed.to_string())
+                    .paren_close();
             }
         }
         Ok(())
@@ -1808,7 +1991,11 @@ impl PostgresRenderer {
         Ok(())
     }
 
-    fn pg_render_window_clause(&self, windows: &[WindowNameDef], ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn pg_render_window_clause(
+        &self,
+        windows: &[WindowNameDef],
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()> {
         ctx.keyword("WINDOW");
         for (i, win) in windows.iter().enumerate() {
             if i > 0 {
@@ -1938,7 +2125,9 @@ impl PostgresRenderer {
                     ctx.comma();
                 }
                 match &col.expr {
-                    IndexExpr::Column(name) => { ctx.ident(name); }
+                    IndexExpr::Column(name) => {
+                        ctx.ident(name);
+                    }
                     IndexExpr::Expression(expr) => {
                         ctx.paren_open();
                         self.render_expr(expr, ctx)?;
@@ -2079,13 +2268,19 @@ impl PostgresRenderer {
         Ok(())
     }
 
-    fn pg_index_columns(&self, columns: &[IndexColumnDef], ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn pg_index_columns(
+        &self,
+        columns: &[IndexColumnDef],
+        ctx: &mut RenderCtx,
+    ) -> RenderResult<()> {
         for (i, col) in columns.iter().enumerate() {
             if i > 0 {
                 ctx.comma();
             }
             match &col.expr {
-                IndexExpr::Column(name) => { ctx.ident(name); }
+                IndexExpr::Column(name) => {
+                    ctx.ident(name);
+                }
                 IndexExpr::Expression(expr) => {
                     ctx.paren_open();
                     self.render_expr(expr, ctx)?;
@@ -2152,12 +2347,18 @@ impl PostgresRenderer {
 
     fn pg_frame_bound(&self, bound: &WindowFrameBound, ctx: &mut RenderCtx) {
         match bound {
-            WindowFrameBound::CurrentRow => { ctx.keyword("CURRENT ROW"); }
-            WindowFrameBound::Preceding(None) => { ctx.keyword("UNBOUNDED PRECEDING"); }
+            WindowFrameBound::CurrentRow => {
+                ctx.keyword("CURRENT ROW");
+            }
+            WindowFrameBound::Preceding(None) => {
+                ctx.keyword("UNBOUNDED PRECEDING");
+            }
             WindowFrameBound::Preceding(Some(n)) => {
                 ctx.keyword(&n.to_string()).keyword("PRECEDING");
             }
-            WindowFrameBound::Following(None) => { ctx.keyword("UNBOUNDED FOLLOWING"); }
+            WindowFrameBound::Following(None) => {
+                ctx.keyword("UNBOUNDED FOLLOWING");
+            }
             WindowFrameBound::Following(Some(n)) => {
                 ctx.keyword(&n.to_string()).keyword("FOLLOWING");
             }

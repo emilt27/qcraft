@@ -3,10 +3,12 @@ use crate::ast::value::Value;
 /// Style of parameter placeholders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamStyle {
-    /// PostgreSQL: `$1`, `$2`, `$3`
+    /// PostgreSQL / asyncpg: `$1`, `$2`, `$3`
     Dollar,
     /// SQLite / MySQL: `?`
     QMark,
+    /// psycopg / DB-API 2.0: `%s`
+    Percent,
 }
 
 /// Rendering context: accumulates SQL string and parameters.
@@ -17,6 +19,7 @@ pub struct RenderCtx {
     params: Vec<Value>,
     param_style: ParamStyle,
     param_index: usize,
+    parameterize: bool,
 }
 
 impl RenderCtx {
@@ -26,7 +29,18 @@ impl RenderCtx {
             params: Vec::new(),
             param_style,
             param_index: 0,
+            parameterize: false,
         }
+    }
+
+    pub fn with_parameterize(mut self, parameterize: bool) -> Self {
+        self.parameterize = parameterize;
+        self
+    }
+
+    /// Whether values should be rendered as parameter placeholders.
+    pub fn parameterize(&self) -> bool {
+        self.parameterize
     }
 
     // ── Result ──
@@ -82,6 +96,9 @@ impl RenderCtx {
             }
             ParamStyle::QMark => {
                 self.sql.push('?');
+            }
+            ParamStyle::Percent => {
+                self.sql.push_str("%s");
             }
         }
         self.params.push(val);
@@ -174,7 +191,10 @@ mod tests {
     #[test]
     fn param_dollar_style() {
         let mut ctx = RenderCtx::new(ParamStyle::Dollar);
-        ctx.keyword("WHERE").ident("age").operator(" > ").param(Value::Int(18));
+        ctx.keyword("WHERE")
+            .ident("age")
+            .operator(" > ")
+            .param(Value::Int(18));
         let (sql, params) = ctx.finish();
         assert_eq!(sql, "WHERE \"age\" > $1");
         assert_eq!(params, vec![Value::Int(18)]);
@@ -183,7 +203,10 @@ mod tests {
     #[test]
     fn param_qmark_style() {
         let mut ctx = RenderCtx::new(ParamStyle::QMark);
-        ctx.keyword("WHERE").ident("age").operator(" > ").param(Value::Int(18));
+        ctx.keyword("WHERE")
+            .ident("age")
+            .operator(" > ")
+            .param(Value::Int(18));
         let (sql, params) = ctx.finish();
         assert_eq!(sql, "WHERE \"age\" > ?");
         assert_eq!(params, vec![Value::Int(18)]);
@@ -192,7 +215,9 @@ mod tests {
     #[test]
     fn multiple_params() {
         let mut ctx = RenderCtx::new(ParamStyle::Dollar);
-        ctx.param(Value::Int(1)).comma().param(Value::Str("hello".into()));
+        ctx.param(Value::Int(1))
+            .comma()
+            .param(Value::Str("hello".into()));
         let (sql, params) = ctx.finish();
         assert_eq!(sql, "$1, $2");
         assert_eq!(params, vec![Value::Int(1), Value::Str("hello".into())]);
@@ -201,7 +226,12 @@ mod tests {
     #[test]
     fn paren_no_extra_space() {
         let mut ctx = RenderCtx::new(ParamStyle::Dollar);
-        ctx.keyword("CAST").paren_open().ident("x").keyword("AS").keyword("TEXT").paren_close();
+        ctx.keyword("CAST")
+            .paren_open()
+            .ident("x")
+            .keyword("AS")
+            .keyword("TEXT")
+            .paren_close();
         assert_eq!(ctx.sql(), "CAST (\"x\" AS TEXT)");
     }
 
@@ -215,7 +245,11 @@ mod tests {
     #[test]
     fn chaining() {
         let mut ctx = RenderCtx::new(ParamStyle::Dollar);
-        ctx.keyword("CREATE").keyword("TABLE").keyword("IF NOT EXISTS").ident("users").paren_open();
+        ctx.keyword("CREATE")
+            .keyword("TABLE")
+            .keyword("IF NOT EXISTS")
+            .ident("users")
+            .paren_open();
         ctx.ident("id").keyword("BIGINT").keyword("NOT NULL");
         ctx.paren_close();
         assert_eq!(

@@ -1,7 +1,6 @@
 //! Integration tests for SQLite DML (INSERT / UPDATE / DELETE) statements
 //! that run against a real in-memory SQLite database.
 
-use rusqlite::Connection;
 use rquery_core::ast::common::{FieldRef, SchemaRef};
 use rquery_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use rquery_core::ast::dml::*;
@@ -9,6 +8,8 @@ use rquery_core::ast::expr::Expr;
 use rquery_core::ast::query::SelectColumn;
 use rquery_core::ast::value::Value;
 use rquery_sqlite::SqliteRenderer;
+use rusqlite::Connection;
+use rusqlite::types::ToSql as RusqliteToSql;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -16,10 +17,35 @@ fn conn() -> Connection {
     Connection::open_in_memory().unwrap()
 }
 
-fn render(stmt: &MutationStmt) -> String {
+fn render(stmt: &MutationStmt) -> (String, Vec<Value>) {
     let renderer = SqliteRenderer::new();
-    let (sql, _) = renderer.render_mutation_stmt(stmt).unwrap();
-    sql
+    renderer.render_mutation_stmt(stmt).unwrap()
+}
+
+fn to_sqlite_params(values: &[Value]) -> Vec<Box<dyn RusqliteToSql>> {
+    values
+        .iter()
+        .map(|v| -> Box<dyn RusqliteToSql> {
+            match v {
+                Value::Null => Box::new(rusqlite::types::Null),
+                Value::Bool(b) => Box::new(*b),
+                Value::Int(n) => Box::new(*n),
+                Value::Float(f) => Box::new(*f),
+                Value::Str(s) => Box::new(s.clone()),
+                Value::Bytes(b) => Box::new(b.clone()),
+                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
+                Value::Decimal(s) => Box::new(s.clone()),
+                Value::Uuid(s) => Box::new(s.clone()),
+                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
+                Value::IpNetwork(s) => Box::new(s.clone()),
+                _ => Box::new(format!("{:?}", v)),
+            }
+        })
+        .collect()
+}
+
+fn as_sqlite_params(boxed: &[Box<dyn RusqliteToSql>]) -> Vec<&dyn RusqliteToSql> {
+    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn setup_users(conn: &Connection) {
@@ -62,12 +88,17 @@ fn insert_single_row() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let (name, email): (String, String) = c
-        .query_row(r#"SELECT "name", "email" FROM "users" WHERE rowid = 1"#, [], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
+        .query_row(
+            r#"SELECT "name", "email" FROM "users" WHERE rowid = 1"#,
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .unwrap();
     assert_eq!(name, "Alice");
     assert_eq!(email, "alice@example.com");
@@ -100,7 +131,10 @@ fn insert_multi_row() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 2);
 }
 
@@ -126,7 +160,10 @@ fn insert_default_values() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let val: i64 = c
         .query_row(r#"SELECT "value" FROM "counters""#, [], |row| row.get(0))
@@ -155,10 +192,14 @@ fn insert_returning_star() {
         ignore: false,
     });
 
-    let sql = render(&stmt);
-    let (id, name, email): (i64, String, String) =
-        c.query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-            .unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let (id, name, email): (i64, String, String) = c
+        .query_row(&sql, params.as_slice(), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .unwrap();
     assert_eq!(id, 1);
     assert_eq!(name, "Alice");
     assert_eq!(email, "alice@example.com");
@@ -194,10 +235,14 @@ fn insert_returning_columns() {
         ignore: false,
     });
 
-    let sql = render(&stmt);
-    let (id, name): (i64, String) =
-        c.query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?)))
-            .unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let (id, name): (i64, String) = c
+        .query_row(&sql, params.as_slice(), |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .unwrap();
     assert_eq!(id, 1);
     assert_eq!(name, "Alice");
 }
@@ -232,7 +277,10 @@ fn insert_or_replace() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
         .query_row(r#"SELECT "name" FROM "users" WHERE "id" = 1"#, [], |row| {
@@ -271,7 +319,10 @@ fn insert_or_ignore() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     // First row should remain unchanged
     let name: String = c
@@ -320,7 +371,10 @@ fn insert_or_abort() {
         ignore: false,
     });
 
-    let result = c.execute(&render(&stmt), []);
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let result = c.execute(&sql, params.as_slice());
     assert!(result.is_err(), "expected conflict error");
 
     // Transaction should still be usable after OR ABORT
@@ -368,13 +422,18 @@ fn insert_on_conflict_do_nothing() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     // Original row stays
     let name: String = c
-        .query_row(r#"SELECT "name" FROM "users" WHERE "email" = 'alice@example.com'"#, [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            r#"SELECT "name" FROM "users" WHERE "email" = 'alice@example.com'"#,
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     assert_eq!(name, "Alice");
     assert_eq!(count_rows(&c, "users"), 1);
@@ -422,7 +481,10 @@ fn insert_on_conflict_do_update() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
         .query_row(r#"SELECT "name" FROM "users" WHERE "id" = 1"#, [], |row| {
@@ -436,12 +498,10 @@ fn insert_on_conflict_do_update() {
 #[test]
 fn insert_on_conflict_catch_all() {
     let c = conn();
-    c.execute(
-        r#"CREATE TABLE "t" ("id" INTEGER PRIMARY KEY)"#,
-        [],
-    )
-    .unwrap();
-    c.execute(r#"INSERT INTO "t" ("id") VALUES (1)"#, []).unwrap();
+    c.execute(r#"CREATE TABLE "t" ("id" INTEGER PRIMARY KEY)"#, [])
+        .unwrap();
+    c.execute(r#"INSERT INTO "t" ("id") VALUES (1)"#, [])
+        .unwrap();
 
     let stmt = MutationStmt::Insert(InsertStmt {
         table: SchemaRef::new("t"),
@@ -459,7 +519,10 @@ fn insert_on_conflict_catch_all() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     // Original row stays, no error
     assert_eq!(count_rows(&c, "t"), 1);
@@ -486,7 +549,10 @@ fn insert_with_namespace() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 1);
 }
 
@@ -512,7 +578,10 @@ fn insert_bool_as_integer() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let val: i64 = c
         .query_row(r#"SELECT "active" FROM "flags""#, [], |row| row.get(0))
@@ -562,7 +631,10 @@ fn update_simple() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
         .query_row(r#"SELECT "name" FROM "users" WHERE "id" = 1"#, [], |row| {
@@ -616,12 +688,17 @@ fn update_multiple_assignments() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let (name, email): (String, String) = c
-        .query_row(r#"SELECT "name", "email" FROM "users" WHERE "id" = 1"#, [], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
+        .query_row(
+            r#"SELECT "name", "email" FROM "users" WHERE "id" = 1"#,
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .unwrap();
     assert_eq!(name, "Bob");
     assert_eq!(email, "bob@example.com");
@@ -653,7 +730,10 @@ fn update_no_where() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let names: Vec<String> = {
         let mut s = c.prepare(r#"SELECT "name" FROM "users""#).unwrap();
@@ -704,10 +784,14 @@ fn update_with_returning() {
         ignore: false,
     });
 
-    let sql = render(&stmt);
-    let (id, name, email): (i64, String, String) =
-        c.query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-            .unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let (id, name, email): (i64, String, String) = c
+        .query_row(&sql, params.as_slice(), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .unwrap();
     assert_eq!(id, 1);
     assert_eq!(name, "Bob");
     assert_eq!(email, "alice@example.com");
@@ -721,8 +805,11 @@ fn update_or_replace() {
         [],
     )
     .unwrap();
-    c.execute(r#"INSERT INTO "kv" VALUES ('a', 'alpha'), ('b', 'beta')"#, [])
-        .unwrap();
+    c.execute(
+        r#"INSERT INTO "kv" VALUES ('a', 'alpha'), ('b', 'beta')"#,
+        [],
+    )
+    .unwrap();
 
     // UPDATE OR REPLACE: update key 'b' to 'a' — replaces existing 'a' row
     let stmt = MutationStmt::Update(UpdateStmt {
@@ -753,7 +840,10 @@ fn update_or_replace() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     // Only one row should remain with key='a', value='beta'
     assert_eq!(count_rows(&c, "kv"), 1);
@@ -791,10 +881,12 @@ fn update_with_limit_offset() {
         ignore: false,
     });
 
+    let (sql, params) = render(&stmt);
     assert_eq!(
-        render(&stmt),
-        r#"UPDATE "logs" SET "archived" = 1 ORDER BY "logs"."id" ASC LIMIT 2 OFFSET 1"#,
+        sql,
+        r#"UPDATE "logs" SET "archived" = ? ORDER BY "logs"."id" ASC LIMIT 2 OFFSET 1"#,
     );
+    assert_eq!(params, vec![Value::Bool(true)]);
 }
 
 #[test]
@@ -805,8 +897,11 @@ fn update_with_expression() {
         [],
     )
     .unwrap();
-    c.execute(r#"INSERT INTO "counters" ("id", "value") VALUES (1, 10)"#, [])
-        .unwrap();
+    c.execute(
+        r#"INSERT INTO "counters" ("id", "value") VALUES (1, 10)"#,
+        [],
+    )
+    .unwrap();
 
     let stmt = MutationStmt::Update(UpdateStmt {
         table: SchemaRef::new("counters"),
@@ -842,12 +937,17 @@ fn update_with_expression() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
 
     let val: i64 = c
-        .query_row(r#"SELECT "value" FROM "counters" WHERE "id" = 1"#, [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            r#"SELECT "value" FROM "counters" WHERE "id" = 1"#,
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     assert_eq!(val, 11);
 }
@@ -892,7 +992,10 @@ fn delete_simple() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 1);
 
     let name: String = c
@@ -925,7 +1028,10 @@ fn delete_no_where() {
         ignore: false,
     });
 
-    c.execute(&render(&stmt), []).unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 0);
 }
 
@@ -965,10 +1071,14 @@ fn delete_with_returning() {
         ignore: false,
     });
 
-    let sql = render(&stmt);
-    let (id, name, email): (i64, String, String) =
-        c.query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-            .unwrap();
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let (id, name, email): (i64, String, String) = c
+        .query_row(&sql, params.as_slice(), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .unwrap();
     assert_eq!(id, 1);
     assert_eq!(name, "Alice");
     assert_eq!(email, "a@a.com");
@@ -1002,7 +1112,7 @@ fn delete_with_limit() {
     });
 
     assert_eq!(
-        render(&stmt),
+        render(&stmt).0,
         r#"DELETE FROM "logs" ORDER BY "logs"."id" ASC LIMIT 2"#,
     );
 }

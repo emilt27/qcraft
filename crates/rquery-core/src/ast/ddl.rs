@@ -323,10 +323,7 @@ pub enum FieldType {
     Scalar(String),
 
     /// Custom type with optional parameters: `VARCHAR(255)`, `NUMERIC(10,2)`.
-    Parameterized {
-        name: String,
-        params: Vec<String>,
-    },
+    Parameterized { name: String, params: Vec<String> },
 
     /// Array type: `INTEGER[]`, `TEXT[]`.
     Array(Box<FieldType>),
@@ -359,7 +356,7 @@ pub struct GeneratedColumn {
 }
 
 /// Identity (auto-increment) column.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct IdentityColumn {
     pub always: bool,
     pub start: Option<i64>,
@@ -368,20 +365,6 @@ pub struct IdentityColumn {
     pub max_value: Option<i64>,
     pub cycle: bool,
     pub cache: Option<i64>,
-}
-
-impl Default for IdentityColumn {
-    fn default() -> Self {
-        Self {
-            always: false,
-            start: None,
-            increment: None,
-            min_value: None,
-            max_value: None,
-            cycle: false,
-            cache: None,
-        }
-    }
 }
 
 /// Column position for ADD COLUMN (MySQL-specific: FIRST / AFTER).
@@ -453,11 +436,7 @@ impl ConstraintDef {
         }
     }
 
-    pub fn foreign_key(
-        columns: Vec<&str>,
-        ref_table: &str,
-        ref_columns: Vec<&str>,
-    ) -> Self {
+    pub fn foreign_key(columns: Vec<&str>, ref_table: &str, ref_columns: Vec<&str>) -> Self {
         Self::ForeignKey {
             name: None,
             columns: columns.into_iter().map(String::from).collect(),

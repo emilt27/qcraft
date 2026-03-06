@@ -38,11 +38,15 @@ fn create_table(schema: SchemaDef) -> SchemaMutationStmt {
 #[test]
 fn array_type_errors() {
     let mut schema = SchemaDef::new("t");
-    schema.columns = vec![
-        ColumnDef::new("tags", FieldType::Array(Box::new(FieldType::scalar("TEXT")))),
-    ];
+    schema.columns = vec![ColumnDef::new(
+        "tags",
+        FieldType::Array(Box::new(FieldType::scalar("TEXT"))),
+    )];
     let err = render_err(&create_table(schema));
-    assert!(err.to_lowercase().contains("array"), "expected array error, got: {err}");
+    assert!(
+        err.to_lowercase().contains("array"),
+        "expected array error, got: {err}"
+    );
 }
 
 #[test]
@@ -61,7 +65,10 @@ fn identity_column_errors() {
         compression: None,
     }];
     let err = render_err(&create_table(schema));
-    assert!(err.contains("IDENTITY"), "expected IDENTITY error, got: {err}");
+    assert!(
+        err.contains("IDENTITY"),
+        "expected IDENTITY error, got: {err}"
+    );
 }
 
 // ==========================================================================
@@ -79,7 +86,10 @@ fn exclusion_constraint_errors() {
         condition: None,
     }]);
     let err = render_err(&create_table(schema));
-    assert!(err.contains("EXCLUDE"), "expected EXCLUDE error, got: {err}");
+    assert!(
+        err.contains("EXCLUDE"),
+        "expected EXCLUDE error, got: {err}"
+    );
 }
 
 // ==========================================================================
@@ -193,7 +203,10 @@ fn rename_constraint_errors() {
     };
     let err = render_err(&stmt);
     // Should error — SQLite doesn't support RENAME CONSTRAINT
-    assert!(!err.is_empty(), "expected error for RENAME CONSTRAINT, got empty");
+    assert!(
+        !err.is_empty(),
+        "expected error for RENAME CONSTRAINT, got empty"
+    );
 }
 
 // ==========================================================================
