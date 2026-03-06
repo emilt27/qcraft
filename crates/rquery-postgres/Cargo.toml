@@ -10,3 +10,6 @@ license.workspace = true
 rquery-core = { workspace = true }
 
 [dev-dependencies]
+postgres = "0.19"
+testcontainers = { version = "0.27", features = ["blocking"] }
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
