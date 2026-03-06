@@ -1540,6 +1540,18 @@ impl SqliteRenderer {
         }
         ctx.ident(&schema.name);
 
+        // Detect AUTOINCREMENT PK — must be rendered inline on the column in SQLite
+        let autoincrement_pk_col = schema.constraints.as_ref().and_then(|cs| {
+            cs.iter().find_map(|c| {
+                if let ConstraintDef::PrimaryKey { columns, autoincrement: true, .. } = c {
+                    if columns.len() == 1 {
+                        return Some(columns[0].as_str());
+                    }
+                }
+                None
+            })
+        });
+
         ctx.paren_open();
         let mut first = true;
         for col in &schema.columns {
@@ -1548,9 +1560,19 @@ impl SqliteRenderer {
             }
             first = false;
             self.render_column_def(col, ctx)?;
+            // Inline PRIMARY KEY AUTOINCREMENT on the column
+            if autoincrement_pk_col == Some(col.name.as_str()) {
+                ctx.keyword("PRIMARY KEY AUTOINCREMENT");
+            }
         }
         if let Some(constraints) = &schema.constraints {
             for constraint in constraints {
+                // Skip the AUTOINCREMENT PK — already rendered inline
+                if let ConstraintDef::PrimaryKey { autoincrement: true, columns, .. } = constraint {
+                    if columns.len() == 1 {
+                        continue;
+                    }
+                }
                 if !first {
                     ctx.comma();
                 }

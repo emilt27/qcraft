@@ -11,10 +11,12 @@ fn render(stmt: &SchemaMutationStmt) -> String {
     sql
 }
 
+#[allow(dead_code)]
 fn render_with_params(stmt: &SchemaMutationStmt) -> (String, Vec<Value>) {
     let renderer = PostgresRenderer::new();
     renderer.render_schema_stmt(stmt).unwrap()
 }
+
 
 // ==========================================================================
 // CREATE TABLE

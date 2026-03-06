@@ -652,7 +652,7 @@ fn create_table_primary_key_autoincrement() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "events" ("id" INTEGER NOT NULL, "name" TEXT, PRIMARY KEY ("id") AUTOINCREMENT)"#,
+        r#"CREATE TABLE "events" ("id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, "name" TEXT)"#,
     );
 }
 

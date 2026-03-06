@@ -1,4 +1,4 @@
-use rquery_core::ast::common::{FieldRef, OrderByDef, SchemaRef};
+use rquery_core::ast::common::{FieldRef, SchemaRef};
 use rquery_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use rquery_core::ast::dml::*;
 use rquery_core::ast::expr::Expr;
