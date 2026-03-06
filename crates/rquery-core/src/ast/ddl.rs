@@ -134,6 +134,102 @@ pub enum SchemaMutationStmt {
     Custom(Box<dyn CustomSchemaMutation>),
 }
 
+impl SchemaMutationStmt {
+    pub fn create_table(schema: SchemaDef) -> Self {
+        Self::CreateTable {
+            schema,
+            if_not_exists: false,
+            temporary: false,
+            unlogged: false,
+            tablespace: None,
+            partition_by: None,
+            inherits: None,
+            using_method: None,
+            with_options: None,
+            on_commit: None,
+            table_options: None,
+            without_rowid: false,
+            strict: false,
+        }
+    }
+
+    pub fn drop_table(name: &str) -> Self {
+        Self::DropTable {
+            schema_ref: SchemaRef::new(name),
+            if_exists: false,
+            cascade: false,
+        }
+    }
+
+    pub fn drop_table_if_exists(name: &str) -> Self {
+        Self::DropTable {
+            schema_ref: SchemaRef::new(name),
+            if_exists: true,
+            cascade: false,
+        }
+    }
+
+    pub fn create_index(table: &str, index: IndexDef) -> Self {
+        Self::CreateIndex {
+            schema_ref: SchemaRef::new(table),
+            index,
+            if_not_exists: false,
+            concurrently: false,
+        }
+    }
+
+    pub fn drop_index(table: &str, name: &str) -> Self {
+        Self::DropIndex {
+            schema_ref: SchemaRef::new(table),
+            index_name: name.to_string(),
+            if_exists: false,
+            concurrently: false,
+            cascade: false,
+        }
+    }
+
+    pub fn add_column(table: &str, column: ColumnDef) -> Self {
+        Self::AddColumn {
+            schema_ref: SchemaRef::new(table),
+            column,
+            if_not_exists: false,
+            position: None,
+        }
+    }
+
+    pub fn drop_column(table: &str, name: &str) -> Self {
+        Self::DropColumn {
+            schema_ref: SchemaRef::new(table),
+            name: name.to_string(),
+            if_exists: false,
+            cascade: false,
+        }
+    }
+
+    pub fn rename_table(old: &str, new_name: &str) -> Self {
+        Self::RenameTable {
+            schema_ref: SchemaRef::new(old),
+            new_name: new_name.to_string(),
+        }
+    }
+
+    pub fn rename_column(table: &str, old: &str, new_name: &str) -> Self {
+        Self::RenameColumn {
+            schema_ref: SchemaRef::new(table),
+            old_name: old.to_string(),
+            new_name: new_name.to_string(),
+        }
+    }
+
+    pub fn truncate(table: &str) -> Self {
+        Self::TruncateTable {
+            schema_ref: SchemaRef::new(table),
+            restart_identity: false,
+            cascade: false,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Table / Schema definition
 // ---------------------------------------------------------------------------
@@ -204,6 +300,16 @@ impl ColumnDef {
 
     pub fn default(mut self, expr: Expr) -> Self {
         self.default = Some(expr);
+        self
+    }
+
+    pub fn generated(mut self, expr: Expr, stored: bool) -> Self {
+        self.generated = Some(GeneratedColumn { expr, stored });
+        self
+    }
+
+    pub fn collation(mut self, name: impl Into<String>) -> Self {
+        self.collation = Some(name.into());
         self
     }
 }
@@ -337,6 +443,53 @@ pub enum ConstraintDef {
     Custom(Box<dyn CustomConstraint>),
 }
 
+impl ConstraintDef {
+    pub fn primary_key(columns: Vec<&str>) -> Self {
+        Self::PrimaryKey {
+            name: None,
+            columns: columns.into_iter().map(String::from).collect(),
+            include: None,
+            autoincrement: false,
+        }
+    }
+
+    pub fn foreign_key(
+        columns: Vec<&str>,
+        ref_table: &str,
+        ref_columns: Vec<&str>,
+    ) -> Self {
+        Self::ForeignKey {
+            name: None,
+            columns: columns.into_iter().map(String::from).collect(),
+            ref_table: SchemaRef::new(ref_table),
+            ref_columns: ref_columns.into_iter().map(String::from).collect(),
+            on_delete: None,
+            on_update: None,
+            deferrable: None,
+            match_type: None,
+        }
+    }
+
+    pub fn unique(columns: Vec<&str>) -> Self {
+        Self::Unique {
+            name: None,
+            columns: columns.into_iter().map(String::from).collect(),
+            include: None,
+            nulls_distinct: None,
+            condition: None,
+        }
+    }
+
+    pub fn check(condition: Conditions) -> Self {
+        Self::Check {
+            name: None,
+            condition,
+            no_inherit: false,
+            enforced: None,
+        }
+    }
+}
+
 /// Referential action for ON DELETE / ON UPDATE.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReferentialAction {
@@ -417,6 +570,48 @@ pub struct IndexColumnDef {
     pub nulls: Option<NullsOrder>,
     pub opclass: Option<String>,
     pub collation: Option<String>,
+}
+
+impl IndexColumnDef {
+    pub fn column(name: impl Into<String>) -> Self {
+        Self {
+            expr: IndexExpr::Column(name.into()),
+            direction: None,
+            nulls: None,
+            opclass: None,
+            collation: None,
+        }
+    }
+
+    pub fn expression(expr: Expr) -> Self {
+        Self {
+            expr: IndexExpr::Expression(expr),
+            direction: None,
+            nulls: None,
+            opclass: None,
+            collation: None,
+        }
+    }
+
+    pub fn asc(mut self) -> Self {
+        self.direction = Some(OrderDir::Asc);
+        self
+    }
+
+    pub fn desc(mut self) -> Self {
+        self.direction = Some(OrderDir::Desc);
+        self
+    }
+
+    pub fn nulls_first(mut self) -> Self {
+        self.nulls = Some(NullsOrder::First);
+        self
+    }
+
+    pub fn nulls_last(mut self) -> Self {
+        self.nulls = Some(NullsOrder::Last);
+        self
+    }
 }
 
 /// What's being indexed: a column name or an expression.

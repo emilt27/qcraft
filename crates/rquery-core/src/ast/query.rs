@@ -26,6 +26,25 @@ pub struct QueryStmt {
     pub lock: Option<Vec<SelectLockDef>>,
 }
 
+impl Default for QueryStmt {
+    fn default() -> Self {
+        Self {
+            ctes: None,
+            columns: vec![],
+            distinct: None,
+            from: None,
+            joins: None,
+            where_clause: None,
+            group_by: None,
+            having: None,
+            window: None,
+            order_by: None,
+            limit: None,
+            lock: None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SELECT columns
 // ---------------------------------------------------------------------------
@@ -47,6 +66,47 @@ pub enum SelectColumn {
         field: FieldRef,
         alias: Option<String>,
     },
+}
+
+impl SelectColumn {
+    /// `*`
+    pub fn all() -> Self {
+        SelectColumn::Star(None)
+    }
+
+    /// `table.*`
+    pub fn all_from(table: impl Into<String>) -> Self {
+        SelectColumn::Star(Some(table.into()))
+    }
+
+    /// `table.field`
+    pub fn field(table: &str, name: &str) -> Self {
+        SelectColumn::Field {
+            field: FieldRef::new(table, name),
+            alias: None,
+        }
+    }
+
+    /// Expression without alias.
+    pub fn expr(expr: Expr) -> Self {
+        SelectColumn::Expr { expr, alias: None }
+    }
+
+    /// Expression with alias: `expr AS alias`.
+    pub fn aliased(expr: Expr, alias: impl Into<String>) -> Self {
+        SelectColumn::Expr {
+            expr,
+            alias: Some(alias.into()),
+        }
+    }
+
+    /// `table.field AS alias`
+    pub fn field_aliased(table: &str, name: &str, alias: impl Into<String>) -> Self {
+        SelectColumn::Field {
+            field: FieldRef::new(table, name),
+            alias: Some(alias.into()),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +142,41 @@ impl FromItem {
     pub fn table(schema_ref: SchemaRef) -> Self {
         Self {
             source: TableSource::Table(schema_ref),
+            only: false,
+            sample: None,
+            index_hint: None,
+        }
+    }
+
+    pub fn lateral(inner: FromItem) -> Self {
+        Self {
+            source: TableSource::Lateral(Box::new(inner)),
+            only: false,
+            sample: None,
+            index_hint: None,
+        }
+    }
+
+    pub fn function(name: impl Into<String>, args: Vec<Expr>, alias: impl Into<String>) -> Self {
+        Self {
+            source: TableSource::Function {
+                name: name.into(),
+                args,
+                alias: Some(alias.into()),
+            },
+            only: false,
+            sample: None,
+            index_hint: None,
+        }
+    }
+
+    pub fn values(rows: Vec<Vec<Expr>>, alias: impl Into<String>) -> Self {
+        Self {
+            source: TableSource::Values {
+                rows,
+                alias: alias.into(),
+                column_aliases: None,
+            },
             only: false,
             sample: None,
             index_hint: None,
@@ -180,6 +275,67 @@ pub struct JoinDef {
     pub natural: bool,
 }
 
+impl JoinDef {
+    pub fn inner(source: FromItem, on: Conditions) -> Self {
+        Self {
+            source,
+            condition: Some(JoinCondition::On(on)),
+            join_type: JoinType::Inner,
+            natural: false,
+        }
+    }
+
+    pub fn left(source: FromItem, on: Conditions) -> Self {
+        Self {
+            source,
+            condition: Some(JoinCondition::On(on)),
+            join_type: JoinType::Left,
+            natural: false,
+        }
+    }
+
+    pub fn right(source: FromItem, on: Conditions) -> Self {
+        Self {
+            source,
+            condition: Some(JoinCondition::On(on)),
+            join_type: JoinType::Right,
+            natural: false,
+        }
+    }
+
+    pub fn full(source: FromItem, on: Conditions) -> Self {
+        Self {
+            source,
+            condition: Some(JoinCondition::On(on)),
+            join_type: JoinType::Full,
+            natural: false,
+        }
+    }
+
+    pub fn cross(source: FromItem) -> Self {
+        Self {
+            source,
+            condition: None,
+            join_type: JoinType::Cross,
+            natural: false,
+        }
+    }
+
+    pub fn using(join_type: JoinType, source: FromItem, columns: Vec<String>) -> Self {
+        Self {
+            source,
+            condition: Some(JoinCondition::Using(columns)),
+            join_type,
+            natural: false,
+        }
+    }
+
+    pub fn natural(mut self) -> Self {
+        self.natural = true;
+        self
+    }
+}
+
 /// JOIN condition.
 #[derive(Debug, Clone)]
 pub enum JoinCondition {
@@ -224,6 +380,40 @@ pub struct SetOpDef {
     pub left: Box<QueryStmt>,
     pub right: Box<QueryStmt>,
     pub operation: SetOperationType,
+}
+
+impl SetOpDef {
+    pub fn union(left: QueryStmt, right: QueryStmt) -> Self {
+        Self {
+            left: Box::new(left),
+            right: Box::new(right),
+            operation: SetOperationType::Union,
+        }
+    }
+
+    pub fn union_all(left: QueryStmt, right: QueryStmt) -> Self {
+        Self {
+            left: Box::new(left),
+            right: Box::new(right),
+            operation: SetOperationType::UnionAll,
+        }
+    }
+
+    pub fn intersect(left: QueryStmt, right: QueryStmt) -> Self {
+        Self {
+            left: Box::new(left),
+            right: Box::new(right),
+            operation: SetOperationType::Intersect,
+        }
+    }
+
+    pub fn except(left: QueryStmt, right: QueryStmt) -> Self {
+        Self {
+            left: Box::new(left),
+            right: Box::new(right),
+            operation: SetOperationType::Except,
+        }
+    }
 }
 
 /// Set operation types.
@@ -280,6 +470,60 @@ pub struct LimitDef {
     pub offset: Option<u64>,
 }
 
+impl LimitDef {
+    pub fn limit(count: u64) -> Self {
+        Self {
+            kind: LimitKind::Limit(count),
+            offset: None,
+        }
+    }
+
+    pub fn limit_offset(count: u64, offset: u64) -> Self {
+        Self {
+            kind: LimitKind::Limit(count),
+            offset: Some(offset),
+        }
+    }
+
+    pub fn fetch_first(count: u64) -> Self {
+        Self {
+            kind: LimitKind::FetchFirst {
+                count,
+                with_ties: false,
+                percent: false,
+            },
+            offset: None,
+        }
+    }
+
+    pub fn fetch_first_with_ties(count: u64) -> Self {
+        Self {
+            kind: LimitKind::FetchFirst {
+                count,
+                with_ties: true,
+                percent: false,
+            },
+            offset: None,
+        }
+    }
+
+    pub fn top(count: u64) -> Self {
+        Self {
+            kind: LimitKind::Top {
+                count,
+                with_ties: false,
+                percent: false,
+            },
+            offset: None,
+        }
+    }
+
+    pub fn offset(mut self, offset: u64) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+}
+
 /// The type of row limiting.
 #[derive(Debug, Clone)]
 pub enum LimitKind {
@@ -314,6 +558,43 @@ pub struct CteDef {
     pub column_names: Option<Vec<String>>,
     /// PG: MATERIALIZED / NOT MATERIALIZED hint.
     pub materialized: Option<CteMaterialized>,
+}
+
+impl CteDef {
+    pub fn new(name: impl Into<String>, query: QueryStmt) -> Self {
+        Self {
+            name: name.into(),
+            query: Box::new(query),
+            recursive: false,
+            column_names: None,
+            materialized: None,
+        }
+    }
+
+    pub fn recursive(name: impl Into<String>, query: QueryStmt) -> Self {
+        Self {
+            name: name.into(),
+            query: Box::new(query),
+            recursive: true,
+            column_names: None,
+            materialized: None,
+        }
+    }
+
+    pub fn columns(mut self, cols: Vec<&str>) -> Self {
+        self.column_names = Some(cols.into_iter().map(String::from).collect());
+        self
+    }
+
+    pub fn materialized(mut self) -> Self {
+        self.materialized = Some(CteMaterialized::Materialized);
+        self
+    }
+
+    pub fn not_materialized(mut self) -> Self {
+        self.materialized = Some(CteMaterialized::NotMaterialized);
+        self
+    }
 }
 
 /// CTE materialization hint (PostgreSQL).

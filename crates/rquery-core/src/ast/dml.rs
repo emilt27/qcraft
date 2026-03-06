@@ -37,6 +37,60 @@ pub struct InsertStmt {
     pub ignore: bool,
 }
 
+impl Default for InsertStmt {
+    fn default() -> Self {
+        Self {
+            table: SchemaRef::new(""),
+            columns: None,
+            source: InsertSource::DefaultValues,
+            on_conflict: None,
+            returning: None,
+            ctes: None,
+            overriding: None,
+            conflict_resolution: None,
+            partition: None,
+            ignore: false,
+        }
+    }
+}
+
+impl InsertStmt {
+    pub fn values(table: &str, columns: Vec<&str>, rows: Vec<Vec<Expr>>) -> Self {
+        Self {
+            table: SchemaRef::new(table),
+            columns: Some(columns.into_iter().map(String::from).collect()),
+            source: InsertSource::Values(rows),
+            ..Default::default()
+        }
+    }
+
+    pub fn from_select(table: &str, columns: Vec<&str>, query: super::query::QueryStmt) -> Self {
+        Self {
+            table: SchemaRef::new(table),
+            columns: Some(columns.into_iter().map(String::from).collect()),
+            source: InsertSource::Select(Box::new(query)),
+            ..Default::default()
+        }
+    }
+
+    pub fn default_values(table: &str) -> Self {
+        Self {
+            table: SchemaRef::new(table),
+            ..Default::default()
+        }
+    }
+
+    pub fn returning(mut self, cols: Vec<SelectColumn>) -> Self {
+        self.returning = Some(cols);
+        self
+    }
+
+    pub fn on_conflict(mut self, def: OnConflictDef) -> Self {
+        self.on_conflict = Some(vec![def]);
+        self
+    }
+}
+
 /// Source of data for INSERT.
 #[derive(Debug, Clone)]
 pub enum InsertSource {
@@ -99,6 +153,31 @@ pub enum ConflictAction {
     },
 }
 
+impl OnConflictDef {
+    pub fn do_nothing() -> Self {
+        Self {
+            target: None,
+            action: ConflictAction::DoNothing,
+        }
+    }
+
+    pub fn do_update(columns: Vec<&str>, assignments: Vec<(&str, Expr)>) -> Self {
+        Self {
+            target: Some(ConflictTarget::Columns {
+                columns: columns.into_iter().map(String::from).collect(),
+                where_clause: None,
+            }),
+            action: ConflictAction::DoUpdate {
+                assignments: assignments
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v))
+                    .collect(),
+                where_clause: None,
+            },
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // UPDATE
 // ---------------------------------------------------------------------------
@@ -124,8 +203,51 @@ pub struct UpdateStmt {
     pub only: bool,
     /// MySQL/Oracle: PARTITION targeting.
     pub partition: Option<Vec<String>>,
-    /// MySQL: IGNORE modifier.
+    /// MySQL: IGNORE modifier (UpdateStmt).
     pub ignore: bool,
+}
+
+impl Default for UpdateStmt {
+    fn default() -> Self {
+        Self {
+            table: SchemaRef::new(""),
+            assignments: vec![],
+            from: None,
+            where_clause: None,
+            returning: None,
+            ctes: None,
+            conflict_resolution: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            only: false,
+            partition: None,
+            ignore: false,
+        }
+    }
+}
+
+impl UpdateStmt {
+    pub fn new(table: &str, assignments: Vec<(&str, Expr)>) -> Self {
+        Self {
+            table: SchemaRef::new(table),
+            assignments: assignments
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    pub fn where_clause(mut self, cond: Conditions) -> Self {
+        self.where_clause = Some(cond);
+        self
+    }
+
+    pub fn returning(mut self, cols: Vec<SelectColumn>) -> Self {
+        self.returning = Some(cols);
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -153,4 +275,41 @@ pub struct DeleteStmt {
     pub partition: Option<Vec<String>>,
     /// MySQL: IGNORE modifier.
     pub ignore: bool,
+}
+
+impl Default for DeleteStmt {
+    fn default() -> Self {
+        Self {
+            table: SchemaRef::new(""),
+            using: None,
+            where_clause: None,
+            returning: None,
+            ctes: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            only: false,
+            partition: None,
+            ignore: false,
+        }
+    }
+}
+
+impl DeleteStmt {
+    pub fn new(table: &str) -> Self {
+        Self {
+            table: SchemaRef::new(table),
+            ..Default::default()
+        }
+    }
+
+    pub fn where_clause(mut self, cond: Conditions) -> Self {
+        self.where_clause = Some(cond);
+        self
+    }
+
+    pub fn returning(mut self, cols: Vec<SelectColumn>) -> Self {
+        self.returning = Some(cols);
+        self
+    }
 }

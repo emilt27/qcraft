@@ -1,6 +1,8 @@
+use super::common::FieldRef;
 use super::custom::{CustomCompareOp, CustomCondition};
 use super::expr::Expr;
 use super::query::QueryStmt;
+use super::value::Value;
 
 /// A tree of conditions connected by AND/OR.
 #[derive(Debug, Clone)]
@@ -30,6 +32,106 @@ impl Conditions {
     pub fn negated(mut self) -> Self {
         self.negated = !self.negated;
         self
+    }
+
+    /// `field = expr`
+    pub fn eq(field: FieldRef, val: impl Into<Expr>) -> Self {
+        Self::comparison(field, CompareOp::Eq, val.into())
+    }
+
+    /// `field != expr`
+    pub fn neq(field: FieldRef, val: impl Into<Expr>) -> Self {
+        Self::comparison(field, CompareOp::Neq, val.into())
+    }
+
+    /// `field > expr`
+    pub fn gt(field: FieldRef, val: impl Into<Expr>) -> Self {
+        Self::comparison(field, CompareOp::Gt, val.into())
+    }
+
+    /// `field >= expr`
+    pub fn gte(field: FieldRef, val: impl Into<Expr>) -> Self {
+        Self::comparison(field, CompareOp::Gte, val.into())
+    }
+
+    /// `field < expr`
+    pub fn lt(field: FieldRef, val: impl Into<Expr>) -> Self {
+        Self::comparison(field, CompareOp::Lt, val.into())
+    }
+
+    /// `field <= expr`
+    pub fn lte(field: FieldRef, val: impl Into<Expr>) -> Self {
+        Self::comparison(field, CompareOp::Lte, val.into())
+    }
+
+    /// `field IS NULL`
+    pub fn is_null(field: FieldRef) -> Self {
+        Self::comparison(field, CompareOp::IsNull, Expr::Value(Value::Null))
+    }
+
+    /// `field IS NOT NULL`
+    pub fn is_not_null(field: FieldRef) -> Self {
+        Self::and(vec![ConditionNode::Comparison(Comparison {
+            left: Expr::Field(field),
+            op: CompareOp::IsNull,
+            right: Expr::Value(Value::Null),
+            negate: true,
+        })])
+    }
+
+    /// `field LIKE pattern`
+    pub fn like(field: FieldRef, pattern: &str) -> Self {
+        Self::comparison(field, CompareOp::Like, Expr::Value(Value::Str(pattern.to_string())))
+    }
+
+    /// `field IN (subquery)`
+    pub fn in_subquery(field: FieldRef, query: QueryStmt) -> Self {
+        Self::and(vec![ConditionNode::Comparison(Comparison {
+            left: Expr::Field(field),
+            op: CompareOp::In,
+            right: Expr::SubQuery(Box::new(query)),
+            negate: false,
+        })])
+    }
+
+    /// Combine: `self AND other`.
+    pub fn and_also(mut self, other: Conditions) -> Self {
+        if self.connector == Connector::And && !self.negated {
+            self.children.push(ConditionNode::Group(other));
+            self
+        } else {
+            Self::and(vec![ConditionNode::Group(self), ConditionNode::Group(other)])
+        }
+    }
+
+    /// Combine: `self OR other`.
+    pub fn or_else(mut self, other: Conditions) -> Self {
+        if self.connector == Connector::Or && !self.negated {
+            self.children.push(ConditionNode::Group(other));
+            self
+        } else {
+            Self::or(vec![ConditionNode::Group(self), ConditionNode::Group(other)])
+        }
+    }
+
+    fn comparison(field: FieldRef, op: CompareOp, right: Expr) -> Self {
+        Self::and(vec![ConditionNode::Comparison(Comparison {
+            left: Expr::Field(field),
+            op,
+            right,
+            negate: false,
+        })])
+    }
+}
+
+impl Comparison {
+    pub fn new(left: Expr, op: CompareOp, right: Expr) -> Self {
+        Self {
+            left,
+            op,
+            right,
+            negate: false,
+        }
     }
 }
 

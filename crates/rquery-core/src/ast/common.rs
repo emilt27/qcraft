@@ -81,3 +81,31 @@ pub struct OrderByDef {
     pub direction: OrderDir,
     pub nulls: Option<NullsOrder>,
 }
+
+impl OrderByDef {
+    pub fn asc(expr: super::expr::Expr) -> Self {
+        Self {
+            expr,
+            direction: OrderDir::Asc,
+            nulls: None,
+        }
+    }
+
+    pub fn desc(expr: super::expr::Expr) -> Self {
+        Self {
+            expr,
+            direction: OrderDir::Desc,
+            nulls: None,
+        }
+    }
+
+    pub fn nulls_first(mut self) -> Self {
+        self.nulls = Some(NullsOrder::First);
+        self
+    }
+
+    pub fn nulls_last(mut self) -> Self {
+        self.nulls = Some(NullsOrder::Last);
+        self
+    }
+}

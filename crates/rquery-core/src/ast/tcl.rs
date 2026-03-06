@@ -19,6 +19,39 @@ pub enum TransactionStmt {
     Custom(Box<dyn CustomTransaction>),
 }
 
+impl TransactionStmt {
+    pub fn begin() -> Self {
+        Self::Begin(BeginStmt::default())
+    }
+
+    pub fn commit() -> Self {
+        Self::Commit(CommitStmt::default())
+    }
+
+    pub fn rollback() -> Self {
+        Self::Rollback(RollbackStmt::default())
+    }
+
+    pub fn savepoint(name: impl Into<String>) -> Self {
+        Self::Savepoint(SavepointStmt {
+            name: name.into(),
+        })
+    }
+
+    pub fn release(name: impl Into<String>) -> Self {
+        Self::ReleaseSavepoint(ReleaseSavepointStmt {
+            name: name.into(),
+        })
+    }
+
+    pub fn rollback_to(name: impl Into<String>) -> Self {
+        Self::Rollback(RollbackStmt {
+            to_savepoint: Some(name.into()),
+            ..Default::default()
+        })
+    }
+}
+
 // ---------------------------------------------------------------------------
 // BEGIN / START TRANSACTION
 // ---------------------------------------------------------------------------
@@ -33,6 +66,54 @@ pub struct BeginStmt {
     pub name: Option<String>,
     /// SQL Server: WITH MARK 'description'.
     pub with_mark: Option<String>,
+}
+
+impl Default for BeginStmt {
+    fn default() -> Self {
+        Self {
+            modes: None,
+            lock_type: None,
+            name: None,
+            with_mark: None,
+        }
+    }
+}
+
+impl BeginStmt {
+    pub fn with_isolation(level: IsolationLevel) -> Self {
+        Self {
+            modes: Some(vec![TransactionMode::IsolationLevel(level)]),
+            ..Default::default()
+        }
+    }
+
+    pub fn read_only() -> Self {
+        Self {
+            modes: Some(vec![TransactionMode::ReadOnly]),
+            ..Default::default()
+        }
+    }
+
+    pub fn sqlite_deferred() -> Self {
+        Self {
+            lock_type: Some(SqliteLockType::Deferred),
+            ..Default::default()
+        }
+    }
+
+    pub fn sqlite_immediate() -> Self {
+        Self {
+            lock_type: Some(SqliteLockType::Immediate),
+            ..Default::default()
+        }
+    }
+
+    pub fn sqlite_exclusive() -> Self {
+        Self {
+            lock_type: Some(SqliteLockType::Exclusive),
+            ..Default::default()
+        }
+    }
 }
 
 /// SQLite BEGIN lock type.
@@ -61,6 +142,19 @@ pub struct CommitStmt {
     pub write_mode: Option<OracleWriteMode>,
     /// Oracle: FORCE 'transaction_id' for in-doubt distributed txns.
     pub force: Option<String>,
+}
+
+impl Default for CommitStmt {
+    fn default() -> Self {
+        Self {
+            and_chain: false,
+            release: false,
+            name: None,
+            comment: None,
+            write_mode: None,
+            force: None,
+        }
+    }
 }
 
 /// Oracle COMMIT WRITE options.
@@ -98,6 +192,18 @@ pub struct RollbackStmt {
     pub name: Option<String>,
     /// Oracle: FORCE 'transaction_id' for in-doubt distributed txns.
     pub force: Option<String>,
+}
+
+impl Default for RollbackStmt {
+    fn default() -> Self {
+        Self {
+            to_savepoint: None,
+            and_chain: false,
+            release: false,
+            name: None,
+            force: None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
