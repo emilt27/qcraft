@@ -1,620 +1,171 @@
-# rquery Architecture
+# Architecture
 
-## Overview
+This document explains the design decisions behind rquery and how the pieces fit together.
 
-rquery is a universal, extensible query builder library for Rust. It generates SQL (and potentially other query languages) from a typed intermediate representation (IR/AST), with first-class support for external extensibility — users can add new features without modifying the library.
+## AST-first design
 
-### Supported dialects
+rquery is built around a typed Abstract Syntax Tree (AST), not a builder pattern. Every SQL construct -- a SELECT query, an INSERT statement, a CREATE TABLE -- is represented as a Rust data structure. You construct the AST directly, then hand it to a renderer to produce SQL.
 
-- PostgreSQL
-- SQLite
+Why not a builder? Builders mix construction and rendering, making it hard to inspect, transform, or re-render a query. With an AST, you can:
 
-## Three Layers
+- Build a query once, render it to multiple dialects.
+- Inspect or transform the query programmatically before rendering.
+- Serialize the AST for logging, caching, or transport.
+- Test the AST structure independently of the SQL output.
+
+The AST is the **single source of truth** for what the query means. The renderer only decides **how** to express it in a specific SQL dialect.
+
+## Three layers
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  Layer 1: IR (AST)                                        │
-│  - Enum-based types                                       │
-│  - Every enum has Custom(Box<dyn Custom___>) variant      │
-│  - No SQL strings, pure data structures                   │
-│  rquery-core crate                                        │
-└────────────────────────────┬─────────────────────────────┘
-                             │
-┌────────────────────────────▼─────────────────────────────┐
-│  Layer 2: Renderer trait                                  │
-│  - render_select(), render_expr(), render_condition()...  │
-│  - Each method has default impl calling sub-methods       │
-│  - User can override ANY granular piece                   │
-│  rquery-core crate                                        │
-└────────────────────────────┬─────────────────────────────┘
-                             │
-┌──────────────┬─────────────▼──────────────┐
-│  PostgreSQL  │    SQLite Renderer          │
-│  Renderer    │    (rquery-sqlite)          │
-│ (rquery-pg)  │                             │
-└──────────────┴────────────────────────────┘
++--------------------------------------------+
+|  rquery  (umbrella crate, re-exports)      |
++--------------------------------------------+
+         |                    |
++------------------+  +------------------+
+| rquery-postgres  |  | rquery-sqlite    |
+| (PostgresRenderer)|  | (SqliteRenderer) |
++------------------+  +------------------+
+         |                    |
++--------------------------------------------+
+|  rquery-core                               |
+|  - AST types (query, dml, ddl, tcl, expr)  |
+|  - Renderer trait                          |
+|  - RenderCtx                               |
+|  - Value, Conditions, Custom traits        |
++--------------------------------------------+
 ```
 
-## Extensibility Model
+### rquery-core
 
-The key design goal: users of the library can add support for new database features **without waiting for a library release** and **without string manipulation hacks**.
+The foundation. Contains:
 
-This is achieved through two mechanisms:
+- **AST modules**: `query` (DQL), `dml`, `ddl`, `tcl`, `expr`, `conditions`, `value`, `common`, `custom`
+- **Renderer trait**: Defines the interface that all dialect renderers implement
+- **RenderCtx**: The context object that accumulates SQL output and parameters
+- **Error types**: `RenderError` and `RenderResult`
+- **Policy types**: `UnsupportedPolicy`, `Feature`, `Warning`
 
-### 1. Custom AST Variants
+rquery-core has no dialect-specific logic. It defines _what_ can be expressed, not _how_ it renders.
 
-Every IR enum has a `Custom(Box<dyn Custom___>)` variant that allows injecting arbitrary AST nodes:
+### rquery-postgres
 
-```rust
-// User defines a custom AST node
-#[derive(Debug, Clone)]
-struct CountIf {
-    field: Expr,
-    condition: Expr,
-}
+Implements `Renderer` for PostgreSQL via `PostgresRenderer`. Handles PG-specific syntax: `$1` parameters, `DISTINCT ON`, `FOR UPDATE`, `TABLESAMPLE`, JSONB/trigram/range/FTS operators, two-phase commit, `LOCK TABLE`, extensions, partitioning, and more.
 
-impl CustomExpr for CountIf {
-    fn as_any(&self) -> &dyn Any { self }
-}
+Configurable parameter style via `PostgresRenderer::new().with_param_style(ParamStyle::Percent)`.
 
-// User uses it in a query
-let query = Query::select()
-    .expr(Expr::custom(CountIf {
-        field: Expr::field("id"),
-        condition: Expr::field("age").gt(Expr::val(10)),
-    }))
-    .from("users")
-    .build();
-```
+### rquery-sqlite
 
-### 2. Renderer Wrapping (Composition)
+Implements `Renderer` for SQLite via `SqliteRenderer`. Handles SQLite-specific syntax: `?` parameters, `INDEXED BY`, `WITHOUT ROWID`, `STRICT`, conflict resolution (`OR REPLACE`, `OR IGNORE`), and SQLite transaction lock types (`DEFERRED`, `IMMEDIATE`, `EXCLUSIVE`).
 
-Users create their own renderer by wrapping a standard one and overriding only the methods they need:
+### rquery (umbrella)
 
-```rust
-struct MyPostgresRenderer {
-    inner: PostgresRenderer,
-}
+Re-exports from all three crates for convenience.
 
-impl Renderer for MyPostgresRenderer {
-    fn render_expr(&self, expr: &Expr, ctx: &mut RenderCtx) -> Result<()> {
-        // Intercept only our custom node
-        if let Expr::Custom(custom) = expr {
-            if let Some(count_if) = custom.as_any().downcast_ref::<CountIf>() {
-                ctx.keyword("COUNT").paren_open();
-                self.render_expr(&count_if.field, ctx)?;
-                ctx.paren_close().keyword("FILTER").paren_open();
-                ctx.keyword("WHERE");
-                self.render_expr(&count_if.condition, ctx)?;
-                ctx.paren_close();
-                return Ok(());
-            }
-        }
-        // Everything else — delegate to standard renderer
-        self.inner.render_expr(expr, ctx)
-    }
+## AST = WHAT, Renderer = HOW
 
-    // All other methods delegate via macro
-    delegate_renderer!(self.inner);
-}
-```
+The same `QueryStmt` renders differently depending on the renderer:
 
-The `delegate_renderer!` macro generates delegation for all `Renderer` trait methods to the inner renderer, so the user only overrides what they need.
+- A `LimitDef` with `LimitKind::FetchFirst` renders as `FETCH FIRST n ROWS ONLY` on PostgreSQL but converts to `LIMIT n` on SQLite.
+- A `DistinctDef::DistinctOn` renders as `DISTINCT ON (...)` on PostgreSQL but returns `RenderError::Unsupported` on SQLite.
+- A `BeginStmt` with `lock_type: Some(SqliteLockType::Immediate)` renders as `BEGIN IMMEDIATE` on SQLite but the lock type is ignored on PostgreSQL.
 
-## IR Types
-
-### Query
-
-```rust
-pub struct QueryStmt {
-    pub table: TableSource,
-    pub columns: Option<Vec<SelectColumn>>,
-    pub distinct: Option<DistinctClause>,
-    pub joins: Option<Vec<JoinDef>>,
-    pub where_clause: Option<Conditions>,
-    pub group_by: Option<Vec<Expr>>,
-    pub having: Option<Conditions>,
-    pub order_by: Option<Vec<OrderByDef>>,
-    pub limit: Option<LimitDef>,
-    pub ctes: Option<Vec<CteDef>>,
-    pub lock: Option<SelectLockDef>,
-}
-
-pub enum TableSource {
-    Table(SchemaRef),
-    SubQuery(SubQueryDef),
-    SetOp(Box<SetOpDef>),
-    Custom(Box<dyn CustomTableSource>),
-}
-
-pub struct SchemaRef {
-    pub name: String,
-    pub alias: Option<String>,
-    pub namespace: Option<String>,
-}
-```
-
-### Expressions
-
-```rust
-pub enum Expr {
-    Value(Value),
-    Field(FieldRef),
-    Binary { left: Box<Expr>, op: BinaryOp, right: Box<Expr> },
-    Func { name: String, args: Vec<Expr> },
-    Aggregate(AggregationDef),
-    Cast { expr: Box<Expr>, to_type: String },
-    Case(CaseDef),
-    Window(WindowDef),
-    Exists(Box<QueryStmt>),
-    SubQuery(Box<QueryStmt>),
-    Raw { sql: String, params: Vec<Value> },
-    Custom(Box<dyn CustomExpr>),
-}
-
-pub struct AggregationDef {
-    pub name: String,
-    pub expression: Option<Box<Expr>>,
-    pub distinct: bool,
-    pub filter: Option<Conditions>,
-    pub args: Option<Vec<Expr>>,
-    pub order_by: Option<Vec<OrderByDef>>,
-}
-
-pub struct WindowDef {
-    pub expression: Box<Expr>,
-    pub partition_by: Option<Vec<Expr>>,
-    pub order_by: Option<Vec<OrderByDef>>,
-    pub frame: Option<WindowFrameDef>,
-}
-
-pub struct WindowFrameDef {
-    pub frame_type: WindowFrameType,  // Rows | Range | Groups
-    pub start: Option<i64>,
-    pub end: Option<i64>,
-}
-
-pub struct CaseDef {
-    pub cases: Vec<WhenClause>,
-    pub default: Option<Box<Expr>>,
-}
-
-pub struct WhenClause {
-    pub condition: Conditions,
-    pub result: Expr,
-}
-```
-
-### Field References
-
-```rust
-pub struct FieldDef {
-    pub name: String,
-    pub child: Option<Box<FieldDef>>,  // For nested/JSON path access
-}
-
-pub struct FieldRef {
-    pub field: FieldDef,
-    pub table_name: String,
-    pub namespace: Option<String>,
-}
-```
-
-### Conditions
-
-```rust
-pub struct Conditions {
-    pub children: Vec<ConditionNode>,
-    pub connector: Connector,  // And | Or
-    pub negated: bool,
-}
-
-pub enum ConditionNode {
-    Comparison(Comparison),
-    Group(Conditions),
-    Exists(Box<QueryStmt>),
-    Custom(Box<dyn CustomCondition>),
-}
-
-pub struct Comparison {
-    pub left: Expr,
-    pub op: CompareOp,
-    pub right: Expr,
-    pub negate: bool,
-}
-
-pub enum CompareOp {
-    Eq, Neq, Gt, Gte, Lt, Lte,
-    In, Like, ILike, Between, IsNull,
-    // PostgreSQL-specific
-    JsonbContains, JsonbContainedBy, JsonbHasKey, JsonbHasAnyKey, JsonbHasAllKeys,
-    FtsMatch,
-    TrigramSimilar, TrigramWordSimilar, TrigramStrictWordSimilar,
-    RangeContains, RangeContainedBy, RangeOverlap,
-    Similar, Regex, IRegex,
-    Custom(Box<dyn CustomCompareOp>),
-}
-```
-
-### Values
-
-```rust
-pub enum Value {
-    Null,
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    Str(String),
-    Bytes(Vec<u8>),
-    Date(String),
-    DateTime(String),
-    Time(String),
-    List(Vec<Value>),
-    Json(serde_json::Value),
-    Decimal(String),
-    Uuid(String),
-    TimeDelta { days: i64, seconds: i64, microseconds: i64 },
-}
-```
-
-### DML (Data Manipulation)
-
-```rust
-pub enum MutationStmt {
-    Insert(InsertStmt),
-    InsertFromSelect(InsertFromSelectStmt),
-    Update(UpdateStmt),
-    Delete(DeleteStmt),
-    Truncate(SchemaRef),
-    Custom(Box<dyn CustomMutation>),
-}
-
-pub struct InsertStmt {
-    pub schema: SchemaRef,
-    pub rows: Vec<DataRow>,
-    pub on_conflict: Option<OnConflictDef>,
-    pub returning: Option<Vec<FieldRef>>,
-}
-
-pub struct DataRow {
-    pub data: Vec<(String, Value)>,
-}
-
-pub struct OnConflictDef {
-    pub fields: Vec<FieldRef>,
-    pub action: ConflictAction,  // Nothing | Update
-    pub update_fields: Option<Vec<FieldRef>>,
-    pub where_clause: Option<Conditions>,
-}
-
-pub struct InsertFromSelectStmt {
-    pub schema: SchemaRef,
-    pub query: QueryStmt,
-    pub columns: Option<Vec<FieldRef>>,
-    pub returning: Option<Vec<FieldRef>>,
-}
-
-pub struct UpdateStmt {
-    pub schema: SchemaRef,
-    pub assignments: Vec<(String, Expr)>,
-    pub where_clause: Option<Conditions>,
-    pub from_tables: Option<Vec<TableSource>>,
-    pub returning: Option<Vec<FieldRef>>,
-}
-
-pub struct DeleteStmt {
-    pub schema: SchemaRef,
-    pub where_clause: Option<Conditions>,
-    pub returning: Option<Vec<FieldRef>>,
-}
-```
-
-### DDL (Schema Mutation)
-
-```rust
-pub enum SchemaMutationStmt {
-    CreateTable { schema: SchemaDef, if_not_exists: bool },
-    DropTable { schema_ref: SchemaRef, if_exists: bool, cascade: bool },
-    RenameTable { schema_ref: SchemaRef, new_name: String },
-    AddColumn { schema_ref: SchemaRef, column: ColumnDef },
-    DropColumn { schema_ref: SchemaRef, name: String },
-    RenameColumn { schema_ref: SchemaRef, old_name: String, new_name: String },
-    UpdateColumn { schema_ref: SchemaRef, column: ColumnDef },
-    AddConstraint { schema_ref: SchemaRef, constraint: ConstraintDef, not_valid: bool },
-    DropConstraint { schema_ref: SchemaRef, name: String },
-    ValidateConstraint { schema_ref: SchemaRef, name: String },
-    CreateIndex { schema_ref: SchemaRef, index: IndexDef, if_not_exists: bool, concurrent: bool },
-    DropIndex { schema_ref: SchemaRef, name: String, if_exists: bool, concurrent: bool },
-    CreateExtension { name: String, if_not_exists: bool, schema: Option<String>, version: Option<String> },
-    DropExtension { name: String, if_exists: bool, cascade: bool },
-    Custom(Box<dyn CustomSchemaMutation>),
-}
-
-pub struct SchemaDef {
-    pub name: String,
-    pub namespace: Option<String>,
-    pub columns: Vec<ColumnDef>,
-    pub constraints: Option<Vec<ConstraintDef>>,
-    pub indexes: Option<Vec<IndexDef>>,
-}
-
-pub struct ColumnDef {
-    pub name: String,
-    pub field_type: FieldType,
-    pub required: bool,
-    pub default: Option<Expr>,
-    pub generated: Option<Expr>,
-    pub collation: Option<String>,
-}
-
-pub enum FieldType {
-    Scalar(String),              // text, integer, bigint, boolean, etc.
-    Custom { name: String, params: Option<Vec<String>> },
-    Array(Box<FieldType>),
-    Vector(i64),                 // pgvector
-}
-
-pub enum ConstraintDef {
-    PrimaryKey { name: Option<String>, fields: Vec<String> },
-    ForeignKey {
-        name: Option<String>,
-        fields: Vec<String>,
-        ref_table: SchemaRef,
-        ref_fields: Vec<String>,
-        on_delete: Option<ReferentialAction>,
-        on_update: Option<ReferentialAction>,
-    },
-    Unique { name: Option<String>, fields: Vec<String>, condition: Option<Conditions> },
-    Check { name: Option<String>, condition: Conditions },
-    Exclusion {
-        name: Option<String>,
-        elements: Vec<(String, String)>,
-        index_method: String,
-        condition: Option<Conditions>,
-    },
-}
-
-pub enum ReferentialAction {
-    NoAction, Restrict, Cascade, SetNull, SetDefault,
-}
-
-pub struct IndexDef {
-    pub name: String,
-    pub fields: Vec<IndexFieldDef>,
-    pub unique: bool,
-    pub index_type: Option<String>,     // btree, hash, gist, gin, brin
-    pub include: Option<Vec<String>>,   // INCLUDE columns (PostgreSQL)
-    pub condition: Option<Conditions>,  // Partial index WHERE
-    pub parameters: Option<Vec<(String, String)>>,  // WITH parameters
-}
-
-pub struct IndexFieldDef {
-    pub name: String,
-    pub direction: OrderDir,
-    pub op_class: Option<String>,
-}
-```
-
-## Renderer Trait
-
-```rust
-pub trait Renderer {
-    // ── Top-level ──
-    fn render_query(&self, stmt: &QueryStmt, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_mutation(&self, stmt: &MutationStmt, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_schema_mutation(&self, stmt: &SchemaMutationStmt, ctx: &mut RenderCtx) -> Result<()>;
-
-    // ── SELECT parts ──
-    fn render_select_columns(&self, cols: &[SelectColumn], ctx: &mut RenderCtx) -> Result<()>;
-    fn render_from(&self, source: &TableSource, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_joins(&self, joins: &[JoinDef], ctx: &mut RenderCtx) -> Result<()>;
-    fn render_where(&self, cond: &Conditions, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_order_by(&self, order: &[OrderByDef], ctx: &mut RenderCtx) -> Result<()>;
-    fn render_limit(&self, limit: &LimitDef, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_ctes(&self, ctes: &[CteDef], ctx: &mut RenderCtx) -> Result<()>;
-    fn render_lock(&self, lock: &SelectLockDef, ctx: &mut RenderCtx) -> Result<()>;
-
-    // ── Expressions ──
-    fn render_expr(&self, expr: &Expr, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_aggregate(&self, agg: &AggregationDef, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_window(&self, win: &WindowDef, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_case(&self, case: &CaseDef, ctx: &mut RenderCtx) -> Result<()>;
-
-    // ── Conditions ──
-    fn render_condition(&self, cond: &Conditions, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_compare_op(&self, op: &CompareOp, left: &Expr, right: &Expr, ctx: &mut RenderCtx) -> Result<()>;
-
-    // ── DML ──
-    fn render_insert(&self, stmt: &InsertStmt, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_update(&self, stmt: &UpdateStmt, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_delete(&self, stmt: &DeleteStmt, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_on_conflict(&self, oc: &OnConflictDef, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_returning(&self, fields: &[FieldRef], ctx: &mut RenderCtx) -> Result<()>;
-
-    // ── DDL ──
-    fn render_column_type(&self, ty: &FieldType, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_constraint(&self, c: &ConstraintDef, ctx: &mut RenderCtx) -> Result<()>;
-    fn render_index(&self, idx: &IndexDef, ctx: &mut RenderCtx) -> Result<()>;
-
-    // ── Identifiers ──
-    fn quote_ident(&self, name: &str) -> String;
-}
-```
+This separation means you can build your AST once in shared code, then render it per-database at the edges of your application.
 
 ## RenderCtx
 
-```rust
-pub struct RenderCtx {
-    sql: String,
-    params: Vec<Value>,
-    param_style: ParamStyle,  // Dollar ($1) | QMark (?) | Format (%s)
-}
+`RenderCtx` is the semantic writing API that renderers use to produce SQL. Instead of raw string concatenation, renderers call methods like `keyword`, `ident`, `param`, `string_literal`, `paren_open`, `paren_close`, `comma`, `operator`, and `write`.
 
-impl RenderCtx {
-    pub fn new(param_style: ParamStyle) -> Self {
-        Self {
-            sql: String::with_capacity(256),
-            params: Vec::new(),
-            param_style,
-        }
-    }
+Key behaviors:
 
-    // ── Semantic writing methods (chainable) ──
-
-    /// Write a SQL keyword (e.g. SELECT, FROM, CAST, AS).
-    /// Automatically adds a leading space when needed.
-    pub fn keyword(&mut self, kw: &str) -> &mut Self;
-
-    /// Write a quoted identifier (e.g. "users", "age").
-    pub fn ident(&mut self, name: &str) -> &mut Self;
-
-    /// Write a parameterized value. Returns the placeholder ($1, ?, %s).
-    pub fn param(&mut self, val: Value) -> &mut Self;
-
-    /// Write a string literal with proper escaping and quoting.
-    pub fn string_literal(&mut self, s: &str) -> &mut Self;
-
-    /// Write an operator (e.g. ::, =, >, ||).
-    pub fn operator(&mut self, op: &str) -> &mut Self;
-
-    /// Write opening parenthesis.
-    pub fn paren_open(&mut self) -> &mut Self;
-
-    /// Write closing parenthesis.
-    pub fn paren_close(&mut self) -> &mut Self;
-
-    /// Write a comma separator.
-    pub fn comma(&mut self) -> &mut Self;
-
-    /// Write a space.
-    pub fn space(&mut self) -> &mut Self;
-
-    /// Write arbitrary text (escape hatch, use sparingly).
-    pub fn write(&mut self, s: &str) -> &mut Self;
-}
-```
+- **Auto-spacing**: `keyword` and `ident` insert a space before themselves when needed (unless the buffer ends with `(`, `.`, or whitespace). This eliminates manual space management.
+- **Parameter collection**: `ctx.param(value)` emits the correct placeholder for the configured `ParamStyle` and appends the value to the internal parameter list.
+- **Quoting**: `ctx.ident("name")` wraps identifiers in double quotes and escapes embedded quotes. `ctx.string_literal("text")` wraps in single quotes with proper escaping.
+- **Finish**: `ctx.finish()` consumes the context and returns `(String, Vec<Value>)`.
 
 Usage example:
 
 ```rust
-// PostgreSQL CAST: field::type
-fn render_cast(&self, expr: &Expr, to_type: &str, ctx: &mut RenderCtx) -> Result<()> {
-    self.render_expr(expr, ctx)?;
-    ctx.operator("::");
-    ctx.write(to_type);
-    Ok(())
-}
+// PostgreSQL CAST: expr::type
+ctx.operator("::");
+ctx.write(to_type);
 
-// SQLite CAST: CAST(field AS type)
-fn render_cast(&self, expr: &Expr, to_type: &str, ctx: &mut RenderCtx) -> Result<()> {
-    ctx.keyword("CAST").paren_open();
-    self.render_expr(expr, ctx)?;
-    ctx.keyword("AS").write(to_type).paren_close();
-    Ok(())
-}
+// SQLite CAST: CAST(expr AS type)
+ctx.keyword("CAST").paren_open();
+self.render_expr(expr, ctx)?;
+ctx.keyword("AS").write(to_type).paren_close();
 ```
 
-## Crate Structure
+## Parameterization architecture
 
-```
-rquery/
-├── rquery-core/        # IR types + Renderer trait + RenderCtx + Value + Custom* traits
-├── rquery-postgres/    # PostgresRenderer implementation
-├── rquery-sqlite/      # SqliteRenderer implementation
-└── rquery/             # Umbrella crate, re-exports everything
-```
+The `RenderCtx` carries a `parameterize: bool` flag that controls whether `Value` nodes are emitted as placeholders or inline literals.
 
-## Custom Extension Traits
+| Statement type | `parameterize` | Reason |
+|---|---|---|
+| DQL (SELECT) | `true` | User data in WHERE, expressions |
+| DML (INSERT, UPDATE, DELETE) | `true` | User data in VALUES, SET, WHERE |
+| DDL (CREATE TABLE, ALTER, etc.) | `false` | Only identifiers and type names |
+| TCL (BEGIN, COMMIT, etc.) | `false` | Structural commands, no user data |
 
-All extension traits follow the same pattern:
+Each top-level render method (`render_query_stmt`, `render_mutation_stmt`, `render_schema_stmt`, `render_transaction_stmt`) creates its own `RenderCtx` with the appropriate flag. This is not something callers need to manage.
+
+`Value::Null` is always rendered as the `NULL` keyword, never as a parameter, regardless of the flag.
+
+## Unsupported features policy
+
+When a feature in the AST has no equivalent in the target dialect, the renderer follows one of three strategies:
+
+### Ignore (safe to skip)
+
+The feature is decoration or an optimization hint. Skipping it does not change query results. Examples: CTE `MATERIALIZED` hints on SQLite, `ONLY` keyword on SQLite.
+
+### Error (changes semantics)
+
+Skipping the feature would produce a query with different behavior. The renderer returns `RenderError::Unsupported` with a description. Examples: `DISTINCT ON` on SQLite, `FOR UPDATE` on SQLite, `LATERAL` on SQLite.
+
+### Workaround (transforms syntax)
+
+The feature has no direct equivalent, but can be expressed differently. The renderer silently transforms it. Examples: `TOP(n)` to `LIMIT n`, `FETCH FIRST n ROWS` to `LIMIT n` on SQLite.
+
+The policy is hardcoded per feature per renderer. The renderer authors made these decisions based on semantic correctness -- whether silently dropping a feature would change the query's meaning.
+
+## Extensibility model
+
+Every major AST enum has a `Custom(Box<dyn Custom*>)` variant. This covers expressions, conditions, comparison operators, table sources, DML, DDL, TCL, field types, and constraints. All custom traits follow the same shape:
 
 ```rust
 pub trait CustomExpr: Debug + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn clone_box(&self) -> Box<dyn CustomExpr>;
 }
-
-pub trait CustomCondition: Debug + Send + Sync {
-    fn as_any(&self) -> &dyn Any;
-    fn clone_box(&self) -> Box<dyn CustomCondition>;
-}
-
-pub trait CustomCompareOp: Debug + Send + Sync {
-    fn as_any(&self) -> &dyn Any;
-    fn clone_box(&self) -> Box<dyn CustomCompareOp>;
-}
-
-pub trait CustomTableSource: Debug + Send + Sync {
-    fn as_any(&self) -> &dyn Any;
-    fn clone_box(&self) -> Box<dyn CustomTableSource>;
-}
-
-pub trait CustomMutation: Debug + Send + Sync {
-    fn as_any(&self) -> &dyn Any;
-    fn clone_box(&self) -> Box<dyn CustomMutation>;
-}
-
-pub trait CustomSchemaMutation: Debug + Send + Sync {
-    fn as_any(&self) -> &dyn Any;
-    fn clone_box(&self) -> Box<dyn CustomSchemaMutation>;
-}
 ```
 
-## Full Extensibility Example
+There are three levels of extensibility:
 
-Scenario: PostgreSQL releases a new feature — `COUNT(id) FILTER (WHERE age > 10)` with some new syntax. A user of rquery can add support immediately:
+1. **Compose existing AST** (90% of cases) -- the AST is rich enough for most SQL.
+2. **Custom AST node + renderer override** (9%) -- define a custom struct implementing the appropriate `Custom*` trait, wrap an existing renderer, override the relevant `render_*` method, and use `as_any().downcast_ref()` to access your concrete type.
+3. **Raw SQL escape hatch** (1%) -- `Expr::Raw { sql, params }` for one-off fragments.
+
+To handle custom variants, you wrap an existing renderer via composition and override the relevant method. The `delegate_renderer!` macro forwards all other `Renderer` methods to the inner renderer:
 
 ```rust
-use rquery_core::{Expr, CustomExpr, Renderer, RenderCtx};
-use rquery_postgres::PostgresRenderer;
-
-// 1. Define the custom AST node
-#[derive(Debug, Clone)]
-struct CountIf {
-    field: Expr,
-    condition: Expr,
-}
-
-impl CustomExpr for CountIf {
-    fn as_any(&self) -> &dyn Any { self }
-    fn clone_box(&self) -> Box<dyn CustomExpr> { Box::new(self.clone()) }
-}
-
-// 2. Wrap the standard renderer
-struct MyPostgresRenderer {
+struct MyRenderer {
     inner: PostgresRenderer,
 }
 
-impl Renderer for MyPostgresRenderer {
-    fn render_expr(&self, expr: &Expr, ctx: &mut RenderCtx) -> Result<()> {
+impl Renderer for MyRenderer {
+    fn render_expr(&self, expr: &Expr, ctx: &mut RenderCtx) -> RenderResult<()> {
         if let Expr::Custom(custom) = expr {
-            if let Some(count_if) = custom.as_any().downcast_ref::<CountIf>() {
-                ctx.write("COUNT(");
-                self.render_expr(&count_if.field, ctx)?;
-                ctx.write(") FILTER (WHERE ");
-                self.render_expr(&count_if.condition, ctx)?;
-                ctx.write(")");
+            if let Some(my_node) = custom.as_any().downcast_ref::<MyCustomNode>() {
+                // Render your custom syntax
                 return Ok(());
             }
         }
         self.inner.render_expr(expr, ctx)
     }
 
-    // Delegate all other methods
     delegate_renderer!(self.inner);
 }
-
-// 3. Use it
-let query = Query::select()
-    .expr(Expr::custom(CountIf {
-        field: Expr::field("id"),
-        condition: Expr::field("age").gt(Expr::val(10)),
-    }))
-    .from("users")
-    .build();
-
-let renderer = MyPostgresRenderer { inner: PostgresRenderer::new() };
-let (sql, params) = renderer.render(&query)?;
-// sql = SELECT COUNT("id") FILTER (WHERE "age" > $1) FROM "users"
-// params = [Value::Int(10)]
 ```
+
+This three-level model covers the full spectrum from simple queries to exotic vendor-specific syntax, while keeping the core library focused and maintainable.
