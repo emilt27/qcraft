@@ -1,0 +1,16 @@
+[package]
+name = "qcraft-bench"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+qcraft-core = { path = "../qcraft-core" }
+qcraft-postgres = { path = "../qcraft-postgres" }
+sea-query = { version = "0.32", features = ["backend-postgres"] }
+
+[[bench]]
+name = "compare"
+harness = false

@@ -5,6 +5,7 @@ members = [
     "crates/qcraft-core",
     "crates/qcraft-postgres",
     "crates/qcraft-sqlite",
+    "crates/qcraft-bench",
 ]
 
 [workspace.package]
