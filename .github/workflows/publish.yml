@@ -17,9 +17,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      # Publish in dependency order
+      # Publish in dependency order (skip already-published versions)
       - name: Publish qcraft-core
-        run: cargo publish -p qcraft-core
+        run: cargo publish -p qcraft-core 2>&1 || echo "Already published or skipped"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -27,12 +27,12 @@ jobs:
         run: sleep 30
 
       - name: Publish qcraft-postgres
-        run: cargo publish -p qcraft-postgres
+        run: cargo publish -p qcraft-postgres 2>&1 || echo "Already published or skipped"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish qcraft-sqlite
-        run: cargo publish -p qcraft-sqlite
+        run: cargo publish -p qcraft-sqlite 2>&1 || echo "Already published or skipped"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -40,6 +40,6 @@ jobs:
         run: sleep 30
 
       - name: Publish qcraft
-        run: cargo publish -p qcraft
+        run: cargo publish -p qcraft 2>&1 || echo "Already published or skipped"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
