@@ -1,4 +1,4 @@
-# rquery
+# qcraft
 
 Universal, extensible SQL query builder for Rust.
 
@@ -17,14 +17,14 @@ for any supported dialect. One AST, many backends.
 ## Installation
 
 ```sh
-cargo add rquery
+cargo add qcraft
 ```
 
 Both `postgres` and `sqlite` features are enabled by default. To use only one:
 
 ```sh
-cargo add rquery --no-default-features --features postgres
-cargo add rquery --no-default-features --features sqlite
+cargo add qcraft --no-default-features --features postgres
+cargo add qcraft --no-default-features --features sqlite
 ```
 
 ## Quick Start
@@ -32,9 +32,9 @@ cargo add rquery --no-default-features --features sqlite
 ### SELECT with WHERE
 
 ```rust
-use rquery::ast::common::{FieldRef, SchemaRef};
-use rquery::ast::conditions::Conditions;
-use rquery::ast::query::{FromItem, QueryStmt, SelectColumn};
+use qcraft::ast::common::{FieldRef, SchemaRef};
+use qcraft::ast::conditions::Conditions;
+use qcraft::ast::query::{FromItem, QueryStmt, SelectColumn};
 
 let stmt = QueryStmt {
     columns: vec![SelectColumn::field("users", "name")],
@@ -47,7 +47,7 @@ let stmt = QueryStmt {
 ### Rendering -- PostgreSQL
 
 ```rust
-use rquery_postgres::PostgresRenderer;
+use qcraft_postgres::PostgresRenderer;
 
 let (sql, params) = PostgresRenderer::new().render_query_stmt(&stmt).unwrap();
 // sql:    SELECT "users"."name" FROM "users" WHERE "users"."age" >= $1
@@ -57,7 +57,7 @@ let (sql, params) = PostgresRenderer::new().render_query_stmt(&stmt).unwrap();
 ### Rendering -- SQLite
 
 ```rust
-use rquery_sqlite::SqliteRenderer;
+use qcraft_sqlite::SqliteRenderer;
 
 let (sql, params) = SqliteRenderer::new().render_query_stmt(&stmt).unwrap();
 // sql:    SELECT "users"."name" FROM "users" WHERE "users"."age" >= ?
@@ -69,8 +69,8 @@ Same AST, different output. Parameters are always separated from the SQL string.
 ### INSERT with values
 
 ```rust
-use rquery::ast::dml::{InsertStmt, MutationStmt};
-use rquery::ast::expr::Expr;
+use qcraft::ast::dml::{InsertStmt, MutationStmt};
+use qcraft::ast::expr::Expr;
 
 let insert = InsertStmt::values(
     "users",
@@ -92,10 +92,10 @@ let (sql, params) = SqliteRenderer::new().render_mutation_stmt(&stmt).unwrap();
 
 | Crate              | Description                                      |
 |--------------------|--------------------------------------------------|
-| `rquery`           | Umbrella crate -- re-exports core + dialect crates |
-| `rquery-core`      | AST types, `Renderer` trait, render context       |
-| `rquery-postgres`  | `PostgresRenderer` -- PG-specific SQL generation  |
-| `rquery-sqlite`    | `SqliteRenderer` -- SQLite-specific SQL generation |
+| `qcraft`           | Umbrella crate -- re-exports core + dialect crates |
+| `qcraft-core`      | AST types, `Renderer` trait, render context       |
+| `qcraft-postgres`  | `PostgresRenderer` -- PG-specific SQL generation  |
+| `qcraft-sqlite`    | `SqliteRenderer` -- SQLite-specific SQL generation |
 
 ## Documentation
 

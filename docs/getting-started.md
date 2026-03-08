@@ -25,7 +25,7 @@ cargo add rquery --no-default-features --features sqlite
 use rquery::ast::query::{QueryStmt, SelectColumn, FromItem};
 use rquery::ast::common::SchemaRef;
 use rquery::ast::value::Value;
-use rquery_postgres::PostgresRenderer;
+use qcraft_postgres::PostgresRenderer;
 ```
 
 ### 2. Build a QueryStmt
@@ -190,8 +190,8 @@ rquery ships two renderers. Both expose the same convenience methods (`render_qu
 
 | Renderer | Placeholder style | Crate |
 |---|---|---|
-| `PostgresRenderer::new()` | `$1, $2, ...` | `rquery-postgres` |
-| `SqliteRenderer::new()` | `?` | `rquery-sqlite` |
+| `PostgresRenderer::new()` | `$1, $2, ...` | `qcraft-postgres` |
+| `SqliteRenderer::new()` | `?` | `qcraft-sqlite` |
 
 `PostgresRenderer` also supports `ParamStyle::Percent` via `.with_param_style(ParamStyle::Percent)` for psycopg/DB-API compatibility.
 

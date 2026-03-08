@@ -49,8 +49,8 @@ Suppose you need a PostgreSQL `AT TIME ZONE` expression that is not in the built
 
 ```rust
 use std::any::Any;
-use rquery_core::ast::custom::CustomExpr;
-use rquery_core::ast::expr::Expr;
+use qcraft_core::ast::custom::CustomExpr;
+use qcraft_core::ast::expr::Expr;
 
 #[derive(Debug, Clone)]
 pub struct AtTimeZone {
@@ -71,12 +71,12 @@ impl CustomExpr for AtTimeZone {
 **Step 2: Wrap the renderer and override `render_expr`.**
 
 ```rust
-use rquery_core::render::renderer::Renderer;
-use rquery_core::render::ctx::RenderCtx;
-use rquery_core::ast::expr::Expr;
-use rquery_core::error::RenderResult;
-use rquery_core::delegate_renderer;
-use rquery_postgres::PostgresRenderer;
+use qcraft_core::render::renderer::Renderer;
+use qcraft_core::render::ctx::RenderCtx;
+use qcraft_core::ast::expr::Expr;
+use qcraft_core::error::RenderResult;
+use qcraft_core::delegate_renderer;
+use qcraft_postgres::PostgresRenderer;
 
 pub struct MyRenderer {
     inner: PostgresRenderer,

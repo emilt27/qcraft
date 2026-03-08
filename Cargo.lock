@@ -1452,6 +1452,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "qcraft"
+version = "0.1.0"
+dependencies = [
+ "qcraft-core",
+ "qcraft-postgres",
+ "qcraft-sqlite",
+]
+
+[[package]]
+name = "qcraft-core"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
+name = "qcraft-postgres"
+version = "0.1.0"
+dependencies = [
+ "postgres",
+ "qcraft-core",
+ "testcontainers",
+ "testcontainers-modules",
+]
+
+[[package]]
+name = "qcraft-sqlite"
+version = "0.1.0"
+dependencies = [
+ "qcraft-core",
+ "rusqlite",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1574,40 +1608,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rquery"
-version = "0.1.0"
-dependencies = [
- "rquery-core",
- "rquery-postgres",
- "rquery-sqlite",
-]
-
-[[package]]
-name = "rquery-core"
-version = "0.1.0"
-dependencies = [
- "thiserror",
-]
-
-[[package]]
-name = "rquery-postgres"
-version = "0.1.0"
-dependencies = [
- "postgres",
- "rquery-core",
- "testcontainers",
- "testcontainers-modules",
-]
-
-[[package]]
-name = "rquery-sqlite"
-version = "0.1.0"
-dependencies = [
- "rquery-core",
- "rusqlite",
 ]
 
 [[package]]

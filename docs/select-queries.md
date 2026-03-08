@@ -5,12 +5,12 @@ All examples use `PostgresRenderer` for SQL output unless stated otherwise.
 Parameters are rendered as `$1`, `$2`, ... for PostgreSQL and `?` for SQLite.
 
 ```rust
-use rquery_core::ast::common::{FieldRef, NullsOrder, OrderByDef, OrderDir, SchemaRef};
-use rquery_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
-use rquery_core::ast::expr::*;
-use rquery_core::ast::query::*;
-use rquery_core::ast::value::Value;
-use rquery_postgres::PostgresRenderer;
+use qcraft_core::ast::common::{FieldRef, NullsOrder, OrderByDef, OrderDir, SchemaRef};
+use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
+use qcraft_core::ast::expr::*;
+use qcraft_core::ast::query::*;
+use qcraft_core::ast::value::Value;
+use qcraft_postgres::PostgresRenderer;
 
 fn render(stmt: &QueryStmt) -> String {
     let renderer = PostgresRenderer::new();
@@ -355,18 +355,18 @@ NOT ("u"."active" = $1)
 
 ```rust
 Conditions::and(vec![
-    ConditionNode::Comparison(Comparison {
+    ConditionNode::Comparison(Box::new(Comparison {
         left: Expr::Field(FieldRef::new("users", "active")),
         op: CompareOp::Eq,
         right: Expr::Value(Value::Bool(true)),
         negate: false,
-    }),
-    ConditionNode::Comparison(Comparison {
+    })),
+    ConditionNode::Comparison(Box::new(Comparison {
         left: Expr::Field(FieldRef::new("users", "age")),
         op: CompareOp::Gt,
         right: Expr::Value(Value::Int(18)),
         negate: false,
-    }),
+    })),
 ])
 ```
 
@@ -594,7 +594,7 @@ GROUP BY GROUPING SETS (("sales"."region", "sales"."product"), ("sales"."region"
 ### HAVING
 
 ```rust
-having: Some(Conditions::and(vec![ConditionNode::Comparison(
+having: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
     Comparison {
         left: Expr::Func {
             name: "COUNT".into(),
@@ -603,7 +603,7 @@ having: Some(Conditions::and(vec![ConditionNode::Comparison(
         op: CompareOp::Gt,
         right: Expr::Value(Value::Int(5)),
         negate: false,
-    },
+    }),
 )]))
 ```
 
@@ -1228,7 +1228,7 @@ let stmt = QueryStmt {
         Expr::Value(Value::Bool(true)),
     )),
     group_by: Some(vec![GroupByItem::Expr(Expr::field("u", "name"))]),
-    having: Some(Conditions::and(vec![ConditionNode::Comparison(
+    having: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
         Comparison {
             left: Expr::Func {
                 name: "COUNT".into(),
@@ -1237,7 +1237,7 @@ let stmt = QueryStmt {
             op: CompareOp::Gt,
             right: Expr::Value(Value::Int(0)),
             negate: false,
-        },
+        }),
     )])),
     window: None,
     order_by: Some(vec![OrderByDef::asc(Expr::field("u", "name"))]),

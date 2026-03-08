@@ -55,8 +55,8 @@ The `render_*_stmt` methods return `(String, Vec<Value>)`. You convert `Value` v
 ### rust-postgres / tokio-postgres
 
 ```rust
-use rquery_postgres::PostgresRenderer;
-use rquery_core::ast::value::Value;
+use qcraft_postgres::PostgresRenderer;
+use qcraft_core::ast::value::Value;
 
 let renderer = PostgresRenderer::new();
 let (sql, params) = renderer.render_query_stmt(&query)?;
@@ -83,7 +83,7 @@ client.query(&sql, &refs).await?;
 ### rusqlite
 
 ```rust
-use rquery_sqlite::SqliteRenderer;
+use qcraft_sqlite::SqliteRenderer;
 
 let renderer = SqliteRenderer::new();
 let (sql, params) = renderer.render_query_stmt(&query)?;

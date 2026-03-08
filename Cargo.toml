@@ -1,10 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/rquery",
-    "crates/rquery-core",
-    "crates/rquery-postgres",
-    "crates/rquery-sqlite",
+    "crates/qcraft",
+    "crates/qcraft-core",
+    "crates/qcraft-postgres",
+    "crates/qcraft-sqlite",
 ]
 
 [workspace.package]
@@ -14,7 +14,7 @@ rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-rquery-core = { path = "crates/rquery-core" }
-rquery-postgres = { path = "crates/rquery-postgres" }
-rquery-sqlite = { path = "crates/rquery-sqlite" }
+qcraft-core = { path = "crates/qcraft-core" }
+qcraft-postgres = { path = "crates/qcraft-postgres" }
+qcraft-sqlite = { path = "crates/qcraft-sqlite" }
 thiserror = "2"

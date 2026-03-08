@@ -202,7 +202,7 @@ A tree of conditions connected by AND/OR. Core type for WHERE and HAVING clauses
 
 ```rust
 Conditions::and(vec![
-    ConditionNode::Comparison(Comparison::new(left, CompareOp::Eq, right)),
+    ConditionNode::Comparison(Box::new(Comparison::new(left, CompareOp::Eq, right))),
     ConditionNode::Group(other_conditions),
     ConditionNode::Exists(Box::new(subquery)),
 ])

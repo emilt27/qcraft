@@ -15,7 +15,7 @@ where `renderer` is either `PostgresRenderer::new()` or `SqliteRenderer::new()`.
 ### Simple table with columns
 
 ```rust
-use rquery_core::ast::ddl::*;
+use qcraft_core::ast::ddl::*;
 
 let mut schema = SchemaDef::new("users");
 schema.columns = vec![
@@ -488,12 +488,12 @@ CONSTRAINT "uq_email" UNIQUE ("email")
 
 ```rust
 ConstraintDef::check(Conditions {
-    children: vec![ConditionNode::Comparison(Comparison {
+    children: vec![ConditionNode::Comparison(Box::new(Comparison {
         left: Expr::Raw { sql: "\"age\"".into(), params: vec![] },
         op: CompareOp::Gt,
         right: Expr::Value(Value::Int(0)),
         negate: false,
-    })],
+    }))],
     connector: Connector::And,
     negated: false,
 })
@@ -828,12 +828,12 @@ let stmt = SchemaMutationStmt::CreateIndex {
         index_type: None,
         include: Some(vec!["name".into()]),
         condition: Some(Conditions {
-            children: vec![ConditionNode::Comparison(Comparison {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
                 left: Expr::Raw { sql: "\"active\"".into(), params: vec![] },
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(true)),
                 negate: false,
-            })],
+            }))],
             connector: Connector::And,
             negated: false,
         }),

@@ -1,0 +1,13 @@
+[package]
+name = "qcraft-sqlite"
+description = "SQLite renderer for qcraft"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+qcraft-core = { workspace = true }
+
+[dev-dependencies]
+rusqlite = { version = "0.35", features = ["bundled"] }

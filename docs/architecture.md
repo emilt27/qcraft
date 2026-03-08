@@ -23,12 +23,12 @@ The AST is the **single source of truth** for what the query means. The renderer
 +--------------------------------------------+
          |                    |
 +------------------+  +------------------+
-| rquery-postgres  |  | rquery-sqlite    |
+| qcraft-postgres  |  | qcraft-sqlite    |
 | (PostgresRenderer)|  | (SqliteRenderer) |
 +------------------+  +------------------+
          |                    |
 +--------------------------------------------+
-|  rquery-core                               |
+|  qcraft-core                               |
 |  - AST types (query, dml, ddl, tcl, expr)  |
 |  - Renderer trait                          |
 |  - RenderCtx                               |
@@ -36,7 +36,7 @@ The AST is the **single source of truth** for what the query means. The renderer
 +--------------------------------------------+
 ```
 
-### rquery-core
+### qcraft-core
 
 The foundation. Contains:
 
@@ -46,15 +46,15 @@ The foundation. Contains:
 - **Error types**: `RenderError` and `RenderResult`
 - **Policy types**: `UnsupportedPolicy`, `Feature`, `Warning`
 
-rquery-core has no dialect-specific logic. It defines _what_ can be expressed, not _how_ it renders.
+qcraft-core has no dialect-specific logic. It defines _what_ can be expressed, not _how_ it renders.
 
-### rquery-postgres
+### qcraft-postgres
 
 Implements `Renderer` for PostgreSQL via `PostgresRenderer`. Handles PG-specific syntax: `$1` parameters, `DISTINCT ON`, `FOR UPDATE`, `TABLESAMPLE`, JSONB/trigram/range/FTS operators, two-phase commit, `LOCK TABLE`, extensions, partitioning, and more.
 
 Configurable parameter style via `PostgresRenderer::new().with_param_style(ParamStyle::Percent)`.
 
-### rquery-sqlite
+### qcraft-sqlite
 
 Implements `Renderer` for SQLite via `SqliteRenderer`. Handles SQLite-specific syntax: `?` parameters, `INDEXED BY`, `WITHOUT ROWID`, `STRICT`, conflict resolution (`OR REPLACE`, `OR IGNORE`), and SQLite transaction lock types (`DEFERRED`, `IMMEDIATE`, `EXCLUSIVE`).
 

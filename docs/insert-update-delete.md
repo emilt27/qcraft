@@ -5,12 +5,12 @@ rquery builds DML statements as typed AST nodes (`InsertStmt`, `UpdateStmt`, `De
 The renderer returns `(String, Vec<Value>)` -- the SQL text and the ordered parameter vector.
 
 ```rust
-use rquery_core::ast::dml::*;
-use rquery_core::ast::expr::Expr;
-use rquery_core::ast::value::Value;
-use rquery_core::ast::query::SelectColumn;
-use rquery_core::ast::common::SchemaRef;
-use rquery_postgres::PostgresRenderer;
+use qcraft_core::ast::dml::*;
+use qcraft_core::ast::expr::Expr;
+use qcraft_core::ast::value::Value;
+use qcraft_core::ast::query::SelectColumn;
+use qcraft_core::ast::common::SchemaRef;
+use qcraft_postgres::PostgresRenderer;
 
 let renderer = PostgresRenderer::new();
 let (sql, params) = renderer.render_mutation_stmt(&stmt).unwrap();
@@ -73,7 +73,7 @@ INSERT INTO "counters" DEFAULT VALUES
 Build a `QueryStmt` and pass it to `InsertStmt::from_select`:
 
 ```rust
-use rquery_core::ast::query::QueryStmt;
+use qcraft_core::ast::query::QueryStmt;
 
 let select = QueryStmt {
     columns: vec![SelectColumn::field("employees", "name")],
@@ -110,7 +110,7 @@ INSERT INTO "users" ("name") VALUES ($1) RETURNING *
 Return specific columns:
 
 ```rust
-use rquery_core::ast::common::FieldRef;
+use qcraft_core::ast::common::FieldRef;
 
 let stmt = MutationStmt::Insert(InsertStmt {
     table: SchemaRef::new("users"),
@@ -292,19 +292,19 @@ UPDATE "users" SET "name" = $1
 ### 2.2 With WHERE
 
 ```rust
-use rquery_core::ast::conditions::*;
+use qcraft_core::ast::conditions::*;
 
 let stmt = MutationStmt::Update(
     UpdateStmt::new("users", vec![
         ("name", Expr::value("Bob")),
     ])
     .where_clause(Conditions {
-        children: vec![ConditionNode::Comparison(Comparison {
+        children: vec![ConditionNode::Comparison(Box::new(Comparison {
             left: Expr::Raw { sql: "\"id\"".into(), params: vec![] },
             op: CompareOp::Eq,
             right: Expr::Value(Value::Int(1)),
             negate: false,
-        })],
+        }))],
         connector: Connector::And,
         negated: false,
     })
@@ -321,7 +321,7 @@ UPDATE "users" SET "name" = $1 WHERE "id" = $2
 Join another table into the UPDATE:
 
 ```rust
-use rquery_core::ast::query::TableSource;
+use qcraft_core::ast::query::TableSource;
 
 let stmt = MutationStmt::Update(UpdateStmt {
     table: SchemaRef::new("orders").with_alias("o"),
@@ -330,12 +330,12 @@ let stmt = MutationStmt::Update(UpdateStmt {
         SchemaRef::new("users").with_alias("u"),
     )]),
     where_clause: Some(Conditions {
-        children: vec![ConditionNode::Comparison(Comparison {
+        children: vec![ConditionNode::Comparison(Box::new(Comparison {
             left: Expr::Raw { sql: "\"o\".\"user_id\"".into(), params: vec![] },
             op: CompareOp::Eq,
             right: Expr::Raw { sql: "\"u\".\"id\"".into(), params: vec![] },
             negate: false,
-        })],
+        }))],
         connector: Connector::And,
         negated: false,
     }),
@@ -368,7 +368,7 @@ UPDATE "users" SET "name" = $1 WHERE "id" = $2 RETURNING *
 SQLite (and MySQL) support `ORDER BY` and `LIMIT` on UPDATE statements:
 
 ```rust
-use rquery_core::ast::common::{OrderByDef, FieldRef, OrderDir};
+use qcraft_core::ast::common::{OrderByDef, FieldRef, OrderDir};
 
 let stmt = MutationStmt::Update(UpdateStmt {
     table: SchemaRef::new("logs"),
@@ -409,12 +409,12 @@ DELETE FROM "users"
 let stmt = MutationStmt::Delete(
     DeleteStmt::new("users")
         .where_clause(Conditions {
-            children: vec![ConditionNode::Comparison(Comparison {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
                 left: Expr::Raw { sql: "\"id\"".into(), params: vec![] },
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
-            })],
+            }))],
             connector: Connector::And,
             negated: false,
         })
@@ -432,12 +432,12 @@ DELETE FROM "users" WHERE "id" = $1
 let stmt = MutationStmt::Delete(
     DeleteStmt::new("users")
         .where_clause(Conditions {
-            children: vec![ConditionNode::Comparison(Comparison {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
                 left: Expr::Raw { sql: "\"active\"".into(), params: vec![] },
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(false)),
                 negate: false,
-            })],
+            }))],
             connector: Connector::And,
             negated: false,
         })
@@ -455,7 +455,7 @@ DELETE FROM "users" WHERE "active" = $1 RETURNING *
 Join another table into the DELETE:
 
 ```rust
-use rquery_core::ast::query::TableSource;
+use qcraft_core::ast::query::TableSource;
 
 let stmt = MutationStmt::Delete(DeleteStmt {
     table: SchemaRef::new("orders").with_alias("o"),
@@ -463,12 +463,12 @@ let stmt = MutationStmt::Delete(DeleteStmt {
         SchemaRef::new("users").with_alias("u"),
     )]),
     where_clause: Some(Conditions {
-        children: vec![ConditionNode::Comparison(Comparison {
+        children: vec![ConditionNode::Comparison(Box::new(Comparison {
             left: Expr::Raw { sql: "\"o\".\"user_id\"".into(), params: vec![] },
             op: CompareOp::Eq,
             right: Expr::Raw { sql: "\"u\".\"id\"".into(), params: vec![] },
             negate: false,
-        })],
+        }))],
         connector: Connector::And,
         negated: false,
     }),
@@ -489,7 +489,7 @@ DELETE FROM "orders" AS "o"
 Every DML statement is wrapped in the `MutationStmt` enum before rendering:
 
 ```rust
-use rquery_core::ast::dml::{MutationStmt, InsertStmt, UpdateStmt, DeleteStmt};
+use qcraft_core::ast::dml::{MutationStmt, InsertStmt, UpdateStmt, DeleteStmt};
 
 // INSERT
 let stmt = MutationStmt::Insert(InsertStmt::values(/* ... */));
@@ -504,8 +504,8 @@ let stmt = MutationStmt::Delete(DeleteStmt::new(/* ... */));
 Render with the dialect-specific renderer:
 
 ```rust
-use rquery_postgres::PostgresRenderer;
-use rquery_sqlite::SqliteRenderer;
+use qcraft_postgres::PostgresRenderer;
+use qcraft_sqlite::SqliteRenderer;
 
 // PostgreSQL -- parameters are $1, $2, ...
 let pg = PostgresRenderer::new();

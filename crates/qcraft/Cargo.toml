@@ -1,0 +1,23 @@
+[package]
+name = "qcraft"
+description = "Universal, extensible query builder for SQL databases"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+qcraft-core = { workspace = true }
+
+[features]
+default = ["postgres", "sqlite"]
+postgres = ["dep:qcraft-postgres"]
+sqlite = ["dep:qcraft-sqlite"]
+
+[dependencies.qcraft-postgres]
+workspace = true
+optional = true
+
+[dependencies.qcraft-sqlite]
+workspace = true
+optional = true
