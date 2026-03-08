@@ -88,6 +88,19 @@ let (sql, params) = SqliteRenderer::new().render_mutation_stmt(&stmt).unwrap();
 // params: [Str("Alice"), Str("alice@test.com")]
 ```
 
+## Performance
+
+qcraft is **3.5x–14.6x faster** than [sea-query](https://crates.io/crates/sea-query) and uses **up to 8.9x less memory** per query. Benchmarks measure parameterized SQL rendering to PostgreSQL:
+
+| Scenario | qcraft | sea-query | Speedup |
+|---|---|---|---|
+| Simple SELECT + WHERE | 201 ns | 1,345 ns | **6.7x** |
+| JOIN + GROUP BY + ORDER BY + LIMIT | 362 ns | 3,168 ns | **8.8x** |
+| INSERT (3 rows) | 479 ns | 1,662 ns | **3.5x** |
+| Complex CTE + JOIN + GROUP BY + HAVING | 489 ns | 7,152 ns | **14.6x** |
+
+See [full benchmark results](docs/benchmarks.md) for memory allocation details and methodology.
+
 ## Crate Structure
 
 | Crate              | Description                                      |
@@ -109,6 +122,7 @@ let (sql, params) = SqliteRenderer::new().render_mutation_stmt(&stmt).unwrap();
 - [Extensibility](docs/extensibility.md)
 - [Type Reference](docs/type-reference.md)
 - [Architecture](docs/architecture.md)
+- [Benchmarks](docs/benchmarks.md)
 
 ## License
 
