@@ -1,6 +1,6 @@
 # Extensibility
 
-rquery provides three levels of extensibility, ordered from most common to least common.
+qcraft provides three levels of extensibility, ordered from most common to least common.
 
 ## Level 1: Compose existing AST nodes (90% of cases)
 

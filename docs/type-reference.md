@@ -1,6 +1,6 @@
 # Type Reference
 
-Quick reference of the key types in rquery.
+Quick reference of the key types in qcraft.
 
 ## Value
 

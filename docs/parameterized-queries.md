@@ -22,7 +22,7 @@ The renderer controls this via the `parameterize` flag on `RenderCtx`. When `par
 
 ## Parameter styles
 
-rquery supports three placeholder styles via the `ParamStyle` enum:
+qcraft supports three placeholder styles via the `ParamStyle` enum:
 
 | Style | Placeholder | Typical drivers |
 |---|---|---|
@@ -116,7 +116,7 @@ let (sql, params) = renderer.render_query_stmt(&query)?;
 
 ## The `%` escape
 
-When using `ParamStyle::Percent`, the `%` character has special meaning to drivers like psycopg. rquery automatically escapes operators that contain `%` by doubling it to `%%`:
+When using `ParamStyle::Percent`, the `%` character has special meaning to drivers like psycopg. qcraft automatically escapes operators that contain `%` by doubling it to `%%`:
 
 - **Modulo operator** (`BinaryOp::Mod`): rendered as `%%` instead of `%`
 - **Trigram operators** (`CompareOp::TrigramSimilar`, `TrigramWordSimilar`, `TrigramStrictWordSimilar`): the `%` in `%`, `<%`, and `<<%` is escaped as `%%`, `<%%`, and `<<%%`
@@ -125,7 +125,7 @@ This escaping only applies when `ParamStyle::Percent` is active. With `Dollar` o
 
 ## Type casts
 
-rquery does not add automatic type casts to parameter placeholders. PostgreSQL infers parameter types from column context in most cases (e.g., `WHERE age > $1` infers `$1` is the same type as `age`).
+qcraft does not add automatic type casts to parameter placeholders. PostgreSQL infers parameter types from column context in most cases (e.g., `WHERE age > $1` infers `$1` is the same type as `age`).
 
 When the database cannot infer the type, use `Expr::Cast` explicitly:
 

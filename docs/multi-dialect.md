@@ -1,6 +1,6 @@
 # Multi-Dialect Support
 
-rquery uses a single AST to represent SQL queries, then renders dialect-specific SQL via separate renderer implementations. The same `QueryStmt`, `MutationStmt`, or `SchemaMutationStmt` can be passed to `PostgresRenderer` or `SqliteRenderer` to produce valid SQL for each database.
+qcraft uses a single AST to represent SQL queries, then renders dialect-specific SQL via separate renderer implementations. The same `QueryStmt`, `MutationStmt`, or `SchemaMutationStmt` can be passed to `PostgresRenderer` or `SqliteRenderer` to produce valid SQL for each database.
 
 ## Three categories of cross-dialect behavior
 

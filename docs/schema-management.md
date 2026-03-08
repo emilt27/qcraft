@@ -1,6 +1,6 @@
 # Schema Management (DDL Operations)
 
-rquery provides a type-safe Rust API for building DDL statements through `SchemaMutationStmt` and its associated types. All DDL statements use inline literals (not parameterized placeholders) and are rendered via:
+qcraft provides a type-safe Rust API for building DDL statements through `SchemaMutationStmt` and its associated types. All DDL statements use inline literals (not parameterized placeholders) and are rendered via:
 
 ```rust
 let (sql, _params) = renderer.render_schema_stmt(&stmt).unwrap();
@@ -1051,7 +1051,7 @@ TRUNCATE TABLE "orders" RESTART IDENTITY CASCADE
 
 ### SQLite
 
-SQLite has no `TRUNCATE` statement. rquery renders it as `DELETE FROM`:
+SQLite has no `TRUNCATE` statement. qcraft renders it as `DELETE FROM`:
 
 ```rust
 let stmt = SchemaMutationStmt::truncate("users");

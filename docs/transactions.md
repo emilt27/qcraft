@@ -1,6 +1,6 @@
 # Transaction Control (TCL)
 
-rquery models transaction control statements via the `TransactionStmt` enum. All TCL statements are rendered as **inline literals** — they are never parameterized. Values like savepoint names and transaction IDs are emitted directly into the SQL string.
+qcraft models transaction control statements via the `TransactionStmt` enum. All TCL statements are rendered as **inline literals** — they are never parameterized. Values like savepoint names and transaction IDs are emitted directly into the SQL string.
 
 ## BEGIN
 

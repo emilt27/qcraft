@@ -1,6 +1,6 @@
 # SELECT Queries
 
-Comprehensive reference for building `SELECT` queries with rquery.
+Comprehensive reference for building `SELECT` queries with qcraft.
 All examples use `PostgresRenderer` for SQL output unless stated otherwise.
 Parameters are rendered as `$1`, `$2`, ... for PostgreSQL and `?` for SQLite.
 

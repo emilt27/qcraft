@@ -4,17 +4,17 @@ Your first query in 5 minutes.
 
 ## Installation
 
-Add `rquery` to your project. Both the `postgres` and `sqlite` features are enabled by default:
+Add `qcraft` to your project. Both the `postgres` and `sqlite` features are enabled by default:
 
 ```bash
-cargo add rquery
+cargo add qcraft
 ```
 
 To use only one backend:
 
 ```bash
-cargo add rquery --no-default-features --features postgres
-cargo add rquery --no-default-features --features sqlite
+cargo add qcraft --no-default-features --features postgres
+cargo add qcraft --no-default-features --features sqlite
 ```
 
 ## Your First SELECT
@@ -22,9 +22,9 @@ cargo add rquery --no-default-features --features sqlite
 ### 1. Import types
 
 ```rust
-use rquery::ast::query::{QueryStmt, SelectColumn, FromItem};
-use rquery::ast::common::SchemaRef;
-use rquery::ast::value::Value;
+use qcraft::ast::query::{QueryStmt, SelectColumn, FromItem};
+use qcraft::ast::common::SchemaRef;
+use qcraft::ast::value::Value;
 use qcraft_postgres::PostgresRenderer;
 ```
 
@@ -67,9 +67,9 @@ println!("{:?}", params);
 Use `Conditions` to add filtering. Parameters are collected automatically:
 
 ```rust
-use rquery::ast::common::FieldRef;
-use rquery::ast::conditions::Conditions;
-use rquery::ast::expr::Expr;
+use qcraft::ast::common::FieldRef;
+use qcraft::ast::conditions::Conditions;
+use qcraft::ast::expr::Expr;
 
 let stmt = QueryStmt {
     columns: vec![SelectColumn::field("users", "name")],
@@ -93,8 +93,8 @@ println!("{:?}", params);
 Use `InsertStmt` and wrap it in `MutationStmt::Insert`:
 
 ```rust
-use rquery::ast::dml::{InsertStmt, MutationStmt};
-use rquery::ast::expr::Expr;
+use qcraft::ast::dml::{InsertStmt, MutationStmt};
+use qcraft::ast::expr::Expr;
 
 let insert = InsertStmt::values(
     "users",
@@ -124,7 +124,7 @@ println!("{:?}", params);
 use postgres::{Client, NoTls};
 use postgres::types::ToSql;
 
-// Convert rquery Value to Box<dyn ToSql>
+// Convert qcraft Value to Box<dyn ToSql>
 fn to_sql_param(v: &Value) -> Box<dyn ToSql + Sync> {
     match v {
         Value::Int(i) => Box::new(*i),
@@ -175,7 +175,7 @@ let rows = prepared.query(params_from_iter(rusqlite_params)).unwrap();
 If you are generating SQL for a Python backend, use `ParamStyle::Percent` to produce `%s` placeholders compatible with psycopg and DB-API 2.0:
 
 ```rust
-use rquery::render::ctx::ParamStyle;
+use qcraft::render::ctx::ParamStyle;
 
 let renderer = PostgresRenderer::new().with_param_style(ParamStyle::Percent);
 let (sql, params) = renderer.render_query_stmt(&stmt).unwrap();
@@ -186,7 +186,7 @@ Serialize the `params` vector (e.g. as JSON) and pass it to your Python layer.
 
 ## Choosing a Renderer
 
-rquery ships two renderers. Both expose the same convenience methods (`render_query_stmt`, `render_mutation_stmt`, `render_schema_stmt`, `render_transaction_stmt`).
+qcraft ships two renderers. Both expose the same convenience methods (`render_query_stmt`, `render_mutation_stmt`, `render_schema_stmt`, `render_transaction_stmt`).
 
 | Renderer | Placeholder style | Crate |
 |---|---|---|

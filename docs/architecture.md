@@ -1,10 +1,10 @@
 # Architecture
 
-This document explains the design decisions behind rquery and how the pieces fit together.
+This document explains the design decisions behind qcraft and how the pieces fit together.
 
 ## AST-first design
 
-rquery is built around a typed Abstract Syntax Tree (AST), not a builder pattern. Every SQL construct -- a SELECT query, an INSERT statement, a CREATE TABLE -- is represented as a Rust data structure. You construct the AST directly, then hand it to a renderer to produce SQL.
+qcraft is built around a typed Abstract Syntax Tree (AST), not a builder pattern. Every SQL construct -- a SELECT query, an INSERT statement, a CREATE TABLE -- is represented as a Rust data structure. You construct the AST directly, then hand it to a renderer to produce SQL.
 
 Why not a builder? Builders mix construction and rendering, making it hard to inspect, transform, or re-render a query. With an AST, you can:
 
@@ -19,7 +19,7 @@ The AST is the **single source of truth** for what the query means. The renderer
 
 ```
 +--------------------------------------------+
-|  rquery  (umbrella crate, re-exports)      |
+|  qcraft  (umbrella crate, re-exports)      |
 +--------------------------------------------+
          |                    |
 +------------------+  +------------------+
@@ -58,7 +58,7 @@ Configurable parameter style via `PostgresRenderer::new().with_param_style(Param
 
 Implements `Renderer` for SQLite via `SqliteRenderer`. Handles SQLite-specific syntax: `?` parameters, `INDEXED BY`, `WITHOUT ROWID`, `STRICT`, conflict resolution (`OR REPLACE`, `OR IGNORE`), and SQLite transaction lock types (`DEFERRED`, `IMMEDIATE`, `EXCLUSIVE`).
 
-### rquery (umbrella)
+### qcraft (umbrella)
 
 Re-exports from all three crates for convenience.
 

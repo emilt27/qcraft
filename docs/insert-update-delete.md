@@ -1,6 +1,6 @@
 # INSERT / UPDATE / DELETE (DML Operations)
 
-rquery builds DML statements as typed AST nodes (`InsertStmt`, `UpdateStmt`, `DeleteStmt`), wraps them in `MutationStmt`, and renders via `renderer.render_mutation_stmt(&stmt)`. All literal values are parameterized -- they become `$1, $2, ...` (PostgreSQL) or `?, ?, ...` (SQLite), never inline literals.
+qcraft builds DML statements as typed AST nodes (`InsertStmt`, `UpdateStmt`, `DeleteStmt`), wraps them in `MutationStmt`, and renders via `renderer.render_mutation_stmt(&stmt)`. All literal values are parameterized -- they become `$1, $2, ...` (PostgreSQL) or `?, ?, ...` (SQLite), never inline literals.
 
 The renderer returns `(String, Vec<Value>)` -- the SQL text and the ordered parameter vector.
 
