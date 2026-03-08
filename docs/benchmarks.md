@@ -15,6 +15,19 @@ All benchmarks measure **parameterized SQL rendering** to PostgreSQL dialect (pr
 
 qcraft is **3.5x–14.6x faster** across all scenarios. The gap widens with query complexity.
 
+## Memory allocations
+
+Each call to build + render a query allocates heap memory. Fewer allocations mean less GC pressure and better cache behavior. Measured with a tracking global allocator, averaged over 1,000 iterations:
+
+| Scenario | qcraft allocs | sea-query allocs | qcraft bytes | sea-query bytes |
+|---|---|---|---|---|
+| Simple SELECT + WHERE | 20 | 34 | 1,652 B | 8,353 B |
+| JOIN + GROUP BY + ORDER BY | 42 | 82 | 2,511 B | 13,247 B |
+| INSERT (3 rows) | 34 | 57 | 2,758 B | 4,767 B |
+| Complex CTE + JOIN | 52 | 195 | 3,981 B | 35,604 B |
+
+qcraft uses **1.7x–3.8x fewer allocations** and **1.7x–8.9x less memory** per query.
+
 ## Why qcraft is faster
 
 qcraft and sea-query take fundamentally different approaches:
@@ -71,14 +84,22 @@ LIMIT 50
 
 ## Running benchmarks
 
+Speed benchmarks (criterion):
+
 ```bash
-cargo bench -p qcraft-bench
+cargo bench -p qcraft-bench --bench compare
 ```
 
 Results are saved to `target/criterion/` with HTML reports. To open them:
 
 ```bash
 open target/criterion/report/index.html
+```
+
+Allocation benchmarks:
+
+```bash
+cargo bench -p qcraft-bench --bench allocations
 ```
 
 ## Environment

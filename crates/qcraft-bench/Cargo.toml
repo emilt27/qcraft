@@ -14,3 +14,7 @@ sea-query = { version = "0.32", features = ["backend-postgres"] }
 [[bench]]
 name = "compare"
 harness = false
+
+[[bench]]
+name = "allocations"
+harness = false
