@@ -18,7 +18,7 @@ keywords = ["sql", "query-builder", "postgresql", "sqlite", "ast"]
 categories = ["database"]
 
 [workspace.dependencies]
-qcraft-core = { path = "crates/qcraft-core" }
-qcraft-postgres = { path = "crates/qcraft-postgres" }
-qcraft-sqlite = { path = "crates/qcraft-sqlite" }
+qcraft-core = { path = "crates/qcraft-core", version = "0.1.0" }
+qcraft-postgres = { path = "crates/qcraft-postgres", version = "0.1.0" }
+qcraft-sqlite = { path = "crates/qcraft-sqlite", version = "0.1.0" }
 thiserror = "2"
