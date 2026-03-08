@@ -423,8 +423,8 @@ fn from_subquery() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(true)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let stmt = QueryStmt {
@@ -554,8 +554,8 @@ fn where_simple() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(true)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -636,8 +636,8 @@ fn where_comparison() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(28)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -660,8 +660,8 @@ fn where_is_null() {
                 op: CompareOp::IsNull,
                 right: Expr::Value(Value::Null),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -685,8 +685,8 @@ fn where_like() {
                 op: CompareOp::Like,
                 right: Expr::Value(Value::Str("A%".into())),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -712,8 +712,8 @@ fn where_between() {
                     params: vec![],
                 },
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -739,8 +739,8 @@ fn where_in_list() {
                     params: vec![],
                 },
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -1150,8 +1150,8 @@ fn group_by_having() {
                 op: CompareOp::Gt,
                 right: Expr::raw("2"),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -1482,8 +1482,8 @@ fn cte_simple() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(true)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let stmt = QueryStmt {
@@ -1681,8 +1681,8 @@ fn intersect() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Str("engineering".into())),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let set_op = SetOpDef {
@@ -1731,8 +1731,8 @@ fn except() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Str("engineering".into())),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let set_op = SetOpDef {
@@ -2026,8 +2026,8 @@ fn full_pipeline() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(true)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let stmt = QueryStmt {
@@ -2075,8 +2075,8 @@ fn full_pipeline() {
                 op: CompareOp::Gte,
                 right: Expr::raw("1"),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("u", "name")),
             direction: OrderDir::Asc,

@@ -202,19 +202,19 @@ fn qc_join_group_order() {
             join_type: JoinType::Left,
             natural: false,
         }]),
-        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
-            Box::new(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
                 left: Expr::Field(FieldRef::new("o", "amount")),
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(100)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
             "u", "name",
         )))]),
-        having: Some(Conditions::and(vec![ConditionNode::Comparison(
-            Box::new(Comparison {
+        having: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
                 left: Expr::Func {
                     name: "COUNT".into(),
                     args: vec![Expr::Field(FieldRef::new("o", "id"))],
@@ -222,8 +222,8 @@ fn qc_join_group_order() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(5)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("u", "name")),
             direction: OrderDir::Asc,
@@ -249,14 +249,11 @@ fn sq_join_group_order() {
         .from(Users::Table)
         .left_join(
             Orders::Table,
-            sea_query::Expr::col((Users::Table, Users::Id))
-                .equals((Orders::Table, Orders::UserId)),
+            sea_query::Expr::col((Users::Table, Users::Id)).equals((Orders::Table, Orders::UserId)),
         )
         .and_where(sea_query::Expr::col((Orders::Table, Orders::Amount)).gt(100))
         .group_by_col((Users::Table, Users::Name))
-        .and_having(
-            sea_query::Func::count(sea_query::Expr::col((Orders::Table, Orders::Id))).gt(5),
-        )
+        .and_having(sea_query::Func::count(sea_query::Expr::col((Orders::Table, Orders::Id))).gt(5))
         .order_by((Users::Table, Users::Name), sea_query::Order::Asc)
         .limit(10)
         .offset(20)
@@ -359,8 +356,8 @@ fn qc_complex_cte() {
             GroupByItem::Expr(Expr::Field(FieldRef::new("u", "id"))),
             GroupByItem::Expr(Expr::Field(FieldRef::new("u", "name"))),
         ]),
-        having: Some(Conditions::and(vec![ConditionNode::Comparison(
-            Box::new(Comparison {
+        having: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
                 left: Expr::Func {
                     name: "SUM".into(),
                     args: vec![Expr::Field(FieldRef::new("o", "amount"))],
@@ -368,8 +365,8 @@ fn qc_complex_cte() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(1000)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("u", "name")),
             direction: OrderDir::Asc,
@@ -387,7 +384,7 @@ fn qc_complex_cte() {
 
 fn sq_complex_cte() {
     let cte = sea_query::Query::select()
-        .expr(sea_query::Expr::col(sea_query::Asterisk))
+        .column(sea_query::Asterisk)
         .from(Users::Table)
         .and_where(sea_query::Expr::col(Users::Active).eq(true))
         .to_owned();
@@ -440,25 +437,27 @@ const ITERATIONS: usize = 1000;
 fn main() {
     println!("Memory allocation benchmark (averaged over {ITERATIONS} iterations)");
     println!();
-    println!(
-        "{:<40} {:>8} {:>12}",
-        "Scenario", "Allocs", "Bytes"
-    );
+    println!("{:<40} {:>8} {:>12}", "Scenario", "Allocs", "Bytes");
     println!("{}", "-".repeat(62));
 
-    let scenarios: Vec<(&str, &dyn Fn(), &dyn Fn())> = vec![
-        ("Simple SELECT + WHERE", &qc_simple_select, &sq_simple_select),
+    type Scenario<'a> = (&'a str, &'a dyn Fn(), &'a dyn Fn());
+    let scenarios: Vec<Scenario<'_>> = vec![
+        (
+            "Simple SELECT + WHERE",
+            &qc_simple_select,
+            &sq_simple_select,
+        ),
         (
             "JOIN + GROUP BY + ORDER BY",
             &qc_join_group_order,
             &sq_join_group_order,
         ),
-        ("INSERT (3 rows)", &qc_insert_multi_row, &sq_insert_multi_row),
         (
-            "Complex CTE + JOIN",
-            &qc_complex_cte,
-            &sq_complex_cte,
+            "INSERT (3 rows)",
+            &qc_insert_multi_row,
+            &sq_insert_multi_row,
         ),
+        ("Complex CTE + JOIN", &qc_complex_cte, &sq_complex_cte),
     ];
 
     for (name, qc_fn, sq_fn) in &scenarios {
@@ -467,14 +466,8 @@ fn main() {
 
         println!();
         println!("  {name}");
-        println!(
-            "    {:<36} {:>8} {:>10} B",
-            "qcraft", qc.count, qc.bytes
-        );
-        println!(
-            "    {:<36} {:>8} {:>10} B",
-            "sea-query", sq.count, sq.bytes
-        );
+        println!("    {:<36} {:>8} {:>10} B", "qcraft", qc.count, qc.bytes);
+        println!("    {:<36} {:>8} {:>10} B", "sea-query", sq.count, sq.bytes);
 
         let alloc_ratio = sq.count as f64 / qc.count.max(1) as f64;
         let bytes_ratio = sq.bytes as f64 / qc.bytes.max(1) as f64;

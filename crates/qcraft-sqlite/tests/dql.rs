@@ -431,8 +431,8 @@ fn where_simple() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(true)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, params) = render_with_params(&stmt);
@@ -536,8 +536,8 @@ fn having() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(5)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, params) = render_with_params(&stmt);
@@ -733,8 +733,8 @@ fn cte_simple() {
                         op: CompareOp::Eq,
                         right: Expr::Value(Value::Bool(true)),
                         negate: false,
-                    }),
-                )])),
+                    },
+                ))])),
                 ..simple_query()
             }),
             recursive: false,
@@ -913,8 +913,8 @@ fn full_query() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Bool(true)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
             "u", "name",
         )))]),
@@ -927,8 +927,8 @@ fn full_query() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(0)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         window: None,
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("u", "name")),

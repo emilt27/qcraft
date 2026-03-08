@@ -160,8 +160,8 @@ fn custom_compare_op_unsupported() {
                 op: CompareOp::Custom(Box::new(DummyCompareOp)),
                 right: Expr::Value(qcraft_core::ast::value::Value::Int(1)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let err = render_err(&stmt);

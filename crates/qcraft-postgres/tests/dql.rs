@@ -728,8 +728,8 @@ fn having_clause() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(5)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, params) = render_with_params(&stmt);
@@ -1516,8 +1516,8 @@ fn full_pipeline() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(100)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         group_by: Some(vec![
             GroupByItem::Expr(Expr::Field(FieldRef::new("u", "id"))),
             GroupByItem::Expr(Expr::Field(FieldRef::new("u", "name"))),
@@ -1531,8 +1531,8 @@ fn full_pipeline() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(2)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("u", "name")),
             direction: OrderDir::Asc,

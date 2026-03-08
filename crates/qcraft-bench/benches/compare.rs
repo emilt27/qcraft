@@ -51,7 +51,6 @@ enum Users {
     Email,
     Age,
     Active,
-    Country,
 }
 
 #[derive(Iden)]
@@ -162,19 +161,19 @@ fn bench_join_group_order(c: &mut Criterion) {
             join_type: JoinType::Left,
             natural: false,
         }]),
-        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(
-            Box::new(Comparison {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
                 left: Expr::Field(FieldRef::new("o", "amount")),
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(100)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
             "u", "name",
         )))]),
-        having: Some(Conditions::and(vec![ConditionNode::Comparison(
-            Box::new(Comparison {
+        having: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
                 left: Expr::Func {
                     name: "COUNT".into(),
                     args: vec![Expr::Field(FieldRef::new("o", "id"))],
@@ -182,8 +181,8 @@ fn bench_join_group_order(c: &mut Criterion) {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(5)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("u", "name")),
             direction: OrderDir::Asc,
@@ -222,8 +221,7 @@ fn bench_join_group_order(c: &mut Criterion) {
                 .and_where(sea_query::Expr::col((Orders::Table, Orders::Amount)).gt(100))
                 .group_by_col((Users::Table, Users::Name))
                 .and_having(
-                    sea_query::Func::count(sea_query::Expr::col((Orders::Table, Orders::Id)))
-                        .gt(5),
+                    sea_query::Func::count(sea_query::Expr::col((Orders::Table, Orders::Id))).gt(5),
                 )
                 .order_by((Users::Table, Users::Name), sea_query::Order::Asc)
                 .limit(10)
@@ -358,8 +356,8 @@ fn bench_complex_query(c: &mut Criterion) {
             GroupByItem::Expr(Expr::Field(FieldRef::new("u", "id"))),
             GroupByItem::Expr(Expr::Field(FieldRef::new("u", "name"))),
         ]),
-        having: Some(Conditions::and(vec![ConditionNode::Comparison(
-            Box::new(Comparison {
+        having: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
                 left: Expr::Func {
                     name: "SUM".into(),
                     args: vec![Expr::Field(FieldRef::new("o", "amount"))],
@@ -367,8 +365,8 @@ fn bench_complex_query(c: &mut Criterion) {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(1000)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("u", "name")),
             direction: OrderDir::Asc,
@@ -393,7 +391,7 @@ fn bench_complex_query(c: &mut Criterion) {
     group.bench_function("sea_query", |b| {
         b.iter(|| {
             let cte = sea_query::Query::select()
-                .expr(sea_query::Expr::asterisk())
+                .column(sea_query::Asterisk)
                 .from(Users::Table)
                 .and_where(sea_query::Expr::col(Users::Active).eq(true))
                 .to_owned();
@@ -402,10 +400,7 @@ fn bench_complex_query(c: &mut Criterion) {
                 .column((sea_query::Alias::new("u"), Users::Id))
                 .column((sea_query::Alias::new("u"), Users::Name))
                 .expr_as(
-                    sea_query::Func::sum(sea_query::Expr::col((
-                        Orders::Table,
-                        Orders::Amount,
-                    ))),
+                    sea_query::Func::sum(sea_query::Expr::col((Orders::Table, Orders::Amount))),
                     sea_query::Alias::new("total"),
                 )
                 .from_as(
@@ -420,13 +415,13 @@ fn bench_complex_query(c: &mut Criterion) {
                 .group_by_col((sea_query::Alias::new("u"), Users::Id))
                 .group_by_col((sea_query::Alias::new("u"), Users::Name))
                 .and_having(
-                    sea_query::Func::sum(sea_query::Expr::col((
-                        Orders::Table,
-                        Orders::Amount,
-                    )))
-                    .gt(1000),
+                    sea_query::Func::sum(sea_query::Expr::col((Orders::Table, Orders::Amount)))
+                        .gt(1000),
                 )
-                .order_by((sea_query::Alias::new("u"), Users::Name), sea_query::Order::Asc)
+                .order_by(
+                    (sea_query::Alias::new("u"), Users::Name),
+                    sea_query::Order::Asc,
+                )
                 .limit(50)
                 .to_owned();
 
@@ -435,9 +430,7 @@ fn bench_complex_query(c: &mut Criterion) {
                 .table_name(sea_query::Alias::new("active_users"))
                 .to_owned();
 
-            let with_clause = sea_query::WithClause::new()
-                .cte(common_table)
-                .to_owned();
+            let with_clause = sea_query::WithClause::new().cte(common_table).to_owned();
 
             let final_query = query.with(with_clause).to_owned();
             let (sql, values) = final_query.build(sea_query::PostgresQueryBuilder);

@@ -128,8 +128,8 @@ fn cte_materialized_ignored() {
                         op: CompareOp::Eq,
                         right: Expr::Value(Value::Int(1)),
                         negate: false,
-                    }),
-                )])),
+                    },
+                ))])),
                 ..simple_query()
             }),
             recursive: false,

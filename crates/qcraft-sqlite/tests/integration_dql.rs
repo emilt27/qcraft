@@ -314,8 +314,8 @@ fn from_multiple_tables() {
                 op: CompareOp::Eq,
                 right: Expr::Field(FieldRef::new("orders", "user_id")),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -340,8 +340,8 @@ fn from_subquery() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let stmt = QueryStmt {
@@ -461,8 +461,8 @@ fn where_simple() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -554,8 +554,8 @@ fn where_comparison_operators() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(28)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -587,8 +587,8 @@ fn where_is_null() {
                 op: CompareOp::IsNull,
                 right: Expr::Value(Value::Null),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -614,8 +614,8 @@ fn where_is_not_null() {
                 op: CompareOp::IsNull,
                 right: Expr::Value(Value::Null),
                 negate: true,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -640,8 +640,8 @@ fn where_like() {
                 op: CompareOp::Like,
                 right: Expr::Value(Value::Str("A%".into())),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -670,8 +670,8 @@ fn where_between() {
                     params: vec![],
                 },
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -699,8 +699,8 @@ fn where_in_list() {
                     params: vec![],
                 },
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -725,8 +725,8 @@ fn where_negated() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(0)),
                 negate: true,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -1025,8 +1025,8 @@ fn group_by_with_having() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(2)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -1348,8 +1348,8 @@ fn cte_simple() {
                         op: CompareOp::Eq,
                         right: Expr::Value(Value::Int(1)),
                         negate: false,
-                    }),
-                )])),
+                    },
+                ))])),
                 ..simple_query()
             }),
             recursive: false,
@@ -1727,8 +1727,8 @@ fn full_query_with_join_group_having_order_limit() {
                 op: CompareOp::Eq,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         group_by: Some(vec![GroupByItem::Expr(Expr::Field(FieldRef::new(
             "u", "name",
         )))]),
@@ -1741,8 +1741,8 @@ fn full_query_with_join_group_having_order_limit() {
                 op: CompareOp::Gt,
                 right: Expr::Value(Value::Int(1)),
                 negate: false,
-            }),
-        )])),
+            },
+        ))])),
         window: None,
         order_by: Some(vec![OrderByDef {
             expr: Expr::Field(FieldRef::new("u", "name")),
