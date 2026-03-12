@@ -292,7 +292,7 @@ Conditions::is_not_null(FieldRef::new("users", "email"))
 "users"."email" IS NOT NULL
 ```
 
-### LIKE
+### LIKE (raw)
 
 ```rust
 Conditions::like(FieldRef::new("users", "name"), "%alice%")
@@ -301,6 +301,52 @@ Conditions::like(FieldRef::new("users", "name"), "%alice%")
 ```sql
 "users"."name" LIKE $1
 -- params: [Str("%alice%")]
+```
+
+> With raw `LIKE` the caller provides the full pattern including wildcards.
+> Special characters (`%`, `_`, `\`) are **not** escaped automatically.
+
+### Contains / StartsWith / EndsWith
+
+High-level string matching — the renderer escapes special LIKE characters and wraps with `%` automatically.
+
+```rust
+Conditions::contains(FieldRef::new("users", "name"), "ali")
+Conditions::starts_with(FieldRef::new("users", "name"), "Ali")
+Conditions::ends_with(FieldRef::new("users", "name"), "ice")
+```
+
+```sql
+-- PostgreSQL
+"users"."name" LIKE $1   -- params: [Str("%ali%")]
+"users"."name" LIKE $1   -- params: [Str("Ali%")]
+"users"."name" LIKE $1   -- params: [Str("%ice")]
+
+-- SQLite (adds explicit ESCAPE clause)
+"users"."name" LIKE ? ESCAPE '\'
+```
+
+Special characters in the value are escaped automatically:
+
+```rust
+Conditions::contains(FieldRef::new("products", "name"), "50%")
+// Pattern becomes: %50\%%  — matches literal "50%", not "500"
+```
+
+### Case-insensitive: IContains / IStartsWith / IEndsWith
+
+```rust
+Conditions::icontains(FieldRef::new("users", "name"), "alice")
+Conditions::istarts_with(FieldRef::new("users", "name"), "ali")
+Conditions::iends_with(FieldRef::new("users", "name"), "ICE")
+```
+
+```sql
+-- PostgreSQL (uses ILIKE)
+"users"."name" ILIKE $1   -- params: [Str("%alice%")]
+
+-- SQLite (wraps with LOWER)
+LOWER("users"."name") LIKE LOWER(?) ESCAPE '\'
 ```
 
 ### IN (subquery)
