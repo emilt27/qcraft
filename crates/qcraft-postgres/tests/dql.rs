@@ -1696,3 +1696,63 @@ fn where_starts_with_escapes_percent() {
     });
     assert_eq!(params, vec![Value::Str("100\\%%".into())]);
 }
+
+// ---------------------------------------------------------------------------
+// COLLATE
+// ---------------------------------------------------------------------------
+
+#[test]
+fn collate_in_order_by() {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        order_by: Some(vec![OrderByDef {
+            expr: Expr::Field(FieldRef::new("users", "name")).collate("C"),
+            direction: OrderDir::Asc,
+            nulls: None,
+        }]),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" ORDER BY "users"."name" COLLATE "C" ASC"#
+    );
+}
+
+#[test]
+fn collate_in_where() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
+                left: Expr::Field(FieldRef::new("users", "name")).collate("und-x-icu"),
+                op: CompareOp::Eq,
+                right: Expr::Value(Value::Str("alice".into())),
+                negate: false,
+            },
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."name" COLLATE "und-x-icu" = $1"#
+    );
+    assert_eq!(params, vec![Value::Str("alice".into())]);
+}
+
+#[test]
+fn collate_in_select_expr() {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Field(FieldRef::new("users", "name")).collate("POSIX"),
+            alias: Some("name_posix".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT "users"."name" COLLATE "POSIX" AS "name_posix" FROM "users""#
+    );
+}
