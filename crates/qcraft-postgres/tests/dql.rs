@@ -1574,3 +1574,125 @@ fn full_pipeline() {
         ]
     );
 }
+
+// ---------------------------------------------------------------------------
+// Contains / StartsWith / EndsWith
+// ---------------------------------------------------------------------------
+
+#[test]
+fn where_contains() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::contains(FieldRef::new("users", "name"), "ali")),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "users"."name" LIKE $1"#);
+    assert_eq!(params, vec![Value::Str("%ali%".into())]);
+}
+
+#[test]
+fn where_starts_with() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::starts_with(
+            FieldRef::new("users", "name"),
+            "Ali",
+        )),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "users"."name" LIKE $1"#);
+    assert_eq!(params, vec![Value::Str("Ali%".into())]);
+}
+
+#[test]
+fn where_ends_with() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::ends_with(FieldRef::new("users", "name"), "ice")),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "users"."name" LIKE $1"#);
+    assert_eq!(params, vec![Value::Str("%ice".into())]);
+}
+
+#[test]
+fn where_icontains() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::icontains(FieldRef::new("users", "name"), "ali")),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."name" ILIKE $1"#
+    );
+    assert_eq!(params, vec![Value::Str("%ali%".into())]);
+}
+
+#[test]
+fn where_istarts_with() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::istarts_with(
+            FieldRef::new("users", "name"),
+            "ali",
+        )),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."name" ILIKE $1"#
+    );
+    assert_eq!(params, vec![Value::Str("ali%".into())]);
+}
+
+#[test]
+fn where_iends_with() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::iends_with(
+            FieldRef::new("users", "name"),
+            "ICE",
+        )),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."name" ILIKE $1"#
+    );
+    assert_eq!(params, vec![Value::Str("%ICE".into())]);
+}
+
+#[test]
+fn where_contains_escapes_special_chars() {
+    let (_, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("products"))]),
+        where_clause: Some(Conditions::contains(
+            FieldRef::new("products", "name"),
+            "50%_off\\",
+        )),
+        ..simple_query()
+    });
+    assert_eq!(params, vec![Value::Str("%50\\%\\_off\\\\%".into())]);
+}
+
+#[test]
+fn where_starts_with_escapes_percent() {
+    let (_, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("products"))]),
+        where_clause: Some(Conditions::starts_with(
+            FieldRef::new("products", "name"),
+            "100%",
+        )),
+        ..simple_query()
+    });
+    assert_eq!(params, vec![Value::Str("100\\%%".into())]);
+}

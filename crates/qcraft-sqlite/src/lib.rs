@@ -21,7 +21,33 @@ use qcraft_core::ast::tcl::{SqliteLockType, TransactionStmt};
 use qcraft_core::ast::value::Value;
 use qcraft_core::error::{RenderError, RenderResult};
 use qcraft_core::render::ctx::{ParamStyle, RenderCtx};
+use qcraft_core::render::escape_like_value;
 use qcraft_core::render::renderer::Renderer;
+
+fn render_like_pattern(op: &CompareOp, right: &Expr, ctx: &mut RenderCtx) -> RenderResult<()> {
+    let raw = match right {
+        Expr::Value(Value::Str(s)) => s.as_str(),
+        _ => {
+            return Err(RenderError::unsupported(
+                "CompareOp",
+                "Contains/StartsWith/EndsWith require a string value on the right side",
+            ));
+        }
+    };
+    let escaped = escape_like_value(raw);
+    let pattern = match op {
+        CompareOp::Contains | CompareOp::IContains => format!("%{escaped}%"),
+        CompareOp::StartsWith | CompareOp::IStartsWith => format!("{escaped}%"),
+        CompareOp::EndsWith | CompareOp::IEndsWith => format!("%{escaped}"),
+        _ => unreachable!(),
+    };
+    if ctx.parameterize() {
+        ctx.param(Value::Str(pattern));
+    } else {
+        ctx.string_literal(&pattern);
+    }
+    Ok(())
+}
 
 pub struct SqliteRenderer;
 
@@ -644,7 +670,17 @@ impl Renderer for SqliteRenderer {
         right: &Expr,
         ctx: &mut RenderCtx,
     ) -> RenderResult<()> {
+        let needs_lower = matches!(
+            op,
+            CompareOp::IContains | CompareOp::IStartsWith | CompareOp::IEndsWith
+        );
+        if needs_lower {
+            ctx.keyword("LOWER").paren_open();
+        }
         self.render_expr(left, ctx)?;
+        if needs_lower {
+            ctx.paren_close();
+        }
         match op {
             CompareOp::Eq => ctx.write(" = "),
             CompareOp::Neq => ctx.write(" <> "),
@@ -653,6 +689,20 @@ impl Renderer for SqliteRenderer {
             CompareOp::Lt => ctx.write(" < "),
             CompareOp::Lte => ctx.write(" <= "),
             CompareOp::Like => ctx.keyword("LIKE"),
+            CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => {
+                ctx.keyword("LIKE");
+                render_like_pattern(op, right, ctx)?;
+                ctx.keyword("ESCAPE").string_literal("\\");
+                return Ok(());
+            }
+            CompareOp::IContains | CompareOp::IStartsWith | CompareOp::IEndsWith => {
+                ctx.keyword("LIKE");
+                ctx.keyword("LOWER").paren_open();
+                render_like_pattern(op, right, ctx)?;
+                ctx.paren_close();
+                ctx.keyword("ESCAPE").string_literal("\\");
+                return Ok(());
+            }
             CompareOp::In => ctx.keyword("IN"),
             CompareOp::Between => {
                 ctx.keyword("BETWEEN");

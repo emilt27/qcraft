@@ -657,6 +657,264 @@ fn where_like() {
     assert_eq!(rows[0], "Alice");
 }
 
+// ---------------------------------------------------------------------------
+// Contains / StartsWith / EndsWith (integration)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn where_contains_filters_correctly() {
+    let db = conn();
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        order_by: Some(vec![OrderByDef {
+            expr: Expr::Field(FieldRef::new("users", "name")),
+            direction: OrderDir::Asc,
+            nulls: None,
+        }]),
+        where_clause: Some(Conditions::contains(FieldRef::new("users", "name"), "li")),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows, vec!["Alice", "Charlie"]);
+}
+
+#[test]
+fn where_starts_with_filters_correctly() {
+    let db = conn();
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        where_clause: Some(Conditions::starts_with(
+            FieldRef::new("users", "name"),
+            "Al",
+        )),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows, vec!["Alice"]);
+}
+
+#[test]
+fn where_ends_with_filters_correctly() {
+    let db = conn();
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        where_clause: Some(Conditions::ends_with(FieldRef::new("users", "name"), "ob")),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows, vec!["Bob"]);
+}
+
+#[test]
+fn where_icontains_case_insensitive() {
+    let db = conn();
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        where_clause: Some(Conditions::icontains(
+            FieldRef::new("users", "name"),
+            "ALICE",
+        )),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows, vec!["Alice"]);
+}
+
+#[test]
+fn where_istarts_with_case_insensitive() {
+    let db = conn();
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        where_clause: Some(Conditions::istarts_with(
+            FieldRef::new("users", "name"),
+            "aLi",
+        )),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows, vec!["Alice"]);
+}
+
+#[test]
+fn where_iends_with_case_insensitive() {
+    let db = conn();
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        where_clause: Some(Conditions::iends_with(
+            FieldRef::new("users", "name"),
+            "BOB",
+        )),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows, vec!["Bob"]);
+}
+
+#[test]
+fn where_contains_escapes_percent_in_db() {
+    let db = conn();
+    db.execute(
+        "INSERT INTO \"users\" VALUES (10, '50% off', 'promo@test.com', 20, 1, 'sales')",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO \"users\" VALUES (11, '500 items', 'items@test.com', 20, 1, 'sales')",
+        [],
+    )
+    .unwrap();
+
+    // "50%" should match "50% off" but NOT "500 items"
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        where_clause: Some(Conditions::contains(FieldRef::new("users", "name"), "50%")),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows, vec!["50% off"]);
+}
+
+#[test]
+fn where_contains_escapes_underscore_in_db() {
+    let db = conn();
+    db.execute(
+        "INSERT INTO \"users\" VALUES (12, 'user_admin', 'ua@test.com', 20, 1, 'engineering')",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO \"users\" VALUES (13, 'useradmin', 'uadmin@test.com', 20, 1, 'engineering')",
+        [],
+    )
+    .unwrap();
+
+    // "user_" should match "user_admin" but NOT "useradmin"
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        where_clause: Some(Conditions::starts_with(
+            FieldRef::new("users", "name"),
+            "user_",
+        )),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows, vec!["user_admin"]);
+}
+
+#[test]
+fn where_contains_no_match() {
+    let db = conn();
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        where_clause: Some(Conditions::contains(
+            FieldRef::new("users", "name"),
+            "zzzzz",
+        )),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), 0);
+}
+
 #[test]
 fn where_between() {
     let db = conn();
