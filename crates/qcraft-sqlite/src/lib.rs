@@ -537,6 +537,12 @@ impl Renderer for SqliteRenderer {
                 "SQLite does not support ARRAY subqueries.",
             )),
 
+            Expr::Collate { expr, collation } => {
+                self.render_expr(expr, ctx)?;
+                ctx.keyword("COLLATE").keyword(collation);
+                Ok(())
+            }
+
             Expr::Raw { sql, params } => {
                 ctx.keyword(sql);
                 let _ = params;

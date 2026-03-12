@@ -1051,3 +1051,57 @@ fn where_contains_escapes_special_chars() {
     });
     assert_eq!(params, vec![Value::Str("%50\\%\\_off\\\\%".into())]);
 }
+
+// ---------------------------------------------------------------------------
+// COLLATE
+// ---------------------------------------------------------------------------
+
+#[test]
+fn collate_in_order_by() {
+    assert_eq!(
+        render(&QueryStmt {
+            order_by: Some(vec![OrderByDef {
+                expr: Expr::Field(FieldRef::new("users", "name")).collate("NOCASE"),
+                direction: OrderDir::Asc,
+                nulls: None,
+            }]),
+            ..simple_query()
+        }),
+        r#"SELECT * FROM "users" ORDER BY "users"."name" COLLATE NOCASE ASC"#
+    );
+}
+
+#[test]
+fn collate_in_where() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
+                left: Expr::Field(FieldRef::new("users", "name")).collate("NOCASE"),
+                op: CompareOp::Eq,
+                right: Expr::Value(Value::Str("alice".into())),
+                negate: false,
+            },
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."name" COLLATE NOCASE = ?"#
+    );
+    assert_eq!(params, vec![Value::Str("alice".into())]);
+}
+
+#[test]
+fn collate_binary() {
+    assert_eq!(
+        render(&QueryStmt {
+            order_by: Some(vec![OrderByDef {
+                expr: Expr::Field(FieldRef::new("users", "name")).collate("BINARY"),
+                direction: OrderDir::Desc,
+                nulls: None,
+            }]),
+            ..simple_query()
+        }),
+        r#"SELECT * FROM "users" ORDER BY "users"."name" COLLATE BINARY DESC"#
+    );
+}

@@ -66,6 +66,7 @@ pub enum Expr {
     Exists(Box<QueryStmt>),
     SubQuery(Box<QueryStmt>),
     ArraySubQuery(Box<QueryStmt>),
+    Collate { expr: Box<Expr>, collation: String },
     Raw { sql: String, params: Vec<Value> },
     Custom(Box<dyn CustomExpr>),
 }
@@ -88,6 +89,7 @@ pub enum Expr {
 | `Expr::max(expr)` | `Expr::Aggregate(...)` with name "MAX" |
 | `Expr::exists(query)` | `Expr::Exists(Box::new(query))` |
 | `Expr::subquery(query)` | `Expr::SubQuery(Box::new(query))` |
+| `expr.collate("C")` | `Expr::Collate { expr, collation: "C" }` |
 
 ### From implementations
 
