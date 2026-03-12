@@ -25,7 +25,33 @@ use qcraft_core::ast::tcl::{
 use qcraft_core::ast::value::Value;
 use qcraft_core::error::{RenderError, RenderResult};
 use qcraft_core::render::ctx::{ParamStyle, RenderCtx};
+use qcraft_core::render::escape_like_value;
 use qcraft_core::render::renderer::Renderer;
+
+fn render_like_pattern(op: &CompareOp, right: &Expr, ctx: &mut RenderCtx) -> RenderResult<()> {
+    let raw = match right {
+        Expr::Value(Value::Str(s)) => s.as_str(),
+        _ => {
+            return Err(RenderError::unsupported(
+                "CompareOp",
+                "Contains/StartsWith/EndsWith require a string value on the right side",
+            ));
+        }
+    };
+    let escaped = escape_like_value(raw);
+    let pattern = match op {
+        CompareOp::Contains | CompareOp::IContains => format!("%{escaped}%"),
+        CompareOp::StartsWith | CompareOp::IStartsWith => format!("{escaped}%"),
+        CompareOp::EndsWith | CompareOp::IEndsWith => format!("%{escaped}"),
+        _ => unreachable!(),
+    };
+    if ctx.parameterize() {
+        ctx.param(Value::Str(pattern));
+    } else {
+        ctx.string_literal(&pattern);
+    }
+    Ok(())
+}
 
 struct PgCreateTableOpts<'a> {
     tablespace: Option<&'a str>,
@@ -881,6 +907,16 @@ impl Renderer for PostgresRenderer {
             CompareOp::Lte => ctx.write(" <= "),
             CompareOp::Like => ctx.keyword("LIKE"),
             CompareOp::ILike => ctx.keyword("ILIKE"),
+            CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => {
+                ctx.keyword("LIKE");
+                render_like_pattern(op, right, ctx)?;
+                return Ok(());
+            }
+            CompareOp::IContains | CompareOp::IStartsWith | CompareOp::IEndsWith => {
+                ctx.keyword("ILIKE");
+                render_like_pattern(op, right, ctx)?;
+                return Ok(());
+            }
             CompareOp::In => ctx.keyword("IN"),
             CompareOp::Between => {
                 ctx.keyword("BETWEEN");

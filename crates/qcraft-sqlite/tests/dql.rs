@@ -948,3 +948,106 @@ fn full_query() {
     );
     assert_eq!(params, vec![Value::Bool(true), Value::Int(0)]);
 }
+
+// ---------------------------------------------------------------------------
+// Contains / StartsWith / EndsWith
+// ---------------------------------------------------------------------------
+
+#[test]
+fn where_contains() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        where_clause: Some(Conditions::contains(FieldRef::new("users", "name"), "ali")),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."name" LIKE ? ESCAPE '\'"#
+    );
+    assert_eq!(params, vec![Value::Str("%ali%".into())]);
+}
+
+#[test]
+fn where_starts_with() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        where_clause: Some(Conditions::starts_with(
+            FieldRef::new("users", "name"),
+            "Ali",
+        )),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."name" LIKE ? ESCAPE '\'"#
+    );
+    assert_eq!(params, vec![Value::Str("Ali%".into())]);
+}
+
+#[test]
+fn where_ends_with() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        where_clause: Some(Conditions::ends_with(FieldRef::new("users", "name"), "ice")),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."name" LIKE ? ESCAPE '\'"#
+    );
+    assert_eq!(params, vec![Value::Str("%ice".into())]);
+}
+
+#[test]
+fn where_icontains() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        where_clause: Some(Conditions::icontains(FieldRef::new("users", "name"), "ali")),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE LOWER ("users"."name") LIKE LOWER (?) ESCAPE '\'"#
+    );
+    assert_eq!(params, vec![Value::Str("%ali%".into())]);
+}
+
+#[test]
+fn where_istarts_with() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        where_clause: Some(Conditions::istarts_with(
+            FieldRef::new("users", "name"),
+            "ali",
+        )),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE LOWER ("users"."name") LIKE LOWER (?) ESCAPE '\'"#
+    );
+    assert_eq!(params, vec![Value::Str("ali%".into())]);
+}
+
+#[test]
+fn where_iends_with() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        where_clause: Some(Conditions::iends_with(
+            FieldRef::new("users", "name"),
+            "ICE",
+        )),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE LOWER ("users"."name") LIKE LOWER (?) ESCAPE '\'"#
+    );
+    assert_eq!(params, vec![Value::Str("%ICE".into())]);
+}
+
+#[test]
+fn where_contains_escapes_special_chars() {
+    let (_, params) = render_with_params(&QueryStmt {
+        where_clause: Some(Conditions::contains(
+            FieldRef::new("products", "name"),
+            "50%_off\\",
+        )),
+        ..simple_query()
+    });
+    assert_eq!(params, vec![Value::Str("%50\\%\\_off\\\\%".into())]);
+}
