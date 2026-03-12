@@ -108,8 +108,14 @@ Gte             >=
 Lt              <
 Lte             <=
 In              IN
-Like            LIKE
-ILike           ILIKE (PG)
+Like            LIKE (raw pattern, caller provides wildcards)
+ILike           ILIKE (raw pattern, PG only)
+Contains        LIKE '%val%' (auto-escaped)
+StartsWith      LIKE 'val%' (auto-escaped)
+EndsWith        LIKE '%val' (auto-escaped)
+IContains       ILIKE '%val%' (PG) / LOWER(col) LIKE LOWER(?) (SQLite)
+IStartsWith     ILIKE 'val%' (PG) / LOWER(col) LIKE LOWER(?) (SQLite)
+IEndsWith       ILIKE '%val' (PG) / LOWER(col) LIKE LOWER(?) (SQLite)
 Between         BETWEEN
 IsNull          IS NULL
 Similar         SIMILAR TO (PG)
