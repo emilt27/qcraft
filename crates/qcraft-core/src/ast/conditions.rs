@@ -79,12 +79,66 @@ impl Conditions {
         }))])
     }
 
-    /// `field LIKE pattern`
+    /// `field LIKE pattern` (raw — caller provides the full pattern with wildcards)
     pub fn like(field: FieldRef, pattern: &str) -> Self {
         Self::comparison(
             field,
             CompareOp::Like,
             Expr::Value(Value::Str(pattern.to_string())),
+        )
+    }
+
+    /// `field LIKE '%value%'` — renderer escapes special chars and wraps with `%`.
+    pub fn contains(field: FieldRef, val: &str) -> Self {
+        Self::comparison(
+            field,
+            CompareOp::Contains,
+            Expr::Value(Value::Str(val.to_string())),
+        )
+    }
+
+    /// `field LIKE 'value%'` — renderer escapes special chars and appends `%`.
+    pub fn starts_with(field: FieldRef, val: &str) -> Self {
+        Self::comparison(
+            field,
+            CompareOp::StartsWith,
+            Expr::Value(Value::Str(val.to_string())),
+        )
+    }
+
+    /// `field LIKE '%value'` — renderer escapes special chars and prepends `%`.
+    pub fn ends_with(field: FieldRef, val: &str) -> Self {
+        Self::comparison(
+            field,
+            CompareOp::EndsWith,
+            Expr::Value(Value::Str(val.to_string())),
+        )
+    }
+
+    /// Case-insensitive `field ILIKE '%value%'` (PG) / `LOWER(field) LIKE LOWER('%value%')` (SQLite).
+    pub fn icontains(field: FieldRef, val: &str) -> Self {
+        Self::comparison(
+            field,
+            CompareOp::IContains,
+            Expr::Value(Value::Str(val.to_string())),
+        )
+    }
+
+    /// Case-insensitive `field ILIKE 'value%'` (PG) / `LOWER(field) LIKE LOWER('value%')` (SQLite).
+    pub fn istarts_with(field: FieldRef, val: &str) -> Self {
+        Self::comparison(
+            field,
+            CompareOp::IStartsWith,
+            Expr::Value(Value::Str(val.to_string())),
+        )
+    }
+
+    /// Case-insensitive `field ILIKE '%value'` (PG) / `LOWER(field) LIKE LOWER('%value')` (SQLite).
+    pub fn iends_with(field: FieldRef, val: &str) -> Self {
+        Self::comparison(
+            field,
+            CompareOp::IEndsWith,
+            Expr::Value(Value::Str(val.to_string())),
         )
     }
 
@@ -189,6 +243,14 @@ pub enum CompareOp {
     In,
     Like,
     ILike,
+
+    // High-level LIKE operators (renderer handles escaping + wildcard wrapping)
+    Contains,
+    StartsWith,
+    EndsWith,
+    IContains,
+    IStartsWith,
+    IEndsWith,
     Between,
     IsNull,
     Similar,
