@@ -985,10 +985,7 @@ fn where_starts_with() {
 #[test]
 fn where_ends_with() {
     let (sql, params) = render_with_params(&QueryStmt {
-        where_clause: Some(Conditions::ends_with(
-            FieldRef::new("users", "name"),
-            "ice",
-        )),
+        where_clause: Some(Conditions::ends_with(FieldRef::new("users", "name"), "ice")),
         ..simple_query()
     });
     assert_eq!(
@@ -1001,10 +998,7 @@ fn where_ends_with() {
 #[test]
 fn where_icontains() {
     let (sql, params) = render_with_params(&QueryStmt {
-        where_clause: Some(Conditions::icontains(
-            FieldRef::new("users", "name"),
-            "ali",
-        )),
+        where_clause: Some(Conditions::icontains(FieldRef::new("users", "name"), "ali")),
         ..simple_query()
     });
     assert_eq!(

@@ -24,11 +24,7 @@ use qcraft_core::render::ctx::{ParamStyle, RenderCtx};
 use qcraft_core::render::escape_like_value;
 use qcraft_core::render::renderer::Renderer;
 
-fn render_like_pattern(
-    op: &CompareOp,
-    right: &Expr,
-    ctx: &mut RenderCtx,
-) -> RenderResult<()> {
+fn render_like_pattern(op: &CompareOp, right: &Expr, ctx: &mut RenderCtx) -> RenderResult<()> {
     let raw = match right {
         Expr::Value(Value::Str(s)) => s.as_str(),
         _ => {

@@ -1587,10 +1587,7 @@ fn where_contains() {
         where_clause: Some(Conditions::contains(FieldRef::new("users", "name"), "ali")),
         ..simple_query()
     });
-    assert_eq!(
-        sql,
-        r#"SELECT * FROM "users" WHERE "users"."name" LIKE $1"#
-    );
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "users"."name" LIKE $1"#);
     assert_eq!(params, vec![Value::Str("%ali%".into())]);
 }
 
@@ -1605,10 +1602,7 @@ fn where_starts_with() {
         )),
         ..simple_query()
     });
-    assert_eq!(
-        sql,
-        r#"SELECT * FROM "users" WHERE "users"."name" LIKE $1"#
-    );
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "users"."name" LIKE $1"#);
     assert_eq!(params, vec![Value::Str("Ali%".into())]);
 }
 
@@ -1617,16 +1611,10 @@ fn where_ends_with() {
     let (sql, params) = render_with_params(&QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
-        where_clause: Some(Conditions::ends_with(
-            FieldRef::new("users", "name"),
-            "ice",
-        )),
+        where_clause: Some(Conditions::ends_with(FieldRef::new("users", "name"), "ice")),
         ..simple_query()
     });
-    assert_eq!(
-        sql,
-        r#"SELECT * FROM "users" WHERE "users"."name" LIKE $1"#
-    );
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "users"."name" LIKE $1"#);
     assert_eq!(params, vec![Value::Str("%ice".into())]);
 }
 
@@ -1635,10 +1623,7 @@ fn where_icontains() {
     let (sql, params) = render_with_params(&QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
-        where_clause: Some(Conditions::icontains(
-            FieldRef::new("users", "name"),
-            "ali",
-        )),
+        where_clause: Some(Conditions::icontains(FieldRef::new("users", "name"), "ali")),
         ..simple_query()
     });
     assert_eq!(

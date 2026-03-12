@@ -758,10 +758,7 @@ fn where_ends_with_filters_correctly() {
             alias: None,
         }],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
-        where_clause: Some(Conditions::ends_with(
-            FieldRef::new("users", "name"),
-            "ob",
-        )),
+        where_clause: Some(Conditions::ends_with(FieldRef::new("users", "name"), "ob")),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
@@ -865,10 +862,7 @@ fn where_contains_escapes_percent_in_db() {
             alias: None,
         }],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
-        where_clause: Some(Conditions::contains(
-            FieldRef::new("users", "name"),
-            "50%",
-        )),
+        where_clause: Some(Conditions::contains(FieldRef::new("users", "name"), "50%")),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
