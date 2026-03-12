@@ -2339,3 +2339,91 @@ fn full_pipeline() {
     assert_eq!(rows[2].get::<_, String>(0), "Diana");
     assert_eq!(rows[2].get::<_, i64>(1), 2);
 }
+
+// ---------------------------------------------------------------------------
+// COLLATE
+// ---------------------------------------------------------------------------
+
+#[test]
+fn collate_c_order_by() {
+    let mut client = test_client();
+    // Insert mixed-case name
+    client
+        .execute(
+            "INSERT INTO \"users\" VALUES (10, 'alice', 'alice2@test.com', 20, TRUE, 'engineering')",
+            &[],
+        )
+        .unwrap();
+
+    // COLLATE "C" uses byte ordering: uppercase before lowercase
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::or(vec![
+            ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Field(FieldRef::new("users", "name")),
+                op: CompareOp::Eq,
+                right: Expr::Value(Value::Str("Alice".into())),
+                negate: false,
+            })),
+            ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Field(FieldRef::new("users", "name")),
+                op: CompareOp::Eq,
+                right: Expr::Value(Value::Str("alice".into())),
+                negate: false,
+            })),
+        ])),
+        order_by: Some(vec![OrderByDef {
+            expr: Expr::Field(FieldRef::new("users", "name")).collate("C"),
+            direction: OrderDir::Asc,
+            nulls: None,
+        }]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
+    let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+    // C collation: 'A' (65) < 'a' (97) — uppercase first
+    assert_eq!(names, vec!["Alice", "alice"]);
+}
+
+#[test]
+fn collate_in_where_comparison() {
+    let mut client = test_client();
+
+    // Use COLLATE on a comparison to force case-sensitive matching with "C" collation
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
+                left: Expr::Field(FieldRef::new("users", "name")).collate("C"),
+                op: CompareOp::Lt,
+                right: Expr::Value(Value::Str("D".into())),
+                negate: false,
+            },
+        ))])),
+        order_by: Some(vec![OrderByDef {
+            expr: Expr::Field(FieldRef::new("users", "name")),
+            direction: OrderDir::Asc,
+            nulls: None,
+        }]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_pg_params(&values);
+    let params = as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
+    let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+    // With "C" collation, only names < 'D' in byte order:
+    // 'A'(65) 'B'(66) 'C'(67) < 'D'(68) — Alice, Bob, Charlie match
+    assert_eq!(names, vec!["Alice", "Bob", "Charlie"]);
+}

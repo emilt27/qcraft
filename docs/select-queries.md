@@ -689,6 +689,41 @@ ORDER BY "users"."score" ASC NULLS LAST
 
 Both PostgreSQL and SQLite support NULLS FIRST / NULLS LAST.
 
+### COLLATE
+
+Override the collation used for sorting or comparison. The `.collate()` method works on any `Expr`:
+
+```rust
+// In ORDER BY
+OrderByDef::asc(Expr::field("users", "name").collate("C"))
+
+// In WHERE
+Conditions::and(vec![ConditionNode::Comparison(Box::new(Comparison {
+    left: Expr::field("users", "name").collate("NOCASE"),
+    op: CompareOp::Eq,
+    right: Expr::Value(Value::Str("alice".into())),
+    negate: false,
+}))])
+```
+
+```sql
+-- PostgreSQL (collation name quoted as identifier)
+ORDER BY "users"."name" COLLATE "C" ASC
+WHERE "users"."name" COLLATE "C" = $1
+
+-- SQLite (collation name as keyword, unquoted)
+ORDER BY "users"."name" COLLATE NOCASE ASC
+WHERE "users"."name" COLLATE NOCASE = ?
+```
+
+Common collations:
+
+| PostgreSQL | SQLite |
+|---|---|
+| `"C"`, `"POSIX"` — byte ordering | `BINARY` — byte comparison (default) |
+| `"default"` — database default | `NOCASE` — case-insensitive ASCII |
+| ICU collations (`"uk-x-icu"`, etc.) | `RTRIM` — ignores trailing spaces |
+
 ---
 
 ## 7. LIMIT / OFFSET
