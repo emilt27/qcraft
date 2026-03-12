@@ -47,6 +47,9 @@ pub enum Expr {
     /// ARRAY(subquery).
     ArraySubQuery(Box<QueryStmt>),
 
+    /// Collation override: `expr COLLATE "name"`.
+    Collate { expr: Box<Expr>, collation: String },
+
     /// Raw SQL with parameters (escape hatch).
     Raw { sql: String, params: Vec<Value> },
 
@@ -169,6 +172,14 @@ impl Expr {
     /// Scalar subquery.
     pub fn subquery(query: QueryStmt) -> Self {
         Expr::SubQuery(Box::new(query))
+    }
+
+    /// Collation override: `expr COLLATE "name"`.
+    pub fn collate(self, collation: impl Into<String>) -> Self {
+        Expr::Collate {
+            expr: Box::new(self),
+            collation: collation.into(),
+        }
     }
 }
 

@@ -2033,3 +2033,91 @@ fn full_query_with_join_group_having_order_limit() {
     assert_eq!(rows[1].1, 2);
     assert!((rows[1].2 - 60.5).abs() < 0.01); // 50.00 + 10.50
 }
+
+// ---------------------------------------------------------------------------
+// COLLATE
+// ---------------------------------------------------------------------------
+
+#[test]
+fn collate_nocase_order_by() {
+    let db = conn();
+    // Insert mixed-case names
+    db.execute(
+        "INSERT INTO \"users\" VALUES (10, 'alice', 'alice2@example.com', 20, 1, 'engineering')",
+        [],
+    )
+    .unwrap();
+
+    // ORDER BY with COLLATE NOCASE should treat 'Alice' and 'alice' as equal
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        where_clause: Some(Conditions::or(vec![
+            ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Field(FieldRef::new("users", "name")),
+                op: CompareOp::Eq,
+                right: Expr::Value(Value::Str("Alice".into())),
+                negate: false,
+            })),
+            ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Field(FieldRef::new("users", "name")),
+                op: CompareOp::Eq,
+                right: Expr::Value(Value::Str("alice".into())),
+                negate: false,
+            })),
+        ])),
+        order_by: Some(vec![OrderByDef {
+            expr: Expr::Field(FieldRef::new("users", "name")).collate("BINARY"),
+            direction: OrderDir::Asc,
+            nulls: None,
+        }]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    // BINARY collation: uppercase 'A' (65) < lowercase 'a' (97)
+    assert_eq!(rows, vec!["Alice", "alice"]);
+}
+
+#[test]
+fn collate_nocase_where_comparison() {
+    let db = conn();
+
+    // Without COLLATE NOCASE, 'alice' != 'Alice' in a BINARY comparison
+    // With COLLATE NOCASE, they should match
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef::new("users", "name"),
+            alias: None,
+        }],
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
+                left: Expr::Field(FieldRef::new("users", "name")).collate("NOCASE"),
+                op: CompareOp::Eq,
+                right: Expr::Value(Value::Str("alice".into())),
+                negate: false,
+            },
+        ))])),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = to_sqlite_params(&values);
+    let params = as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<String> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    // COLLATE NOCASE makes 'alice' match 'Alice'
+    assert_eq!(rows, vec!["Alice"]);
+}

@@ -760,6 +760,12 @@ impl Renderer for PostgresRenderer {
                 Ok(())
             }
 
+            Expr::Collate { expr, collation } => {
+                self.render_expr(expr, ctx)?;
+                ctx.keyword("COLLATE").ident(collation);
+                Ok(())
+            }
+
             Expr::Raw { sql, params } => {
                 ctx.keyword(sql);
                 // Raw params are already embedded in the SQL string
