@@ -1725,3 +1725,40 @@ fn iregex_sqlite() {
     assert!(sql.contains("'(?i)' ||"));
     assert_eq!(params, vec![Value::Str("^john".into())]);
 }
+
+#[test]
+fn select_with_timedelta_param() {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "duration")),
+                CompareOp::Eq,
+                Expr::Value(Value::TimeDelta {
+                    years: 0,
+                    months: 0,
+                    days: 0,
+                    seconds: 3600,
+                    microseconds: 0,
+                }),
+            ),
+        ))])),
+        ..simple_query()
+    };
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."duration" = ?"#
+    );
+    assert_eq!(
+        params,
+        vec![Value::TimeDelta {
+            years: 0,
+            months: 0,
+            days: 0,
+            seconds: 3600,
+            microseconds: 0,
+        }]
+    );
+}

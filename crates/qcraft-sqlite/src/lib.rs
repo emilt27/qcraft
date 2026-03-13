@@ -1677,32 +1677,21 @@ impl SqliteRenderer {
             return Ok(());
         }
 
-        // Convert Array to JSON string for SQLite (no native array type).
+        // Array in inline literal mode → JSON string (no native array type).
         if let Value::Array(items) = val {
-            let json = Self::array_to_json(items);
-            if ctx.parameterize() {
-                ctx.param(Value::Str(json));
-            } else {
+            if !ctx.parameterize() {
+                let json = Self::array_to_json(items);
                 ctx.string_literal(&json);
+                return Ok(());
             }
-            return Ok(());
         }
 
         // Unsupported types always error, regardless of parameterize mode.
-        match val {
-            Value::Vector(_) => {
-                return Err(RenderError::unsupported(
-                    "VectorValue",
-                    "SQLite does not support vector type.",
-                ));
-            }
-            Value::TimeDelta { .. } => {
-                return Err(RenderError::unsupported(
-                    "TimeDeltaValue",
-                    "SQLite does not support INTERVAL type. Use string expressions with datetime functions.",
-                ));
-            }
-            _ => {}
+        if let Value::Vector(_) = val {
+            return Err(RenderError::unsupported(
+                "VectorValue",
+                "SQLite does not support vector type.",
+            ));
         }
 
         // In parameterized mode, send values as bind parameters.
@@ -1754,8 +1743,36 @@ impl SqliteRenderer {
             Value::IpNetwork(s) => {
                 ctx.string_literal(s);
             }
+            Value::TimeDelta {
+                years,
+                months,
+                days,
+                seconds,
+                microseconds,
+            } => {
+                let mut parts = Vec::new();
+                if *years != 0 {
+                    parts.push(format!("{years} years"));
+                }
+                if *months != 0 {
+                    parts.push(format!("{months} months"));
+                }
+                if *days != 0 {
+                    parts.push(format!("{days} days"));
+                }
+                if *seconds != 0 {
+                    parts.push(format!("{seconds} seconds"));
+                }
+                if *microseconds != 0 {
+                    parts.push(format!("{microseconds} microseconds"));
+                }
+                if parts.is_empty() {
+                    parts.push("0 seconds".into());
+                }
+                ctx.string_literal(&parts.join(" "));
+            }
             _ => {
-                // Vector, TimeDelta — already caught in sqlite_value
+                // Vector — already caught in sqlite_value
                 unreachable!()
             }
         }

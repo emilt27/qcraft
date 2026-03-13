@@ -1090,3 +1090,45 @@ fn delete_with_limit() {
         r#"DELETE FROM "logs" ORDER BY "logs"."id" ASC LIMIT 2"#,
     );
 }
+
+#[test]
+fn insert_timedelta_into_text_column() {
+    let db = conn();
+    db.execute_batch("CREATE TABLE events (id INTEGER PRIMARY KEY, duration TEXT)")
+        .unwrap();
+
+    let stmt = MutationStmt::Insert(InsertStmt {
+        table: SchemaRef::new("events"),
+        columns: Some(vec!["id".into(), "duration".into()]),
+        source: InsertSource::Values(vec![vec![
+            Expr::Value(Value::Int(1)),
+            Expr::Value(Value::TimeDelta {
+                years: 0,
+                months: 0,
+                days: 0,
+                seconds: 9015,
+                microseconds: 0,
+            }),
+        ]]),
+        returning: None,
+        on_conflict: None,
+        ctes: None,
+        overriding: None,
+        conflict_resolution: None,
+        partition: None,
+        ignore: false,
+    });
+
+    let (sql, values) = render(&stmt);
+    // TimeDelta should be in params, caller converts to string before executing
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
+    db.execute(&sql, params.as_slice()).unwrap();
+
+    let stored: String = db
+        .query_row("SELECT duration FROM events WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert!(!stored.is_empty());
+}
