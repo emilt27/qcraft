@@ -1712,7 +1712,7 @@ dependencies = [
 
 [[package]]
 name = "qcraft"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "qcraft-core",
  "qcraft-postgres",
@@ -1731,14 +1731,14 @@ dependencies = [
 
 [[package]]
 name = "qcraft-core"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "qcraft-postgres"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "libc",
  "postgres",
@@ -1749,7 +1749,7 @@ dependencies = [
 
 [[package]]
 name = "qcraft-sqlite"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "qcraft-core",
  "rusqlite",
