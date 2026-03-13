@@ -61,8 +61,9 @@ The feature would change query semantics if omitted, so the renderer returns an 
 | Trigram operators | Supported | Error |
 | Full-text search match | Supported | Error |
 | Range operators | Supported | Error |
-| ILIKE | Supported | Error |
-| Regex match (~, ~*) | Supported | Error |
+| ILIKE | Supported | Workaround (LOWER/LIKE) |
+| Regex match (~) | Supported | Supported (REGEXP) |
+| Regex match (~*, case-insensitive) | Supported | Workaround (REGEXP '(?i)' \|\| pattern) |
 
 ## Workarounds
 

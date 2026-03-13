@@ -263,7 +263,6 @@ fn create_table_primary_key() {
         name: None,
         columns: vec!["id".into()],
         include: None,
-        autoincrement: false,
     }]);
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -303,16 +302,14 @@ fn create_table_primary_key() {
 fn create_table_autoincrement() {
     let db = conn();
     let mut schema = SchemaDef::new("events");
-    schema.columns = vec![
-        ColumnDef::new("id", FieldType::scalar("INTEGER")).not_null(),
-        ColumnDef::new("name", FieldType::scalar("TEXT")),
-    ];
-    schema.constraints = Some(vec![ConstraintDef::PrimaryKey {
-        name: None,
-        columns: vec!["id".into()],
-        include: None,
-        autoincrement: true,
-    }]);
+    let mut id_col = ColumnDef::new("id", FieldType::scalar("INTEGER"));
+    id_col.not_null = true;
+    id_col.identity = Some(IdentityColumn {
+        always: true,
+        ..Default::default()
+    });
+    schema.columns = vec![id_col, ColumnDef::new("name", FieldType::scalar("TEXT"))];
+    schema.constraints = Some(vec![ConstraintDef::primary_key(vec!["id"])]);
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
         if_not_exists: false,
@@ -351,17 +348,18 @@ fn create_table_autoincrement() {
 fn create_table_unique_constraint() {
     let db = conn();
     let mut schema = SchemaDef::new("users");
+    let mut id_col = ColumnDef::new("id", FieldType::scalar("INTEGER"));
+    id_col.not_null = true;
+    id_col.identity = Some(IdentityColumn {
+        always: true,
+        ..Default::default()
+    });
     schema.columns = vec![
-        ColumnDef::new("id", FieldType::scalar("INTEGER")).not_null(),
+        id_col,
         ColumnDef::new("email", FieldType::scalar("TEXT")).not_null(),
     ];
     schema.constraints = Some(vec![
-        ConstraintDef::PrimaryKey {
-            name: None,
-            columns: vec!["id".into()],
-            include: None,
-            autoincrement: true,
-        },
+        ConstraintDef::primary_key(vec!["id"]),
         ConstraintDef::Unique {
             name: None,
             columns: vec!["email".into()],
@@ -533,7 +531,6 @@ fn create_table_without_rowid() {
         name: None,
         columns: vec!["key".into()],
         include: None,
-        autoincrement: false,
     }]);
     let stmt = SchemaMutationStmt::CreateTable {
         schema,

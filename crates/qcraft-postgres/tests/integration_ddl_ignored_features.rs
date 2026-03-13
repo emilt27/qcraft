@@ -112,12 +112,7 @@ fn autoincrement_in_pk_ignored() {
         ColumnDef::new("id", FieldType::scalar("SERIAL")),
         ColumnDef::new("name", FieldType::scalar("TEXT")),
     ];
-    schema.constraints = Some(vec![ConstraintDef::PrimaryKey {
-        name: None,
-        columns: vec!["id".into()],
-        include: None,
-        autoincrement: true, // SQLite-specific, should be ignored
-    }]);
+    schema.constraints = Some(vec![ConstraintDef::primary_key(vec!["id"])]);
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
         if_not_exists: false,

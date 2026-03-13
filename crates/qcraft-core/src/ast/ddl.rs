@@ -423,8 +423,6 @@ pub enum ConstraintDef {
         name: Option<String>,
         columns: Vec<String>,
         include: Option<Vec<String>>,
-        /// SQLite AUTOINCREMENT (only valid with single INTEGER PRIMARY KEY).
-        autoincrement: bool,
     },
 
     ForeignKey {
@@ -470,7 +468,6 @@ impl ConstraintDef {
             name: None,
             columns: columns.into_iter().map(String::from).collect(),
             include: None,
-            autoincrement: false,
         }
     }
 

@@ -235,7 +235,6 @@ fn create_table_primary_key() {
         name: Some("pk_users".into()),
         columns: vec!["id".into()],
         include: None,
-        autoincrement: false,
     }]);
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -292,7 +291,6 @@ fn create_table_unique_constraint() {
             name: Some("pk_users".into()),
             columns: vec!["id".into()],
             include: None,
-            autoincrement: false,
         },
         ConstraintDef::Unique {
             name: Some("uq_email".into()),
@@ -357,7 +355,6 @@ fn create_table_check_constraint() {
             name: Some("pk_users".into()),
             columns: vec!["id".into()],
             include: None,
-            autoincrement: false,
         },
         ConstraintDef::Check {
             name: Some("ck_age_positive".into()),
@@ -439,7 +436,6 @@ fn create_table_foreign_key() {
             name: Some("pk_posts".into()),
             columns: vec!["id".into()],
             include: None,
-            autoincrement: false,
         },
         ConstraintDef::ForeignKey {
             name: Some("fk_posts_user".into()),

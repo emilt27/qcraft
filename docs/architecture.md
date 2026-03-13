@@ -91,7 +91,7 @@ ctx.operator("::");
 ctx.write(to_type);
 
 // SQLite CAST: CAST(expr AS type)
-ctx.keyword("CAST").paren_open();
+ctx.keyword("CAST").write("(");
 self.render_expr(expr, ctx)?;
 ctx.keyword("AS").write(to_type).paren_close();
 ```

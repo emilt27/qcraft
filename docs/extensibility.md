@@ -154,7 +154,18 @@ Or using the convenience constructor (no parameters):
 let expr = Expr::raw("CURRENT_TIMESTAMP");
 ```
 
-Raw SQL is injected verbatim into the output. Parameters in `Expr::Raw` are appended to the parameter list and their placeholders must already be correct for your `ParamStyle`. Use this sparingly -- it bypasses dialect validation entirely.
+Raw SQL is injected verbatim into the output. Use this sparingly -- it bypasses dialect validation entirely.
+
+When `params` is non-empty, use Django-style `%s` placeholders in the SQL string. The renderer replaces each `%s` with the correct dialect placeholder (`$1`, `?`, or `%s`) and appends the value to the parameter list. Use `%%` to emit a literal `%`, and `%%s` for a literal `%s`:
+
+```rust
+let expr = Expr::Raw {
+    sql: "my_func(%s, %s)".to_string(),
+    params: vec![Value::Int(1), Value::Str("hello".to_string())],
+};
+// PostgreSQL: my_func($1, $2)
+// SQLite:     my_func(?, ?)
+```
 
 ## RenderCtx semantic API
 
@@ -177,12 +188,12 @@ All methods return `&mut Self` for chaining:
 
 ```rust
 ctx.keyword("CAST")
-    .paren_open()
+    .write("(")
     .ident("col")
     .keyword("AS")
     .keyword("TEXT")
     .paren_close();
-// CAST ("col" AS TEXT)
+// CAST("col" AS TEXT)
 ```
 
 ### Inspecting state

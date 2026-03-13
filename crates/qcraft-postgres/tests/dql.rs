@@ -1,5 +1,5 @@
 use qcraft_core::ast::common::{FieldRef, NullsOrder, OrderByDef, OrderDir, SchemaRef};
-use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions};
+use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use qcraft_core::ast::expr::{Expr, WindowFrameBound, WindowFrameDef, WindowFrameType};
 use qcraft_core::ast::query::*;
 use qcraft_core::ast::value::Value;
@@ -922,7 +922,9 @@ fn limit_only() {
         }),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" LIMIT 10"#);
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"SELECT * FROM "users" LIMIT $1"#);
+    assert_eq!(params, vec![Value::BigInt(10)]);
 }
 
 #[test]
@@ -936,7 +938,9 @@ fn limit_with_offset() {
         }),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" LIMIT 10 OFFSET 20"#);
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"SELECT * FROM "users" LIMIT $1 OFFSET $2"#);
+    assert_eq!(params, vec![Value::BigInt(10), Value::BigInt(20)]);
 }
 
 #[test]
@@ -1038,7 +1042,9 @@ fn top_converts_to_limit() {
         }),
         ..simple_query()
     };
-    assert_eq!(render(&stmt), r#"SELECT * FROM "users" LIMIT 10"#);
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"SELECT * FROM "users" LIMIT $1"#);
+    assert_eq!(params, vec![Value::BigInt(10)]);
 }
 
 // ==========================================================================
@@ -1562,7 +1568,7 @@ fn full_pipeline() {
     assert!(sql.contains(r#"GROUP BY "u"."id", "u"."name""#));
     assert!(sql.contains("HAVING COUNT($3) > $4"), "sql: {sql}");
     assert!(sql.contains(r#"ORDER BY "u"."name" ASC"#));
-    assert!(sql.contains("LIMIT 10 OFFSET 5"));
+    assert!(sql.contains("LIMIT $5 OFFSET $6"), "sql: {sql}");
     assert!(sql.contains("FOR UPDATE"));
     assert_eq!(
         params,
@@ -1571,6 +1577,8 @@ fn full_pipeline() {
             Value::Int(100),
             Value::Int(1),
             Value::Int(2),
+            Value::BigInt(10),
+            Value::BigInt(5),
         ]
     );
 }
@@ -1949,4 +1957,457 @@ fn range_adjacent() {
         sql,
         r#"SELECT * FROM "events" WHERE "events"."period" -|- '[2024-06-01, 2024-07-01)'::daterange"#
     );
+}
+
+// ==========================================================================
+// IN clause — array expansion
+// ==========================================================================
+
+#[test]
+fn in_expands_array_to_separate_params() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("users", "status")),
+                CompareOp::In,
+                Expr::Value(Value::Array(vec![
+                    Value::Str("active".into()),
+                    Value::Str("pending".into()),
+                ])),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."status" IN ($1, $2)"#
+    );
+    assert_eq!(
+        params,
+        vec![Value::Str("active".into()), Value::Str("pending".into())]
+    );
+}
+
+// ==========================================================================
+// BETWEEN — two-value expansion
+// ==========================================================================
+
+#[test]
+fn between_expands_array_to_and() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("users", "age")),
+                CompareOp::Between,
+                Expr::Value(Value::Array(vec![Value::Int(18), Value::Int(65)])),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE "users"."age" BETWEEN $1 AND $2"#
+    );
+    assert_eq!(params, vec![Value::Int(18), Value::Int(65)]);
+}
+
+// ==========================================================================
+// JSONB ?| and ?& — ::text[] cast
+// ==========================================================================
+
+#[test]
+fn jsonb_has_any_key_adds_text_array_cast() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("users", "data")),
+                CompareOp::JsonbHasAnyKey,
+                Expr::Value(Value::Array(vec![
+                    Value::Str("email".into()),
+                    Value::Str("phone".into()),
+                ])),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert!(sql.contains("?|"), "sql: {sql}");
+    assert!(sql.contains("::text[]"), "sql: {sql}");
+    assert_eq!(
+        params,
+        vec![Value::Array(vec![
+            Value::Str("email".into()),
+            Value::Str("phone".into()),
+        ])]
+    );
+}
+
+#[test]
+fn jsonb_has_all_keys_adds_text_array_cast() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("users", "data")),
+                CompareOp::JsonbHasAllKeys,
+                Expr::Value(Value::Array(vec![Value::Str("name".into())])),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert!(sql.contains("?&"), "sql: {sql}");
+    assert!(sql.contains("::text[]"), "sql: {sql}");
+    assert_eq!(params, vec![Value::Array(vec![Value::Str("name".into())])]);
+}
+
+// ==========================================================================
+// NULL parameterization
+// ==========================================================================
+
+#[test]
+fn null_is_parameterized_in_insert() {
+    use qcraft_core::ast::dml::*;
+    let renderer = PostgresRenderer::new();
+    let stmt = MutationStmt::Insert(InsertStmt {
+        table: SchemaRef::new("users"),
+        columns: Some(vec!["name".into(), "email".into()]),
+        source: InsertSource::Values(vec![vec![
+            Expr::Value(Value::Str("Alice".into())),
+            Expr::Value(Value::Null),
+        ]]),
+        ..InsertStmt::default()
+    });
+    let (sql, params) = renderer.render_mutation_stmt(&stmt).unwrap();
+    assert_eq!(
+        sql,
+        r#"INSERT INTO "users" ("name", "email") VALUES ($1, $2)"#
+    );
+    assert_eq!(params, vec![Value::Str("Alice".into()), Value::Null]);
+}
+
+// ==========================================================================
+// CROSS JOIN ignores condition
+// ==========================================================================
+
+#[test]
+fn cross_join_ignores_on_condition() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("products"))]),
+        joins: Some(vec![JoinDef {
+            source: FromItem::table(SchemaRef::new("sizes")),
+            condition: Some(JoinCondition::On(Conditions::and(vec![
+                ConditionNode::Comparison(Box::new(Comparison::new(
+                    Expr::Value(Value::Int(1)),
+                    CompareOp::Eq,
+                    Expr::Value(Value::Int(1)),
+                ))),
+            ]))),
+            join_type: JoinType::Cross,
+            natural: false,
+        }]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT * FROM "products" CROSS JOIN "sizes""#);
+    assert!(params.is_empty());
+}
+
+// ==========================================================================
+// FieldRef — namespace and JSON child
+// ==========================================================================
+
+#[test]
+fn field_ref_with_namespace() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef {
+                field: qcraft_core::ast::common::FieldDef::new("id"),
+                table_name: "users".into(),
+                namespace: Some("public".into()),
+            },
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT "public"."users"."id" FROM "users""#);
+}
+
+#[test]
+fn field_ref_with_json_child() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef {
+                field: qcraft_core::ast::common::FieldDef {
+                    name: "data".into(),
+                    child: Some(Box::new(qcraft_core::ast::common::FieldDef {
+                        name: "address".into(),
+                        child: Some(Box::new(qcraft_core::ast::common::FieldDef::new("city"))),
+                    })),
+                },
+                table_name: "users".into(),
+                namespace: None,
+            },
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT "users"."data"->'address'->'city' FROM "users""#
+    );
+}
+
+// ==========================================================================
+// Expr::Raw with %s parameterization
+// ==========================================================================
+
+#[test]
+fn raw_expr_with_params() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(simple_cond_eq(
+            Expr::Raw {
+                sql: "age > %s".into(),
+                params: vec![Value::Int(18)],
+            },
+            Expr::Raw {
+                sql: "status = %s".into(),
+                params: vec![Value::Str("active".into())],
+            },
+        )),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE age > $1 = status = $2"#);
+    assert_eq!(params, vec![Value::Int(18), Value::Str("active".into())]);
+}
+
+#[test]
+fn raw_expr_percent_escape() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("logs"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
+                left: Expr::Raw {
+                    sql: "msg LIKE '%%error%%' AND level = %s".into(),
+                    params: vec![Value::Str("critical".into())],
+                },
+                op: CompareOp::Eq,
+                right: Expr::Value(Value::Bool(true)),
+                negate: false,
+            },
+        ))])),
+        ..simple_query()
+    });
+    assert!(sql.contains("msg LIKE '%error%' AND level = $1"));
+    assert_eq!(params[0], Value::Str("critical".into()));
+}
+
+#[test]
+fn raw_expr_no_params_unchanged() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Raw {
+                sql: "NOW()".into(),
+                params: vec![],
+            },
+            alias: Some("ts".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT NOW() AS "ts" FROM "t""#);
+}
+
+// ==========================================================================
+// EXISTS / NOT EXISTS
+// ==========================================================================
+
+#[test]
+fn exists_subquery() {
+    let subquery = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Value(Value::Int(1)),
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("orders"))]),
+        ..simple_query()
+    };
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Exists(Box::new(
+            subquery,
+        ))])),
+        ..simple_query()
+    });
+    assert!(sql.contains("EXISTS(SELECT"));
+    assert!(!sql.contains("NOT"));
+}
+
+#[test]
+fn not_exists_subquery() {
+    let subquery = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Value(Value::Int(1)),
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("orders"))]),
+        ..simple_query()
+    };
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions {
+            children: vec![ConditionNode::Exists(Box::new(subquery))],
+            connector: Connector::And,
+            negated: true,
+        }),
+        ..simple_query()
+    });
+    // Must be "NOT EXISTS (" not "NOT (EXISTS ("
+    assert!(sql.contains("NOT EXISTS(SELECT"));
+}
+
+// ==========================================================================
+// Dialect-agnostic functions (PG rendering)
+// ==========================================================================
+
+#[test]
+fn json_array_pg() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::JsonArray(vec![
+                Expr::Value(Value::Int(1)),
+                Expr::Value(Value::Str("two".into())),
+            ]),
+            alias: Some("arr".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT jsonb_build_array($1, $2) AS "arr" FROM "t""#);
+    assert_eq!(params, vec![Value::Int(1), Value::Str("two".into())]);
+}
+
+#[test]
+fn json_object_pg() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::JsonObject(vec![
+                ("name".into(), Expr::field("t", "name")),
+                ("age".into(), Expr::field("t", "age")),
+            ]),
+            alias: Some("obj".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT jsonb_build_object('name', "t"."name", 'age', "t"."age") AS "obj" FROM "t""#
+    );
+}
+
+#[test]
+fn json_agg_pg() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::JsonAgg {
+                expr: Box::new(Expr::field("t", "name")),
+                distinct: false,
+                filter: None,
+                order_by: None,
+            },
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT jsonb_agg("t"."name") FROM "t""#);
+}
+
+#[test]
+fn json_agg_distinct_pg() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::JsonAgg {
+                expr: Box::new(Expr::field("t", "name")),
+                distinct: true,
+                filter: None,
+                order_by: None,
+            },
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT jsonb_agg(DISTINCT "t"."name") FROM "t""#);
+}
+
+#[test]
+fn string_agg_pg() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::StringAgg {
+                expr: Box::new(Expr::field("t", "name")),
+                delimiter: ", ".into(),
+                distinct: false,
+                filter: None,
+                order_by: None,
+            },
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT string_agg("t"."name", ', ') FROM "t""#);
+}
+
+#[test]
+fn string_agg_distinct_with_order_pg() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::StringAgg {
+                expr: Box::new(Expr::field("t", "name")),
+                delimiter: ", ".into(),
+                distinct: true,
+                filter: None,
+                order_by: Some(vec![OrderByDef {
+                    expr: Expr::field("t", "name"),
+                    direction: OrderDir::Asc,
+                    nulls: None,
+                }]),
+            },
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT string_agg(DISTINCT "t"."name", ', ' ORDER BY "t"."name" ASC) FROM "t""#
+    );
+}
+
+#[test]
+fn now_pg() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Now,
+            alias: Some("ts".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT now() AS "ts" FROM "t""#);
 }

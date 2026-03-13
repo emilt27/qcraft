@@ -8,12 +8,12 @@ All benchmarks measure **parameterized SQL rendering** to PostgreSQL dialect (pr
 
 | Scenario | qcraft | sea-query | Speedup |
 |---|---|---|---|
-| Simple SELECT + WHERE | 201 ns | 1,345 ns | **6.7x** |
-| JOIN + GROUP BY + ORDER BY + LIMIT | 362 ns | 3,168 ns | **8.8x** |
-| INSERT (3 rows) | 479 ns | 1,662 ns | **3.5x** |
-| Complex CTE + JOIN + GROUP BY + HAVING | 489 ns | 7,152 ns | **14.6x** |
+| Simple SELECT + WHERE | 227 ns | 1,419 ns | **6.2x** |
+| JOIN + GROUP BY + ORDER BY + LIMIT | 420 ns | 3,494 ns | **8.3x** |
+| INSERT (3 rows) | 537 ns | 1,797 ns | **3.3x** |
+| Complex CTE + JOIN + GROUP BY + HAVING | 549 ns | 7,341 ns | **13.4x** |
 
-qcraft is **3.5x–14.6x faster** across all scenarios. The gap widens with query complexity.
+qcraft is **3.3x–13.4x faster** across all scenarios. The gap widens with query complexity.
 
 ## Memory allocations
 
@@ -22,9 +22,9 @@ Each call to build + render a query allocates heap memory. Fewer allocations mea
 | Scenario | qcraft allocs | sea-query allocs | qcraft bytes | sea-query bytes |
 |---|---|---|---|---|
 | Simple SELECT + WHERE | 20 | 34 | 1,652 B | 8,353 B |
-| JOIN + GROUP BY + ORDER BY | 42 | 82 | 2,511 B | 13,247 B |
+| JOIN + GROUP BY + ORDER BY | 42 | 82 | 2,509 B | 13,247 B |
 | INSERT (3 rows) | 34 | 57 | 2,758 B | 4,767 B |
-| Complex CTE + JOIN | 52 | 195 | 3,981 B | 35,604 B |
+| Complex CTE + JOIN | 52 | 195 | 3,980 B | 35,604 B |
 
 qcraft uses **1.7x–3.8x fewer allocations** and **1.7x–8.9x less memory** per query.
 
@@ -108,7 +108,7 @@ The results above were collected on:
 
 - **CPU**: Apple Silicon
 - **Rust**: 1.85 (edition 2024)
-- **qcraft**: 0.1.0
+- **qcraft**: 1.0.0
 - **sea-query**: 0.32.7
 - **criterion**: 0.5.1
 
