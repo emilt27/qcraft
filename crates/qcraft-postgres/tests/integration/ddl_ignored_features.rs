@@ -1,11 +1,6 @@
 //! Tests that verify PostgreSQL renderer silently ignores SQLite-specific DDL features
 //! while still producing valid, executable SQL.
 
-use postgres::{Client, NoTls};
-use testcontainers::ImageExt;
-use testcontainers::runners::SyncRunner;
-use testcontainers_modules::postgres::Postgres;
-
 use qcraft_core::ast::ddl::*;
 use qcraft_postgres::PostgresRenderer;
 
@@ -21,13 +16,7 @@ fn render(stmt: &SchemaMutationStmt) -> String {
 
 #[test]
 fn without_rowid_ignored() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("t");
     schema.columns = vec![ColumnDef::new("id", FieldType::scalar("INTEGER"))];
@@ -60,13 +49,7 @@ fn without_rowid_ignored() {
 
 #[test]
 fn strict_ignored() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("t");
     schema.columns = vec![ColumnDef::new("id", FieldType::scalar("INTEGER"))];
@@ -99,13 +82,7 @@ fn strict_ignored() {
 
 #[test]
 fn autoincrement_in_pk_ignored() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("events");
     schema.columns = vec![
@@ -147,13 +124,7 @@ fn autoincrement_in_pk_ignored() {
 
 #[test]
 fn all_sqlite_features_ignored_together() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("t");
     schema.columns = vec![ColumnDef::new("id", FieldType::scalar("INTEGER"))];

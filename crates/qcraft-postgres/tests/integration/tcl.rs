@@ -1,11 +1,6 @@
 //! Integration tests for PostgreSQL TCL (Transaction Control Language) rendering
 //! executed against a real PostgreSQL instance via testcontainers.
 
-use postgres::{Client, NoTls};
-use testcontainers::ImageExt;
-use testcontainers::runners::SyncRunner;
-use testcontainers_modules::postgres::Postgres;
-
 use qcraft_core::ast::tcl::*;
 use qcraft_postgres::PostgresRenderer;
 
@@ -15,40 +10,13 @@ fn render(stmt: &TransactionStmt) -> String {
     sql
 }
 
-fn connect() -> (impl std::any::Any, Client) {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let client = Client::connect(&conn_str, NoTls).unwrap();
-    (node, client)
-}
-
-fn connect_with_2pc() -> (impl std::any::Any, Client) {
-    let node = Postgres::default()
-        .with_tag("16-alpine")
-        .with_cmd(["postgres", "-c", "max_prepared_transactions=10"])
-        .start()
-        .unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let client = Client::connect(&conn_str, NoTls).unwrap();
-    (node, client)
-}
-
 // ==========================================================================
 // BEGIN / COMMIT / ROLLBACK — basic
 // ==========================================================================
 
 #[test]
 fn begin_commit_persists_data() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: None,
@@ -76,8 +44,7 @@ fn begin_commit_persists_data() {
 
 #[test]
 fn begin_rollback_discards_data() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: None,
@@ -107,8 +74,7 @@ fn begin_rollback_discards_data() {
 
 #[test]
 fn begin_isolation_serializable() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: Some(vec![TransactionMode::IsolationLevel(
@@ -130,7 +96,7 @@ fn begin_isolation_serializable() {
 
 #[test]
 fn begin_read_committed() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: Some(vec![TransactionMode::IsolationLevel(
@@ -151,7 +117,7 @@ fn begin_read_committed() {
 
 #[test]
 fn begin_repeatable_read() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: Some(vec![TransactionMode::IsolationLevel(
@@ -176,7 +142,7 @@ fn begin_repeatable_read() {
 
 #[test]
 fn begin_read_only() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: Some(vec![TransactionMode::ReadOnly]),
@@ -195,7 +161,7 @@ fn begin_read_only() {
 
 #[test]
 fn begin_serializable_read_only_deferrable() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: Some(vec![
@@ -229,8 +195,7 @@ fn begin_serializable_read_only_deferrable() {
 
 #[test]
 fn commit_and_chain() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: None,
@@ -262,8 +227,7 @@ fn commit_and_chain() {
 
 #[test]
 fn rollback_and_chain() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: None,
@@ -299,8 +263,7 @@ fn rollback_and_chain() {
 
 #[test]
 fn savepoint_release() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
     client.execute("INSERT INTO t VALUES (1)", &[]).unwrap();
@@ -325,8 +288,7 @@ fn savepoint_release() {
 
 #[test]
 fn savepoint_rollback_to() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
     client.execute("INSERT INTO t VALUES (1)", &[]).unwrap();
@@ -361,7 +323,7 @@ fn savepoint_rollback_to() {
 
 #[test]
 fn set_transaction_isolation() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
 
@@ -383,7 +345,7 @@ fn set_transaction_isolation() {
 
 #[test]
 fn set_session_characteristics() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template_tcl");
 
     let set_session = TransactionStmt::SetTransaction(SetTransactionStmt {
         modes: vec![TransactionMode::IsolationLevel(
@@ -413,8 +375,7 @@ fn set_session_characteristics() {
 
 #[test]
 fn lock_table_access_exclusive() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
 
@@ -438,8 +399,7 @@ fn lock_table_access_exclusive() {
 
 #[test]
 fn lock_table_nowait() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
 
@@ -462,8 +422,7 @@ fn lock_table_nowait() {
 
 #[test]
 fn lock_table_only() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
 
@@ -490,8 +449,7 @@ fn lock_table_only() {
 
 #[test]
 fn prepare_and_commit_prepared() {
-    let (_node, mut client) = connect_with_2pc();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
     client.execute("INSERT INTO t VALUES (1)", &[]).unwrap();
@@ -515,8 +473,7 @@ fn prepare_and_commit_prepared() {
 
 #[test]
 fn prepare_and_rollback_prepared() {
-    let (_node, mut client) = connect_with_2pc();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
     client.execute("INSERT INTO t VALUES (1)", &[]).unwrap();

@@ -2,11 +2,6 @@
 //! (SQLite lock types, named transactions, release flags, etc.)
 //! while still producing valid, executable SQL.
 
-use postgres::{Client, NoTls};
-use testcontainers::ImageExt;
-use testcontainers::runners::SyncRunner;
-use testcontainers_modules::postgres::Postgres;
-
 use qcraft_core::ast::tcl::*;
 use qcraft_postgres::PostgresRenderer;
 
@@ -16,25 +11,13 @@ fn render(stmt: &TransactionStmt) -> String {
     sql
 }
 
-fn connect() -> (impl std::any::Any, Client) {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let client = Client::connect(&conn_str, NoTls).unwrap();
-    (node, client)
-}
-
 // ==========================================================================
 // BEGIN — ignored fields
 // ==========================================================================
 
 #[test]
 fn begin_lock_type_ignored() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: None,
@@ -53,8 +36,7 @@ fn begin_lock_type_ignored() {
 
 #[test]
 fn begin_name_ignored() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: None,
@@ -73,8 +55,7 @@ fn begin_name_ignored() {
 
 #[test]
 fn begin_with_mark_ignored() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     let begin = TransactionStmt::Begin(BeginStmt {
         modes: None,
@@ -97,8 +78,7 @@ fn begin_with_mark_ignored() {
 
 #[test]
 fn commit_release_ignored() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
     client.execute("INSERT INTO t VALUES (1)", &[]).unwrap();
@@ -119,8 +99,7 @@ fn commit_release_ignored() {
 
 #[test]
 fn commit_name_ignored() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
     client.execute("INSERT INTO t VALUES (1)", &[]).unwrap();
@@ -145,8 +124,7 @@ fn commit_name_ignored() {
 
 #[test]
 fn rollback_release_ignored() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
     client.execute("INSERT INTO t VALUES (1)", &[]).unwrap();
@@ -166,8 +144,7 @@ fn rollback_release_ignored() {
 
 #[test]
 fn rollback_name_ignored() {
-    let (_node, mut client) = connect();
-    client.execute("CREATE TABLE t (id INTEGER)", &[]).unwrap();
+    let mut client = crate::test_client("template_tcl");
 
     client.batch_execute("BEGIN").unwrap();
     client.execute("INSERT INTO t VALUES (1)", &[]).unwrap();

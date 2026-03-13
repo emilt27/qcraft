@@ -1,8 +1,3 @@
-use postgres::{Client, NoTls};
-use testcontainers::ImageExt;
-use testcontainers::runners::SyncRunner;
-use testcontainers_modules::postgres::Postgres;
-
 use qcraft_core::ast::common::SchemaRef;
 use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use qcraft_core::ast::ddl::*;
@@ -22,13 +17,7 @@ fn render(stmt: &SchemaMutationStmt) -> String {
 
 #[test]
 fn create_table_columns_and_types() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("users");
     schema.columns = vec![
@@ -102,13 +91,7 @@ fn create_table_columns_and_types() {
 
 #[test]
 fn create_table_parameterized_types() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("data");
     schema.columns = vec![
@@ -164,13 +147,7 @@ fn create_table_parameterized_types() {
 
 #[test]
 fn create_table_default_value() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("config");
     schema.columns = vec![
@@ -218,13 +195,7 @@ fn create_table_default_value() {
 
 #[test]
 fn create_table_primary_key() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("users");
     schema.columns = vec![
@@ -273,13 +244,7 @@ fn create_table_primary_key() {
 
 #[test]
 fn create_table_unique_constraint() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("users");
     schema.columns = vec![
@@ -337,13 +302,7 @@ fn create_table_unique_constraint() {
 
 #[test]
 fn create_table_check_constraint() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("users");
     schema.columns = vec![
@@ -412,13 +371,7 @@ fn create_table_check_constraint() {
 
 #[test]
 fn create_table_foreign_key() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     // Create parent table directly
     client
@@ -501,13 +454,7 @@ fn create_table_foreign_key() {
 
 #[test]
 fn create_table_with_identity() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("items");
     schema.columns = vec![
@@ -569,13 +516,7 @@ fn create_table_with_identity() {
 
 #[test]
 fn create_table_with_generated_column() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("products");
     schema.columns = vec![
@@ -637,13 +578,7 @@ fn create_table_with_generated_column() {
 
 #[test]
 fn create_table_if_not_exists() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let mut schema = SchemaDef::new("t");
     schema.columns = vec![ColumnDef::new("id", FieldType::scalar("INTEGER"))];
@@ -676,13 +611,7 @@ fn create_table_if_not_exists() {
 
 #[test]
 fn create_index_and_verify() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -724,13 +653,7 @@ fn create_index_and_verify() {
 
 #[test]
 fn create_unique_index() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -771,13 +694,7 @@ fn create_unique_index() {
 
 #[test]
 fn create_index_multi_column() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -836,13 +753,7 @@ fn create_index_multi_column() {
 
 #[test]
 fn create_index_partial_with_where() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -913,13 +824,7 @@ fn create_index_partial_with_where() {
 
 #[test]
 fn create_index_expression() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute("CREATE TABLE \"users\" (\"email\" TEXT)", &[])
@@ -965,13 +870,7 @@ fn create_index_expression() {
 
 #[test]
 fn drop_table() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute("CREATE TABLE \"users\" (\"id\" INTEGER)", &[])
@@ -1000,13 +899,7 @@ fn drop_table() {
 
 #[test]
 fn drop_table_if_exists() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     let stmt = SchemaMutationStmt::DropTable {
         schema_ref: SchemaRef::new("nonexistent"),
@@ -1023,13 +916,7 @@ fn drop_table_if_exists() {
 
 #[test]
 fn drop_index() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute("CREATE TABLE \"t\" (\"a\" INTEGER)", &[])
@@ -1063,13 +950,7 @@ fn drop_index() {
 
 #[test]
 fn alter_table_rename() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute("CREATE TABLE \"old_name\" (\"id\" INTEGER)", &[])
@@ -1106,13 +987,7 @@ fn alter_table_rename() {
 
 #[test]
 fn alter_table_add_column() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute("CREATE TABLE \"users\" (\"id\" INTEGER)", &[])
@@ -1145,13 +1020,7 @@ fn alter_table_add_column() {
 
 #[test]
 fn alter_table_drop_column() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -1185,13 +1054,7 @@ fn alter_table_drop_column() {
 
 #[test]
 fn alter_table_rename_column() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute("CREATE TABLE \"users\" (\"name\" TEXT)", &[])
@@ -1221,13 +1084,7 @@ fn alter_table_rename_column() {
 
 #[test]
 fn alter_column_type() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute("CREATE TABLE \"users\" (\"bio\" TEXT)", &[])
@@ -1260,13 +1117,7 @@ fn alter_column_type() {
 
 #[test]
 fn alter_column_set_default() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -1299,13 +1150,7 @@ fn alter_column_set_default() {
 
 #[test]
 fn alter_column_drop_default() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -1338,13 +1183,7 @@ fn alter_column_drop_default() {
 
 #[test]
 fn alter_column_set_not_null() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -1373,13 +1212,7 @@ fn alter_column_set_not_null() {
 
 #[test]
 fn alter_column_drop_not_null() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -1419,13 +1252,7 @@ fn alter_column_drop_not_null() {
 
 #[test]
 fn alter_table_add_constraint() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -1470,13 +1297,7 @@ fn alter_table_add_constraint() {
 
 #[test]
 fn alter_table_drop_constraint() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute(
@@ -1514,13 +1335,7 @@ fn alter_table_drop_constraint() {
 
 #[test]
 fn truncate_table() {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
+    let mut client = crate::test_client("template0");
 
     client
         .execute("CREATE TABLE \"users\" (\"id\" INTEGER)", &[])
