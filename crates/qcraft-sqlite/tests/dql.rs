@@ -1,5 +1,6 @@
 use qcraft_core::ast::common::*;
 use qcraft_core::ast::conditions::*;
+use qcraft_core::ast::custom::CustomBinaryOp;
 use qcraft_core::ast::expr::*;
 use qcraft_core::ast::query::*;
 use qcraft_core::ast::value::Value;
@@ -1104,4 +1105,36 @@ fn collate_binary() {
         }),
         r#"SELECT * FROM "users" ORDER BY "users"."name" COLLATE BINARY DESC"#
     );
+}
+
+// ---------------------------------------------------------------------------
+// Custom BinaryOp — SQLite rejects
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy)]
+struct DummyOp;
+
+impl CustomBinaryOp for DummyOp {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn clone_box(&self) -> Box<dyn CustomBinaryOp> {
+        Box::new(*self)
+    }
+}
+
+#[test]
+fn custom_binary_op_unsupported() {
+    let err = render_err(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Binary {
+                left: Box::new(Expr::Field(FieldRef::new("t", "a"))),
+                op: BinaryOp::Custom(Box::new(DummyOp)),
+                right: Box::new(Expr::Field(FieldRef::new("t", "b"))),
+            },
+            alias: None,
+        }],
+        ..simple_query()
+    });
+    assert!(err.contains("CustomBinaryOp"));
 }

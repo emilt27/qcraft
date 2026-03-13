@@ -1,6 +1,6 @@
 use super::common::{FieldRef, OrderByDef};
 use super::conditions::Conditions;
-use super::custom::CustomExpr;
+use super::custom::{CustomBinaryOp, CustomExpr};
 use super::query::QueryStmt;
 use super::value::Value;
 
@@ -196,7 +196,7 @@ impl From<FieldRef> for Expr {
 }
 
 /// Binary operators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -208,6 +208,9 @@ pub enum BinaryOp {
     ShiftLeft,
     ShiftRight,
     Concat,
+
+    /// User-defined binary operator (extension point).
+    Custom(Box<dyn CustomBinaryOp>),
 }
 
 /// Unary operators.
