@@ -73,6 +73,10 @@ pub enum Expr {
         order_by: Option<Vec<OrderByDef>>,
     },
 
+    /// JSON text extraction: `expr->>'path'` on both PG and SQLite.
+    /// Unlike `->` (which returns JSON), `->>` returns the value as text.
+    JsonPathText { expr: Box<Expr>, path: String },
+
     /// Current timestamp: PG `now()`, SQLite `datetime('now')`.
     Now,
 
@@ -236,6 +240,14 @@ impl Expr {
             distinct: false,
             filter: None,
             order_by: None,
+        }
+    }
+
+    /// JSON text extraction: `expr->>'path'`.
+    pub fn json_path_text(expr: Expr, path: impl Into<String>) -> Self {
+        Expr::JsonPathText {
+            expr: Box::new(expr),
+            path: path.into(),
         }
     }
 

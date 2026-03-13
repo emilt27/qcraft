@@ -49,6 +49,22 @@ fn select_star() {
 }
 
 #[test]
+fn field_ref_empty_table_name() {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Field {
+            field: FieldRef {
+                field: FieldDef::new("price"),
+                table_name: "".into(),
+                namespace: None,
+            },
+            alias: None,
+        }],
+        ..simple_query()
+    };
+    assert_eq!(render(&stmt), r#"SELECT "price" FROM "users""#);
+}
+
+#[test]
 fn select_columns() {
     let stmt = QueryStmt {
         columns: vec![
@@ -1469,6 +1485,21 @@ fn json_array_sqlite() {
     });
     assert_eq!(sql, r#"SELECT json_array(?, ?) AS "arr" FROM "users""#);
     assert_eq!(params, vec![Value::Int(1), Value::Str("two".into())]);
+}
+
+#[test]
+fn json_path_text_sqlite() {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::json_path_text(Expr::field("events", "data"), "email"),
+            alias: Some("email".into()),
+        }],
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT "events"."data"->>'email' AS "email" FROM "users""#,
+    );
 }
 
 #[test]

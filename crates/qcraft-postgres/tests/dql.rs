@@ -2283,6 +2283,22 @@ fn not_exists_subquery() {
 // ==========================================================================
 
 #[test]
+fn json_path_text_pg() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::json_path_text(Expr::field("events", "data"), "email"),
+            alias: Some("email".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT "events"."data"->>'email' AS "email" FROM "events""#,
+    );
+}
+
+#[test]
 fn json_array_pg() {
     let (sql, params) = render_with_params(&QueryStmt {
         columns: vec![SelectColumn::Expr {

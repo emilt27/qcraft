@@ -302,7 +302,8 @@ impl Renderer for SqliteRenderer {
 
         if let Some(generated) = &col.generated {
             ctx.keyword("GENERATED ALWAYS AS").space().paren_open();
-            self.render_expr(&generated.expr, ctx)?;
+            // SQLite generated columns only allow unqualified column names
+            self.render_expr_unqualified(&generated.expr, ctx)?;
             ctx.paren_close();
             if generated.stored {
                 ctx.keyword("STORED");
@@ -633,6 +634,14 @@ impl Renderer for SqliteRenderer {
                     .write("(")
                     .string_literal("now")
                     .paren_close();
+                Ok(())
+            }
+
+            Expr::JsonPathText { expr, path } => {
+                self.render_expr(expr, ctx)?;
+                ctx.operator("->>'")
+                    .write(&path.replace('\'', "''"))
+                    .write("'");
                 Ok(())
             }
 
@@ -1610,13 +1619,35 @@ impl SqliteRenderer {
         ctx.ident(&schema_ref.name);
     }
 
+    /// Render an expression with all FieldRef table names stripped.
+    /// Used for SQLite generated column expressions which only allow
+    /// unqualified column references.
+    fn render_expr_unqualified(&self, expr: &Expr, ctx: &mut RenderCtx) -> RenderResult<()> {
+        match expr {
+            Expr::Field(field_ref) => {
+                ctx.ident(&field_ref.field.name);
+                let mut child = &field_ref.field.child;
+                while let Some(c) = child {
+                    ctx.operator("->'")
+                        .write(&c.name.replace('\'', "''"))
+                        .write("'");
+                    child = &c.child;
+                }
+                Ok(())
+            }
+            // For any other expr, delegate to normal render_expr
+            other => self.render_expr(other, ctx),
+        }
+    }
+
     fn sqlite_field_ref(&self, field_ref: &FieldRef, ctx: &mut RenderCtx) {
         if let Some(ns) = &field_ref.namespace {
             ctx.ident(ns).operator(".");
         }
-        ctx.ident(&field_ref.table_name)
-            .operator(".")
-            .ident(&field_ref.field.name);
+        if !field_ref.table_name.is_empty() {
+            ctx.ident(&field_ref.table_name).operator(".");
+        }
+        ctx.ident(&field_ref.field.name);
         let mut child = &field_ref.field.child;
         while let Some(c) = child {
             ctx.operator("->'")

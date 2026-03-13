@@ -1,4 +1,4 @@
-use qcraft_core::ast::common::SchemaRef;
+use qcraft_core::ast::common::{FieldRef, SchemaRef};
 use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use qcraft_core::ast::ddl::*;
 use qcraft_core::ast::expr::Expr;
@@ -261,6 +261,49 @@ fn create_table_generated_stored() {
     assert_eq!(
         render(&stmt),
         r#"CREATE TABLE "t" ("full_name" TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED)"#,
+    );
+}
+
+#[test]
+fn generated_column_strips_table_qualifier() {
+    let mut schema = SchemaDef::new("products");
+    schema.columns = vec![
+        ColumnDef::new("price", FieldType::scalar("NUMERIC")),
+        ColumnDef {
+            name: "total".into(),
+            field_type: FieldType::scalar("NUMERIC"),
+            not_null: false,
+            default: None,
+            generated: Some(GeneratedColumn {
+                expr: Expr::Field(FieldRef::new("products", "price")),
+                stored: false,
+            }),
+            identity: None,
+            collation: None,
+            comment: None,
+            storage: None,
+            compression: None,
+        },
+    ];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    // SQLite generated columns must use unqualified column names
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "products" ("price" NUMERIC, "total" NUMERIC GENERATED ALWAYS AS ("price") VIRTUAL)"#,
     );
 }
 
