@@ -1472,3 +1472,67 @@ fn add_constraint_partial_unique_generates_only_index() {
         "expected CREATE UNIQUE INDEX: {create_index}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Non-btree index methods must NOT render ASC/DESC or NULLS FIRST/LAST
+// ---------------------------------------------------------------------------
+
+#[test]
+fn create_hash_index_strips_direction_and_nulls() {
+    let stmt = SchemaMutationStmt::CreateIndex {
+        schema_ref: SchemaRef::new("users"),
+        index: IndexDef {
+            name: "idx_users_email_hash".into(),
+            columns: vec![IndexColumnDef {
+                expr: IndexExpr::Column("email".into()),
+                direction: Some(OrderDir::Asc),
+                nulls: Some(NullsOrder::First),
+                opclass: None,
+                collation: None,
+            }],
+            unique: false,
+            index_type: Some("hash".into()),
+            include: None,
+            condition: None,
+            parameters: None,
+            tablespace: None,
+            nulls_distinct: None,
+        },
+        if_not_exists: false,
+        concurrently: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE INDEX "idx_users_email_hash" ON "users" USING hash ("email")"#
+    );
+}
+
+#[test]
+fn create_gin_index_strips_direction() {
+    let stmt = SchemaMutationStmt::CreateIndex {
+        schema_ref: SchemaRef::new("docs"),
+        index: IndexDef {
+            name: "idx_docs_content".into(),
+            columns: vec![IndexColumnDef {
+                expr: IndexExpr::Column("content".into()),
+                direction: Some(OrderDir::Desc),
+                nulls: None,
+                opclass: Some("gin_trgm_ops".into()),
+                collation: None,
+            }],
+            unique: false,
+            index_type: Some("GIN".into()),
+            include: None,
+            condition: None,
+            parameters: None,
+            tablespace: None,
+            nulls_distinct: None,
+        },
+        if_not_exists: false,
+        concurrently: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE INDEX "idx_docs_content" ON "docs" USING GIN ("content" gin_trgm_ops)"#
+    );
+}
