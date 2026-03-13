@@ -129,9 +129,9 @@ impl PostgresRenderer {
 
     /// Convenience: render a DDL statement to a list of SQL statements + params.
     ///
-    /// Most DDL operations return a single statement. `CreateTable` with partial
-    /// unique constraints returns the `CREATE TABLE` first, followed by one
-    /// `CREATE UNIQUE INDEX … WHERE …` per partial unique constraint.
+    /// Most DDL operations return a single statement. Partial unique constraints
+    /// (with a WHERE condition) produce an additional `CREATE UNIQUE INDEX … WHERE …`
+    /// statement — this applies to both `CreateTable` and `AddConstraint`.
     pub fn render_schema_stmt(
         &self,
         stmt: &SchemaMutationStmt,
@@ -140,39 +140,71 @@ impl PostgresRenderer {
         self.render_schema_mutation(stmt, &mut ctx)?;
         let mut results = vec![ctx.finish()];
 
-        // Partial unique constraints → separate CREATE UNIQUE INDEX statements
-        if let SchemaMutationStmt::CreateTable { schema, .. } = stmt {
-            if let Some(constraints) = &schema.constraints {
-                for constraint in constraints {
-                    if let ConstraintDef::Unique {
-                        name,
-                        columns,
-                        condition: Some(cond),
-                        ..
-                    } = constraint
-                    {
-                        let mut idx_ctx = RenderCtx::new(self.param_style);
-                        idx_ctx.keyword("CREATE UNIQUE INDEX");
-                        if let Some(n) = name {
-                            idx_ctx.ident(n);
-                        }
-                        idx_ctx.keyword("ON");
-                        if let Some(ns) = &schema.namespace {
-                            idx_ctx.ident(ns).operator(".");
-                        }
-                        idx_ctx.ident(&schema.name);
-                        idx_ctx.paren_open();
-                        self.pg_comma_idents(columns, &mut idx_ctx);
-                        idx_ctx.paren_close();
-                        idx_ctx.keyword("WHERE");
-                        self.render_condition(cond, &mut idx_ctx)?;
-                        results.push(idx_ctx.finish());
+        match stmt {
+            SchemaMutationStmt::CreateTable { schema, .. } => {
+                if let Some(constraints) = &schema.constraints {
+                    for constraint in constraints {
+                        self.pg_partial_unique_index(
+                            &schema.name,
+                            schema.namespace.as_deref(),
+                            constraint,
+                            &mut results,
+                        )?;
                     }
                 }
             }
+            SchemaMutationStmt::AddConstraint {
+                schema_ref,
+                constraint,
+                ..
+            } => {
+                self.pg_partial_unique_index(
+                    &schema_ref.name,
+                    schema_ref.namespace.as_deref(),
+                    constraint,
+                    &mut results,
+                )?;
+            }
+            _ => {}
         }
 
         Ok(results)
+    }
+
+    /// If `constraint` is a partial unique (has a WHERE condition), render a
+    /// `CREATE UNIQUE INDEX … WHERE …` and push it to `results`.
+    fn pg_partial_unique_index(
+        &self,
+        table_name: &str,
+        namespace: Option<&str>,
+        constraint: &ConstraintDef,
+        results: &mut Vec<(String, Vec<Value>)>,
+    ) -> RenderResult<()> {
+        if let ConstraintDef::Unique {
+            name,
+            columns,
+            condition: Some(cond),
+            ..
+        } = constraint
+        {
+            let mut idx_ctx = RenderCtx::new(self.param_style);
+            idx_ctx.keyword("CREATE UNIQUE INDEX");
+            if let Some(n) = name {
+                idx_ctx.ident(n);
+            }
+            idx_ctx.keyword("ON");
+            if let Some(ns) = namespace {
+                idx_ctx.ident(ns).operator(".");
+            }
+            idx_ctx.ident(table_name);
+            idx_ctx.paren_open();
+            self.pg_comma_idents(columns, &mut idx_ctx);
+            idx_ctx.paren_close();
+            idx_ctx.keyword("WHERE");
+            self.render_condition(cond, &mut idx_ctx)?;
+            results.push(idx_ctx.finish());
+        }
+        Ok(())
     }
 
     /// Convenience: render a TCL statement to SQL string + params.

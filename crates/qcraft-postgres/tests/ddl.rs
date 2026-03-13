@@ -1437,3 +1437,39 @@ fn partial_unique_generates_create_unique_index() {
         "separate index wrong: {create_index}"
     );
 }
+
+#[test]
+fn add_constraint_partial_unique_generates_two_statements() {
+    let stmt = SchemaMutationStmt::AddConstraint {
+        schema_ref: SchemaRef::new("users"),
+        constraint: ConstraintDef::Unique {
+            name: Some("uq_active_email".into()),
+            columns: vec!["email".into()],
+            include: None,
+            nulls_distinct: None,
+            condition: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+                Comparison::new(
+                    Expr::Field(FieldRef::new("users", "active")),
+                    CompareOp::Eq,
+                    Expr::Value(Value::Bool(true)),
+                ),
+            ))])),
+        },
+        not_valid: false,
+    };
+    let stmts = render_all(&stmt);
+    assert_eq!(stmts.len(), 2, "expected 2 statements, got {}", stmts.len());
+
+    let alter = &stmts[0].0;
+    assert_eq!(
+        alter,
+        r#"ALTER TABLE "users" ADD CONSTRAINT "uq_active_email" UNIQUE ("email")"#
+    );
+
+    let create_index = &stmts[1].0;
+    assert!(
+        create_index
+            .starts_with(r#"CREATE UNIQUE INDEX "uq_active_email" ON "users" ("email") WHERE"#),
+        "separate index wrong: {create_index}"
+    );
+}
