@@ -2121,3 +2121,38 @@ fn collate_nocase_where_comparison() {
     // COLLATE NOCASE makes 'alice' match 'Alice'
     assert_eq!(rows, vec!["Alice"]);
 }
+
+// ---------------------------------------------------------------------------
+// Custom BinaryOp — SQLite rejects
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy)]
+struct DummyBinaryOp;
+
+impl qcraft_core::ast::custom::CustomBinaryOp for DummyBinaryOp {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn clone_box(&self) -> Box<dyn qcraft_core::ast::custom::CustomBinaryOp> {
+        Box::new(*self)
+    }
+}
+
+#[test]
+fn custom_binary_op_rejected_by_sqlite() {
+    let renderer = SqliteRenderer::new();
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Binary {
+                left: Box::new(Expr::Field(FieldRef::new("t", "a"))),
+                op: BinaryOp::Custom(Box::new(DummyBinaryOp)),
+                right: Box::new(Expr::Field(FieldRef::new("t", "b"))),
+            },
+            alias: None,
+        }],
+        ..simple_query()
+    };
+    let result = renderer.render_query_stmt(&stmt);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("CustomBinaryOp"));
+}

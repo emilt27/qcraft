@@ -3,7 +3,7 @@ use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditi
 use qcraft_core::ast::expr::{Expr, WindowFrameBound, WindowFrameDef, WindowFrameType};
 use qcraft_core::ast::query::*;
 use qcraft_core::ast::value::Value;
-use qcraft_postgres::PostgresRenderer;
+use qcraft_postgres::{PgVectorOp, PostgresRenderer};
 
 fn render(stmt: &QueryStmt) -> String {
     let renderer = PostgresRenderer::new();
@@ -1754,5 +1754,199 @@ fn collate_in_select_expr() {
     assert_eq!(
         render(&stmt),
         r#"SELECT "users"."name" COLLATE "POSIX" AS "name_posix" FROM "users""#
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Custom BinaryOp / PgVectorOp
+// ---------------------------------------------------------------------------
+
+#[test]
+fn vector_l2_distance_order_by() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("items"))]),
+        order_by: Some(vec![OrderByDef {
+            expr: Expr::Binary {
+                left: Box::new(Expr::Field(FieldRef::new("items", "embedding"))),
+                op: PgVectorOp::L2Distance.into(),
+                right: Box::new(Expr::Value(Value::Vector(vec![1.0, 2.0, 3.0]))),
+            },
+            direction: OrderDir::Asc,
+            nulls: None,
+        }]),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "items" ORDER BY "items"."embedding" <-> $1 ASC"#
+    );
+    assert_eq!(params, vec![Value::Vector(vec![1.0, 2.0, 3.0])]);
+}
+
+#[test]
+fn vector_inner_product() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Binary {
+                left: Box::new(Expr::Field(FieldRef::new("items", "embedding"))),
+                op: PgVectorOp::InnerProduct.into(),
+                right: Box::new(Expr::Value(Value::Vector(vec![1.0, 2.0]))),
+            },
+            alias: Some("distance".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("items"))]),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT "items"."embedding" <#> $1 AS "distance" FROM "items""#
+    );
+    assert_eq!(params, vec![Value::Vector(vec![1.0, 2.0])]);
+}
+
+#[test]
+fn vector_cosine_distance() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Binary {
+                left: Box::new(Expr::Field(FieldRef::new("items", "embedding"))),
+                op: PgVectorOp::CosineDistance.into(),
+                right: Box::new(Expr::Value(Value::Vector(vec![0.5, 0.5]))),
+            },
+            alias: Some("dist".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("items"))]),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT "items"."embedding" <=> $1 AS "dist" FROM "items""#
+    );
+    assert_eq!(params, vec![Value::Vector(vec![0.5, 0.5])]);
+}
+
+#[test]
+fn vector_l1_distance() {
+    let (sql, params) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Binary {
+                left: Box::new(Expr::Field(FieldRef::new("items", "embedding"))),
+                op: PgVectorOp::L1Distance.into(),
+                right: Box::new(Expr::Value(Value::Vector(vec![1.0, 1.0]))),
+            },
+            alias: Some("dist".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("items"))]),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT "items"."embedding" <+> $1 AS "dist" FROM "items""#
+    );
+    assert_eq!(params, vec![Value::Vector(vec![1.0, 1.0])]);
+}
+
+// ==========================================================================
+// Range operators
+// ==========================================================================
+
+#[test]
+fn range_strictly_left() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeStrictlyLeft,
+                Expr::raw("'[2024-01-01, 2024-06-01)'::daterange"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."period" << '[2024-01-01, 2024-06-01)'::daterange"#
+    );
+}
+
+#[test]
+fn range_strictly_right() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeStrictlyRight,
+                Expr::raw("'[2025-01-01,)'::daterange"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."period" >> '[2025-01-01,)'::daterange"#
+    );
+}
+
+#[test]
+fn range_not_left() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeNotLeft,
+                Expr::raw("'[2024-01-01, 2024-12-31)'::daterange"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."period" &> '[2024-01-01, 2024-12-31)'::daterange"#
+    );
+}
+
+#[test]
+fn range_not_right() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeNotRight,
+                Expr::raw("'[2024-01-01, 2024-12-31)'::daterange"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."period" &< '[2024-01-01, 2024-12-31)'::daterange"#
+    );
+}
+
+#[test]
+fn range_adjacent() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeAdjacent,
+                Expr::raw("'[2024-06-01, 2024-07-01)'::daterange"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."period" -|- '[2024-06-01, 2024-07-01)'::daterange"#
     );
 }

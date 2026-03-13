@@ -264,6 +264,15 @@ impl Renderer for SqliteRenderer {
                 "SQLite does not support extensions.",
             )),
 
+            SchemaMutationStmt::CreateCollation { .. } => Err(RenderError::unsupported(
+                "CreateCollation",
+                "SQLite does not support CREATE COLLATION. Use sqlite3_create_collation() C API instead.",
+            )),
+            SchemaMutationStmt::DropCollation { .. } => Err(RenderError::unsupported(
+                "DropCollation",
+                "SQLite does not support DROP COLLATION.",
+            )),
+
             SchemaMutationStmt::Custom(_) => Err(RenderError::unsupported(
                 "CustomSchemaMutation",
                 "custom DDL must be handled by a wrapping renderer",
@@ -466,18 +475,29 @@ impl Renderer for SqliteRenderer {
 
             Expr::Binary { left, op, right } => {
                 self.render_expr(left, ctx)?;
-                ctx.keyword(match op {
-                    BinaryOp::Add => "+",
-                    BinaryOp::Sub => "-",
-                    BinaryOp::Mul => "*",
-                    BinaryOp::Div => "/",
-                    BinaryOp::Mod => "%",
-                    BinaryOp::BitwiseAnd => "&",
-                    BinaryOp::BitwiseOr => "|",
-                    BinaryOp::ShiftLeft => "<<",
-                    BinaryOp::ShiftRight => ">>",
-                    BinaryOp::Concat => "||",
-                });
+                match op {
+                    BinaryOp::Custom(_) => {
+                        return Err(RenderError::unsupported(
+                            "CustomBinaryOp",
+                            "SQLite does not support custom binary operators.",
+                        ));
+                    }
+                    _ => {
+                        ctx.keyword(match op {
+                            BinaryOp::Add => "+",
+                            BinaryOp::Sub => "-",
+                            BinaryOp::Mul => "*",
+                            BinaryOp::Div => "/",
+                            BinaryOp::Mod => "%",
+                            BinaryOp::BitwiseAnd => "&",
+                            BinaryOp::BitwiseOr => "|",
+                            BinaryOp::ShiftLeft => "<<",
+                            BinaryOp::ShiftRight => ">>",
+                            BinaryOp::Concat => "||",
+                            BinaryOp::Custom(_) => unreachable!(),
+                        });
+                    }
+                };
                 self.render_expr(right, ctx)
             }
 
@@ -738,7 +758,12 @@ impl Renderer for SqliteRenderer {
             | CompareOp::TrigramStrictWordSimilar
             | CompareOp::RangeContains
             | CompareOp::RangeContainedBy
-            | CompareOp::RangeOverlap => {
+            | CompareOp::RangeOverlap
+            | CompareOp::RangeStrictlyLeft
+            | CompareOp::RangeStrictlyRight
+            | CompareOp::RangeNotLeft
+            | CompareOp::RangeNotRight
+            | CompareOp::RangeAdjacent => {
                 return Err(RenderError::unsupported(
                     "CompareOp",
                     "SQLite does not support PostgreSQL-specific operators (JSONB, FTS, trigram, range).",

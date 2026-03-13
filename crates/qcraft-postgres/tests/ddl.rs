@@ -1304,3 +1304,77 @@ fn create_table_column_storage_compression() {
         r#"CREATE TABLE "docs" ("body" TEXT STORAGE EXTERNAL COMPRESSION lz4)"#,
     );
 }
+
+// ==========================================================================
+// CREATE / DROP COLLATION
+// ==========================================================================
+
+#[test]
+fn create_collation_with_locale() {
+    let stmt = SchemaMutationStmt::CreateCollation {
+        name: "german_phonebook".into(),
+        if_not_exists: false,
+        locale: Some("de-u-co-phonebk".into()),
+        lc_collate: None,
+        lc_ctype: None,
+        provider: Some("icu".into()),
+        deterministic: Some(true),
+        from_collation: None,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE COLLATION "german_phonebook" (LOCALE = 'de-u-co-phonebk', PROVIDER = icu, DETERMINISTIC = TRUE)"#
+    );
+}
+
+#[test]
+fn create_collation_with_lc() {
+    let stmt = SchemaMutationStmt::CreateCollation {
+        name: "my_collation".into(),
+        if_not_exists: true,
+        locale: None,
+        lc_collate: Some("en_US.utf8".into()),
+        lc_ctype: Some("en_US.utf8".into()),
+        provider: None,
+        deterministic: None,
+        from_collation: None,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE COLLATION IF NOT EXISTS "my_collation" (LC_COLLATE = 'en_US.utf8', LC_CTYPE = 'en_US.utf8')"#
+    );
+}
+
+#[test]
+fn create_collation_from_existing() {
+    let stmt = SchemaMutationStmt::CreateCollation {
+        name: "my_copy".into(),
+        if_not_exists: false,
+        locale: None,
+        lc_collate: None,
+        lc_ctype: None,
+        provider: None,
+        deterministic: None,
+        from_collation: Some("de_DE".into()),
+    };
+    assert_eq!(render(&stmt), r#"CREATE COLLATION "my_copy" FROM "de_DE""#);
+}
+
+#[test]
+fn drop_collation_simple() {
+    let stmt = SchemaMutationStmt::drop_collation("german_phonebook");
+    assert_eq!(render(&stmt), r#"DROP COLLATION "german_phonebook""#);
+}
+
+#[test]
+fn drop_collation_if_exists_cascade() {
+    let stmt = SchemaMutationStmt::DropCollation {
+        name: "my_collation".into(),
+        if_exists: true,
+        cascade: true,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"DROP COLLATION IF EXISTS "my_collation" CASCADE"#
+    );
+}
