@@ -158,6 +158,11 @@ impl PostgresRenderer {
                 constraint,
                 ..
             } => {
+                if self.is_partial_unique(constraint) {
+                    // Partial unique: discard the incomplete ALTER TABLE statement
+                    // and produce only CREATE UNIQUE INDEX.
+                    results.clear();
+                }
                 self.pg_partial_unique_index(
                     &schema_ref.name,
                     schema_ref.namespace.as_deref(),
@@ -169,6 +174,16 @@ impl PostgresRenderer {
         }
 
         Ok(results)
+    }
+
+    fn is_partial_unique(&self, constraint: &ConstraintDef) -> bool {
+        matches!(
+            constraint,
+            ConstraintDef::Unique {
+                condition: Some(_),
+                ..
+            }
+        )
     }
 
     /// If `constraint` is a partial unique (has a WHERE condition), render a
@@ -773,8 +788,13 @@ impl Renderer for PostgresRenderer {
                 columns,
                 include,
                 nulls_distinct,
-                condition: _, // Partial unique → rendered as separate CREATE INDEX
+                condition,
             } => {
+                // Partial unique (with WHERE condition) is rendered only as
+                // a separate CREATE UNIQUE INDEX — skip inline constraint.
+                if condition.is_some() {
+                    return Ok(());
+                }
                 if let Some(n) = name {
                     ctx.keyword("CONSTRAINT").ident(n);
                 }
@@ -2524,6 +2544,11 @@ impl PostgresRenderer {
         }
         if let Some(constraints) = &schema.constraints {
             for constraint in constraints {
+                // Partial unique constraints are rendered as separate
+                // CREATE UNIQUE INDEX statements, not inline.
+                if self.is_partial_unique(constraint) {
+                    continue;
+                }
                 if !first {
                     ctx.comma();
                 }
