@@ -30,6 +30,7 @@ fn simple_query() -> QueryStmt {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
     }
 }
 
@@ -1105,6 +1106,62 @@ fn cte_recursive() {
 }
 
 #[test]
+fn cte_recursive_with_union_all_no_wrapper() {
+    // Base case: SELECT 1 AS "n"
+    let base = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Value(Value::Int(1)),
+            alias: Some("n".into()),
+        }],
+        ..simple_query()
+    };
+    // Recursive step: SELECT "n" + 1 FROM "nums" WHERE "n" < 10
+    let recursive_step = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Binary {
+                left: Box::new(Expr::Field(FieldRef::new("nums", "n"))),
+                op: qcraft_core::ast::expr::BinaryOp::Add,
+                right: Box::new(Expr::Value(Value::Int(1))),
+            },
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("nums"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("nums", "n")),
+                CompareOp::Lt,
+                Expr::Value(Value::Int(10)),
+            ),
+        ))])),
+        ..simple_query()
+    };
+    // CTE body uses set_op field directly
+    let cte_body = QueryStmt {
+        set_op: Some(Box::new(SetOpDef::union_all(base, recursive_step))),
+        ..simple_query()
+    };
+    let stmt = QueryStmt {
+        ctes: Some(vec![CteDef {
+            name: "nums".into(),
+            query: Box::new(cte_body),
+            recursive: true,
+            column_names: None,
+            materialized: None,
+        }]),
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("nums"))]),
+        ..simple_query()
+    };
+    let sql = render(&stmt);
+    // CTE body should be: (SELECT 1 AS "n" UNION ALL SELECT ...)
+    // NOT: (SELECT * FROM (SELECT 1 AS "n" UNION ALL SELECT ...))
+    assert!(
+        !sql.contains("SELECT * FROM (SELECT"),
+        "CTE body should not wrap UNION ALL in SELECT * FROM (...): {sql}"
+    );
+}
+
+#[test]
 fn cte_with_column_names() {
     let cte_query = QueryStmt {
         columns: vec![
@@ -1557,6 +1614,7 @@ fn full_pipeline() {
         }]),
         distinct: None,
         window: None,
+        set_op: None,
     };
     let (sql, params) = render_with_params(&stmt);
     assert!(sql.starts_with("WITH"));

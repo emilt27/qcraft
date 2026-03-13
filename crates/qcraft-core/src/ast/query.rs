@@ -24,6 +24,9 @@ pub struct QueryStmt {
     pub limit: Option<LimitDef>,
     /// Multiple lock clauses: PG supports `FOR UPDATE OF t1 FOR SHARE OF t2`.
     pub lock: Option<Vec<SelectLockDef>>,
+    /// Set operation (UNION / INTERSECT / EXCEPT). When set, this query
+    /// represents the set operation directly instead of a SELECT statement.
+    pub set_op: Option<Box<SetOpDef>>,
 }
 
 // ---------------------------------------------------------------------------

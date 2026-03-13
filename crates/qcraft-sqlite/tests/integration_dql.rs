@@ -83,6 +83,7 @@ fn simple_query() -> QueryStmt {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
     }
 }
 
@@ -357,6 +358,7 @@ fn from_table_function() {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
         ctes: None,
         distinct: None,
     };
@@ -404,6 +406,7 @@ fn from_values() {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
         ctes: None,
         distinct: None,
     };
@@ -1081,6 +1084,7 @@ fn cross_join() {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
         ctes: None,
         distinct: None,
     };
@@ -1119,6 +1123,7 @@ fn natural_join() {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
         ctes: None,
         distinct: None,
     };
@@ -1167,6 +1172,7 @@ fn join_using() {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
         ctes: None,
         distinct: None,
     };
@@ -1647,6 +1653,73 @@ fn cte_recursive() {
 }
 
 // ---------------------------------------------------------------------------
+// Recursive CTE with UNION ALL
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cte_recursive_with_union_all() {
+    let db = Connection::open_in_memory().unwrap();
+
+    // Base case: SELECT 1 AS "n"
+    let base = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Value(Value::Int(1)),
+            alias: Some("n".into()),
+        }],
+        from: None,
+        ..simple_query()
+    };
+    // Recursive step: SELECT "n" + 1 FROM "nums" WHERE "n" < 5
+    let recursive_step = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Binary {
+                left: Box::new(Expr::Field(FieldRef::new("nums", "n"))),
+                op: BinaryOp::Add,
+                right: Box::new(Expr::Value(Value::Int(1))),
+            },
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("nums"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("nums", "n")),
+                CompareOp::Lt,
+                Expr::Value(Value::Int(5)),
+            ),
+        ))])),
+        ..simple_query()
+    };
+    // CTE body uses set_op field directly
+    let cte_body = QueryStmt {
+        set_op: Some(Box::new(SetOpDef::union_all(base, recursive_step))),
+        ..simple_query()
+    };
+    let stmt = QueryStmt {
+        ctes: Some(vec![CteDef {
+            name: "nums".into(),
+            query: Box::new(cte_body),
+            recursive: true,
+            column_names: Some(vec!["n".into()]),
+            materialized: None,
+        }]),
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("nums"))]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
+    let mut st = db.prepare(&sql).unwrap();
+    let rows: Vec<i64> = st
+        .query_map(params.as_slice(), |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    // Should produce 1, 2, 3, 4, 5 (base=1, recurse while n<5, so 5 is last added)
+    assert_eq!(rows, vec![1, 2, 3, 4, 5]);
+}
+
+// ---------------------------------------------------------------------------
 // Set Operations
 // ---------------------------------------------------------------------------
 
@@ -1699,6 +1772,7 @@ fn union_all() {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
         ctes: None,
         distinct: None,
     };
@@ -1764,6 +1838,7 @@ fn union_distinct() {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
         ctes: None,
         distinct: None,
     };
@@ -1986,6 +2061,7 @@ fn full_query_with_join_group_having_order_limit() {
             offset: None,
         }),
         lock: None,
+        set_op: None,
     };
     let (sql, values) = render(&stmt);
     let boxed = common::to_sqlite_params(&values);
