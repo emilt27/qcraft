@@ -819,6 +819,85 @@ fn create_index_partial_with_where() {
 }
 
 // ==========================================================================
+// CREATE TABLE — partial unique constraint (only CREATE UNIQUE INDEX, no inline)
+// ==========================================================================
+
+#[test]
+fn create_table_partial_unique_constraint() {
+    let mut client = crate::test_client("template0");
+
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema: SchemaDef {
+            name: "users".into(),
+            namespace: None,
+            columns: vec![
+                ColumnDef::new("email", FieldType::scalar("TEXT")),
+                ColumnDef::new("active", FieldType::scalar("BOOLEAN")),
+            ],
+            constraints: Some(vec![ConstraintDef::Unique {
+                name: Some("uq_active_email".into()),
+                columns: vec!["email".into()],
+                include: None,
+                nulls_distinct: None,
+                condition: Some(Conditions {
+                    children: vec![ConditionNode::Comparison(Box::new(Comparison {
+                        left: Expr::Raw {
+                            sql: "\"active\"".into(),
+                            params: vec![],
+                        },
+                        op: CompareOp::Eq,
+                        right: Expr::Value(Value::Bool(true)),
+                        negate: false,
+                    }))],
+                    connector: Connector::And,
+                    negated: false,
+                }),
+            }]),
+            indexes: None,
+            like_tables: None,
+        },
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+
+    let renderer = PostgresRenderer::new();
+    let stmts = renderer.render_schema_stmt(&stmt).unwrap();
+
+    // Execute all generated statements (CREATE TABLE + CREATE UNIQUE INDEX)
+    for (sql, _) in &stmts {
+        client.execute(sql.as_str(), &[]).unwrap();
+    }
+
+    // Partial unique: two inactive rows with same email — ok
+    client
+        .execute("INSERT INTO \"users\" VALUES ('a@b.com', false)", &[])
+        .unwrap();
+    client
+        .execute("INSERT INTO \"users\" VALUES ('a@b.com', false)", &[])
+        .unwrap();
+
+    // Two active rows with same email — fails
+    client
+        .execute("INSERT INTO \"users\" VALUES ('x@y.com', true)", &[])
+        .unwrap();
+    let err = client.execute("INSERT INTO \"users\" VALUES ('x@y.com', true)", &[]);
+    assert!(
+        err.is_err(),
+        "partial unique index should prevent active duplicates"
+    );
+}
+
+// ==========================================================================
 // CREATE INDEX — expression
 // ==========================================================================
 

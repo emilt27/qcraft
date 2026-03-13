@@ -1426,8 +1426,8 @@ fn partial_unique_generates_create_unique_index() {
 
     let create_table = &stmts[0].0;
     assert!(
-        create_table.contains(r#"UNIQUE ("email")"#),
-        "inline constraint missing: {create_table}"
+        !create_table.contains(r#"UNIQUE ("email")"#),
+        "partial unique should NOT produce inline constraint: {create_table}"
     );
 
     let create_index = &stmts[1].0;
@@ -1439,7 +1439,7 @@ fn partial_unique_generates_create_unique_index() {
 }
 
 #[test]
-fn add_constraint_partial_unique_generates_two_statements() {
+fn add_constraint_partial_unique_generates_only_index() {
     let stmt = SchemaMutationStmt::AddConstraint {
         schema_ref: SchemaRef::new("users"),
         constraint: ConstraintDef::Unique {
@@ -1458,18 +1458,17 @@ fn add_constraint_partial_unique_generates_two_statements() {
         not_valid: false,
     };
     let stmts = render_all(&stmt);
-    assert_eq!(stmts.len(), 2, "expected 2 statements, got {}", stmts.len());
-
-    let alter = &stmts[0].0;
     assert_eq!(
-        alter,
-        r#"ALTER TABLE "users" ADD CONSTRAINT "uq_active_email" UNIQUE ("email")"#
+        stmts.len(),
+        1,
+        "partial unique AddConstraint should produce only CREATE UNIQUE INDEX, got {} statements",
+        stmts.len()
     );
 
-    let create_index = &stmts[1].0;
+    let create_index = &stmts[0].0;
     assert!(
         create_index
             .starts_with(r#"CREATE UNIQUE INDEX "uq_active_email" ON "users" ("email") WHERE"#),
-        "separate index wrong: {create_index}"
+        "expected CREATE UNIQUE INDEX: {create_index}"
     );
 }
