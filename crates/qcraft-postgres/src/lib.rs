@@ -1351,6 +1351,11 @@ impl Renderer for PostgresRenderer {
             self.render_ctes(ctes, ctx)?;
         }
 
+        // Set operation: render directly without SELECT wrapper
+        if let Some(set_op) = &stmt.set_op {
+            return self.pg_render_set_op(set_op, ctx);
+        }
+
         // SELECT
         ctx.keyword("SELECT");
 

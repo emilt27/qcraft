@@ -21,6 +21,7 @@ fn simple_query() -> QueryStmt {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
     }
 }
 

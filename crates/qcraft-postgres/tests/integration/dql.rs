@@ -30,6 +30,7 @@ fn simple_query() -> QueryStmt {
         order_by: None,
         limit: None,
         lock: None,
+        set_op: None,
     }
 }
 
@@ -1638,6 +1639,69 @@ fn cte_recursive() {
 }
 
 #[test]
+fn cte_recursive_with_union_all_ast() {
+    let mut client = crate::test_client("template_dql");
+
+    // Base case: SELECT 1 AS "n"
+    let base = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Raw {
+                sql: "1".into(),
+                params: vec![],
+            },
+            alias: Some("n".into()),
+        }],
+        ..simple_query()
+    };
+    // Recursive step: SELECT "nums"."n" + 1 FROM "nums" WHERE "nums"."n" < 5
+    let recursive_step = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Raw {
+                sql: r#""nums"."n" + 1"#.into(),
+                params: vec![],
+            },
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("nums"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
+                left: Expr::Field(FieldRef::new("nums", "n")),
+                op: CompareOp::Lt,
+                right: Expr::Raw {
+                    sql: "5".into(),
+                    params: vec![],
+                },
+                negate: false,
+            },
+        ))])),
+        ..simple_query()
+    };
+    // CTE body uses set_op field directly
+    let cte_body = QueryStmt {
+        set_op: Some(Box::new(SetOpDef::union_all(base, recursive_step))),
+        ..simple_query()
+    };
+    let stmt = QueryStmt {
+        ctes: Some(vec![CteDef {
+            name: "nums".into(),
+            query: Box::new(cte_body),
+            recursive: true,
+            column_names: Some(vec!["n".into()]),
+            materialized: None,
+        }]),
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef::new("nums"))]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
+    // Should produce 1, 2, 3, 4, 5
+    assert_eq!(rows.len(), 5);
+}
+
+#[test]
 fn cte_materialized() {
     let mut client = crate::test_client("template_dql");
     let cte_query = QueryStmt {
@@ -2184,6 +2248,7 @@ fn full_pipeline() {
         distinct: None,
         window: None,
         lock: None,
+        set_op: None,
     };
     let (sql, values) = render(&stmt);
     let boxed = crate::common::to_pg_params(&values);
