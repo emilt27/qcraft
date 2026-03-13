@@ -296,8 +296,8 @@ fn create_table_identity_error() {
     };
     let err = render_err(&stmt);
     assert!(
-        err.contains("IDENTITY"),
-        "expected IDENTITY error, got: {err}"
+        err.contains("identity") || err.contains("Identity"),
+        "expected identity error, got: {err}"
     );
 }
 
@@ -343,7 +343,6 @@ fn create_table_primary_key() {
         name: None,
         columns: vec!["id".into()],
         include: None,
-        autoincrement: false,
     }]);
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -570,7 +569,6 @@ fn create_table_without_rowid() {
         name: None,
         columns: vec!["key".into()],
         include: None,
-        autoincrement: false,
     }]);
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -632,7 +630,6 @@ fn create_table_without_rowid_strict() {
         name: None,
         columns: vec!["key".into()],
         include: None,
-        autoincrement: false,
     }]);
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
@@ -658,16 +655,14 @@ fn create_table_without_rowid_strict() {
 #[test]
 fn create_table_primary_key_autoincrement() {
     let mut schema = SchemaDef::new("events");
-    schema.columns = vec![
-        ColumnDef::new("id", FieldType::scalar("INTEGER")).not_null(),
-        ColumnDef::new("name", FieldType::scalar("TEXT")),
-    ];
-    schema.constraints = Some(vec![ConstraintDef::PrimaryKey {
-        name: None,
-        columns: vec!["id".into()],
-        include: None,
-        autoincrement: true,
-    }]);
+    let mut id_col = ColumnDef::new("id", FieldType::scalar("INTEGER"));
+    id_col.not_null = true;
+    id_col.identity = Some(IdentityColumn {
+        always: true,
+        ..Default::default()
+    });
+    schema.columns = vec![id_col, ColumnDef::new("name", FieldType::scalar("TEXT"))];
+    schema.constraints = Some(vec![ConstraintDef::primary_key(vec!["id"])]);
     let stmt = SchemaMutationStmt::CreateTable {
         schema,
         if_not_exists: false,

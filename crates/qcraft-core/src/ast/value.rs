@@ -4,6 +4,7 @@ pub enum Value {
     Null,
     Bool(bool),
     Int(i64),
+    BigInt(i64),
     Float(f64),
     Str(String),
     Bytes(Vec<u8>),

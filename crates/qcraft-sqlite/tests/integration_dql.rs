@@ -8,39 +8,13 @@ use qcraft_core::ast::query::*;
 use qcraft_core::ast::value::Value;
 use qcraft_sqlite::SqliteRenderer;
 use rusqlite::Connection;
-use rusqlite::types::ToSql as RusqliteToSql;
+mod common;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn render(stmt: &QueryStmt) -> (String, Vec<Value>) {
     let renderer = SqliteRenderer::new();
     renderer.render_query_stmt(stmt).unwrap()
-}
-
-fn to_sqlite_params(values: &[Value]) -> Vec<Box<dyn RusqliteToSql>> {
-    values
-        .iter()
-        .map(|v| -> Box<dyn RusqliteToSql> {
-            match v {
-                Value::Null => Box::new(rusqlite::types::Null),
-                Value::Bool(b) => Box::new(*b),
-                Value::Int(n) => Box::new(*n),
-                Value::Float(f) => Box::new(*f),
-                Value::Str(s) => Box::new(s.clone()),
-                Value::Bytes(b) => Box::new(b.clone()),
-                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
-                Value::Decimal(s) => Box::new(s.clone()),
-                Value::Uuid(s) => Box::new(s.clone()),
-                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
-                Value::IpNetwork(s) => Box::new(s.clone()),
-                _ => Box::new(format!("{:?}", v)),
-            }
-        })
-        .collect()
-}
-
-fn as_sqlite_params(boxed: &[Box<dyn RusqliteToSql>]) -> Vec<&dyn RusqliteToSql> {
-    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn setup_db(conn: &Connection) {
@@ -120,8 +94,8 @@ fn simple_query() -> QueryStmt {
 fn select_star() {
     let db = conn();
     let (sql, values) = render(&simple_query());
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut stmt = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = stmt
         .query_map(params.as_slice(), |row| row.get(0))
@@ -148,8 +122,8 @@ fn select_columns() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(i64, String)> = st
         .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
@@ -172,8 +146,8 @@ fn select_with_alias() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let col_name = st.column_name(0).unwrap().to_string();
     assert_eq!(col_name, "user_name");
@@ -199,8 +173,8 @@ fn select_expr() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let cnt: i64 = db
         .query_row(&sql, params.as_slice(), |row| row.get(0))
         .unwrap();
@@ -218,8 +192,8 @@ fn select_table_star() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -241,8 +215,8 @@ fn select_no_from() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let val: i64 = db
         .query_row(&sql, params.as_slice(), |row| row.get(0))
         .unwrap();
@@ -261,8 +235,8 @@ fn select_distinct() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -288,8 +262,8 @@ fn from_with_namespace() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -319,8 +293,8 @@ fn from_multiple_tables() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -349,8 +323,8 @@ fn from_subquery() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -387,8 +361,8 @@ fn from_table_function() {
         distinct: None,
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get::<_, i64>(1))
@@ -434,8 +408,8 @@ fn from_values() {
         distinct: None,
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(i64, String)> = st
         .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
@@ -466,8 +440,8 @@ fn where_simple() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -498,8 +472,8 @@ fn where_and() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get::<_, String>(1))
@@ -533,8 +507,8 @@ fn where_or() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -559,8 +533,8 @@ fn where_comparison_operators() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, i64)> = st
         .query_map(params.as_slice(), |row| {
@@ -592,8 +566,8 @@ fn where_is_null() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get::<_, String>(1))
@@ -619,8 +593,8 @@ fn where_is_not_null() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -645,8 +619,8 @@ fn where_like() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get::<_, String>(1))
@@ -678,8 +652,8 @@ fn where_contains_filters_correctly() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -704,8 +678,8 @@ fn where_starts_with_filters_correctly() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -727,8 +701,8 @@ fn where_ends_with_filters_correctly() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -753,8 +727,8 @@ fn where_icontains_case_insensitive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -779,8 +753,8 @@ fn where_istarts_with_case_insensitive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -805,8 +779,8 @@ fn where_iends_with_case_insensitive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -840,8 +814,8 @@ fn where_contains_escapes_percent_in_db() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -878,8 +852,8 @@ fn where_contains_escapes_underscore_in_db() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -904,8 +878,8 @@ fn where_contains_no_match() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -933,8 +907,8 @@ fn where_between() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get::<_, String>(1))
@@ -962,8 +936,8 @@ fn where_in_list() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -988,8 +962,8 @@ fn where_negated() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1023,8 +997,8 @@ fn inner_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1065,8 +1039,8 @@ fn left_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, Option<i64>)> = st
         .query_map(params.as_slice(), |row| {
@@ -1111,8 +1085,8 @@ fn cross_join() {
         distinct: None,
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1149,8 +1123,8 @@ fn natural_join() {
         distinct: None,
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1197,8 +1171,8 @@ fn join_using() {
         distinct: None,
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1237,8 +1211,8 @@ fn group_by_simple() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, i64)> = st
         .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
@@ -1288,8 +1262,8 @@ fn group_by_with_having() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, i64)> = st
         .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
@@ -1345,8 +1319,8 @@ fn group_by_aggregate_functions() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, i64, f64, i64)> = st
         .query_map(params.as_slice(), |row| {
@@ -1388,8 +1362,8 @@ fn order_by_asc() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1415,8 +1389,8 @@ fn order_by_desc() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1455,8 +1429,8 @@ fn order_by_multiple() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, String)> = st
         .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
@@ -1494,8 +1468,8 @@ fn order_by_nulls_last() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, Option<i64>)> = st
         .query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
@@ -1522,8 +1496,8 @@ fn limit_only() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1549,8 +1523,8 @@ fn limit_offset() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1578,8 +1552,8 @@ fn fetch_first_converts_to_limit() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1618,8 +1592,8 @@ fn cte_simple() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1659,8 +1633,8 @@ fn cte_recursive() {
     // but the AST-based approach here only defines the base case.
     // Let's verify it at least runs and returns the base case.
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1729,8 +1703,8 @@ fn union_all() {
         distinct: None,
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1794,8 +1768,8 @@ fn union_distinct() {
         distinct: None,
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -1848,8 +1822,8 @@ fn window_row_number() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(i64, String, i64)> = st
         .query_map(params.as_slice(), |row| {
@@ -1909,8 +1883,8 @@ fn window_partition_by() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, String, i64)> = st
         .query_map(params.as_slice(), |row| {
@@ -2014,8 +1988,8 @@ fn full_query_with_join_group_having_order_limit() {
         lock: None,
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<(String, i64, f64)> = st
         .query_map(params.as_slice(), |row| {
@@ -2076,8 +2050,8 @@ fn collate_nocase_order_by() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -2110,8 +2084,8 @@ fn collate_nocase_where_comparison() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<String> = st
         .query_map(params.as_slice(), |row| row.get(0))

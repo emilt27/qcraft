@@ -1,7 +1,8 @@
 //! Integration tests for PostgreSQL DML (INSERT / UPDATE / DELETE) rendering
 //! executed against a real PostgreSQL instance via testcontainers.
 
-use postgres::types::ToSql;
+mod common;
+
 use postgres::{Client, NoTls};
 use testcontainers::ImageExt;
 use testcontainers::runners::SyncRunner;
@@ -18,35 +19,6 @@ use qcraft_postgres::PostgresRenderer;
 fn render(stmt: &MutationStmt) -> (String, Vec<Value>) {
     let renderer = PostgresRenderer::new();
     renderer.render_mutation_stmt(stmt).unwrap()
-}
-
-fn to_pg_params(values: &[Value]) -> Vec<Box<dyn ToSql + Sync>> {
-    values
-        .iter()
-        .map(|v| -> Box<dyn ToSql + Sync> {
-            match v {
-                Value::Null => Box::new(Option::<String>::None),
-                Value::Bool(b) => Box::new(*b),
-                Value::Int(n) => match i32::try_from(*n) {
-                    Ok(i) => Box::new(i),
-                    Err(_) => Box::new(*n),
-                },
-                Value::Float(f) => Box::new(*f),
-                Value::Str(s) => Box::new(s.clone()),
-                Value::Bytes(b) => Box::new(b.clone()),
-                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
-                Value::Decimal(s) => Box::new(s.clone()),
-                Value::Uuid(s) => Box::new(s.clone()),
-                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
-                Value::IpNetwork(s) => Box::new(s.clone()),
-                _ => Box::new(format!("{:?}", v)),
-            }
-        })
-        .collect()
-}
-
-fn as_pg_params(boxed: &[Box<dyn ToSql + Sync>]) -> Vec<&(dyn ToSql + Sync)> {
-    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn connect() -> (impl std::any::Any, Client) {
@@ -90,8 +62,8 @@ fn insert_single_row() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let rows = client.query("SELECT name, email FROM users", &[]).unwrap();
@@ -129,8 +101,8 @@ fn insert_multi_row() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -163,8 +135,8 @@ fn insert_default_values() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let row = client
@@ -199,8 +171,8 @@ fn insert_no_columns() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let row = client.query_one("SELECT a, b FROM t", &[]).unwrap();
@@ -237,8 +209,8 @@ fn insert_returning_star() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     let id: i32 = rows[0].get(0);
@@ -279,8 +251,8 @@ fn insert_returning_columns() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     let id: i32 = rows[0].get(0);
@@ -331,8 +303,8 @@ fn insert_on_conflict_do_nothing() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -394,8 +366,8 @@ fn insert_on_conflict_do_update() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let name: String = client
@@ -434,8 +406,8 @@ fn insert_on_conflict_on_constraint() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -505,8 +477,8 @@ fn insert_on_conflict_do_update_with_where() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let value: i32 = client
@@ -517,8 +489,8 @@ fn insert_on_conflict_do_update_with_where() {
 
     // Now value = 1000, so WHERE counters.value < 1000 is false — no update
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
     let value: i32 = client
         .query_one("SELECT value FROM counters WHERE key = 'hits'", &[])
@@ -583,8 +555,8 @@ fn insert_on_conflict_partial_index() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -620,8 +592,8 @@ fn insert_overriding_system_value() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let row = client.query_one("SELECT id, name FROM users", &[]).unwrap();
@@ -651,8 +623,8 @@ fn insert_with_namespace() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let name: String = client
@@ -691,8 +663,8 @@ fn insert_with_expression() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let row = client
@@ -752,8 +724,8 @@ fn update_simple() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let name: String = client
@@ -814,8 +786,8 @@ fn update_multiple_assignments() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let row = client
@@ -859,8 +831,8 @@ fn update_no_where() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -911,8 +883,8 @@ fn update_with_returning() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     let id: i32 = rows[0].get(0);
@@ -956,8 +928,8 @@ fn update_only() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     // Parent row should be updated
@@ -1035,8 +1007,8 @@ fn update_with_from() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let status: String = client
@@ -1093,8 +1065,8 @@ fn update_with_expression() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let value: i32 = client
@@ -1145,8 +1117,8 @@ fn update_with_alias() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let name: String = client
@@ -1199,8 +1171,8 @@ fn delete_simple() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -1245,8 +1217,8 @@ fn delete_no_where() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -1298,8 +1270,8 @@ fn delete_with_returning() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
 
@@ -1343,8 +1315,8 @@ fn delete_only() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     // Parent rows deleted
@@ -1420,8 +1392,8 @@ fn delete_with_using() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -1470,8 +1442,8 @@ fn delete_with_alias() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client

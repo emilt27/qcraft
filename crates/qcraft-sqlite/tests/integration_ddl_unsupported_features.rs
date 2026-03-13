@@ -66,8 +66,8 @@ fn identity_column_errors() {
     }];
     let err = render_err(&create_table(schema));
     assert!(
-        err.contains("IDENTITY"),
-        "expected IDENTITY error, got: {err}"
+        err.contains("identity") || err.contains("Identity"),
+        "expected identity error, got: {err}"
     );
 }
 

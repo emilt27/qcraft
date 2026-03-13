@@ -151,6 +151,60 @@ impl RenderCtx {
         self
     }
 
+    /// Write raw SQL with `%s` placeholders, replacing them with
+    /// dialect-appropriate parameter markers and storing the values.
+    ///
+    /// Escaping rules (Django-style):
+    /// - `%s`  → dialect placeholder (`$1`, `?`, `%s`) + stores value
+    /// - `%%`  → literal `%`
+    /// - `%%s` → literal `%s` (because `%%` becomes `%`, then `s` is just text)
+    pub fn raw_with_params(&mut self, sql: &str, params: &[Value]) -> &mut Self {
+        self.space_if_needed();
+
+        let bytes = sql.as_bytes();
+        let len = bytes.len();
+        let mut i = 0;
+        let mut param_idx = 0;
+
+        while i < len {
+            if bytes[i] == b'%' && i + 1 < len {
+                if bytes[i + 1] == b'%' {
+                    // %% → literal %
+                    self.sql.push('%');
+                    i += 2;
+                } else if bytes[i + 1] == b's' {
+                    // %s → placeholder
+                    if param_idx < params.len() {
+                        self.param_index += 1;
+                        match self.param_style {
+                            ParamStyle::Dollar => {
+                                self.sql.push('$');
+                                self.sql.push_str(&self.param_index.to_string());
+                            }
+                            ParamStyle::QMark => {
+                                self.sql.push('?');
+                            }
+                            ParamStyle::Percent => {
+                                self.sql.push_str("%s");
+                            }
+                        }
+                        self.params.push(params[param_idx].clone());
+                        param_idx += 1;
+                    }
+                    i += 2;
+                } else {
+                    self.sql.push('%');
+                    i += 1;
+                }
+            } else {
+                self.sql.push(bytes[i] as char);
+                i += 1;
+            }
+        }
+
+        self
+    }
+
     // ── Internal helpers ──
 
     /// Add a space if the buffer doesn't end with whitespace or `(`.
@@ -227,12 +281,12 @@ mod tests {
     fn paren_no_extra_space() {
         let mut ctx = RenderCtx::new(ParamStyle::Dollar);
         ctx.keyword("CAST")
-            .paren_open()
+            .write("(")
             .ident("x")
             .keyword("AS")
             .keyword("TEXT")
             .paren_close();
-        assert_eq!(ctx.sql(), "CAST (\"x\" AS TEXT)");
+        assert_eq!(ctx.sql(), "CAST(\"x\" AS TEXT)");
     }
 
     #[test]
@@ -256,5 +310,66 @@ mod tests {
             ctx.sql(),
             r#"CREATE TABLE IF NOT EXISTS "users" ("id" BIGINT NOT NULL)"#
         );
+    }
+
+    #[test]
+    fn raw_with_params_dollar() {
+        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+        ctx.raw_with_params(
+            "age > %s AND name = %s",
+            &[Value::Int(18), Value::Str("Alice".into())],
+        );
+        let (sql, params) = ctx.finish();
+        assert_eq!(sql, "age > $1 AND name = $2");
+        assert_eq!(params, vec![Value::Int(18), Value::Str("Alice".into())]);
+    }
+
+    #[test]
+    fn raw_with_params_qmark() {
+        let mut ctx = RenderCtx::new(ParamStyle::QMark);
+        ctx.raw_with_params(
+            "age > %s AND name = %s",
+            &[Value::Int(18), Value::Str("Alice".into())],
+        );
+        let (sql, params) = ctx.finish();
+        assert_eq!(sql, "age > ? AND name = ?");
+        assert_eq!(params, vec![Value::Int(18), Value::Str("Alice".into())]);
+    }
+
+    #[test]
+    fn raw_with_params_percent_escape() {
+        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+        ctx.raw_with_params("val LIKE '%%foo%%'", &[]);
+        assert_eq!(ctx.sql(), "val LIKE '%foo%'");
+    }
+
+    #[test]
+    fn raw_with_params_double_percent_s() {
+        // %%s → literal %s (not a placeholder)
+        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+        ctx.raw_with_params("format is %%s", &[]);
+        assert_eq!(ctx.sql(), "format is %s");
+    }
+
+    #[test]
+    fn raw_with_params_mixed() {
+        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+        ctx.raw_with_params(
+            "x = %s AND fmt = '%%s' AND y = %s",
+            &[Value::Int(1), Value::Int(2)],
+        );
+        let (sql, params) = ctx.finish();
+        assert_eq!(sql, "x = $1 AND fmt = '%s' AND y = $2");
+        assert_eq!(params, vec![Value::Int(1), Value::Int(2)]);
+    }
+
+    #[test]
+    fn raw_with_params_continues_param_index() {
+        let mut ctx = RenderCtx::new(ParamStyle::Dollar);
+        ctx.param(Value::Int(0)); // $1
+        ctx.raw_with_params("AND x = %s", &[Value::Int(1)]);
+        let (sql, params) = ctx.finish();
+        assert_eq!(sql, "$1 AND x = $2");
+        assert_eq!(params, vec![Value::Int(0), Value::Int(1)]);
     }
 }

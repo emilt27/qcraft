@@ -50,6 +50,32 @@ pub enum Expr {
     /// Collation override: `expr COLLATE "name"`.
     Collate { expr: Box<Expr>, collation: String },
 
+    /// Build a JSON array: PG `jsonb_build_array(...)`, SQLite `json_array(...)`.
+    JsonArray(Vec<Expr>),
+
+    /// Build a JSON object: PG `jsonb_build_object(k, v, ...)`, SQLite `json_object(k, v, ...)`.
+    JsonObject(Vec<(String, Expr)>),
+
+    /// Aggregate into JSON array: PG `jsonb_agg(...)`, SQLite `json_group_array(...)`.
+    JsonAgg {
+        expr: Box<Expr>,
+        distinct: bool,
+        filter: Option<Conditions>,
+        order_by: Option<Vec<OrderByDef>>,
+    },
+
+    /// Concatenate strings: PG `string_agg(expr, delim)`, SQLite `group_concat(expr, delim)`.
+    StringAgg {
+        expr: Box<Expr>,
+        delimiter: String,
+        distinct: bool,
+        filter: Option<Conditions>,
+        order_by: Option<Vec<OrderByDef>>,
+    },
+
+    /// Current timestamp: PG `now()`, SQLite `datetime('now')`.
+    Now,
+
     /// Raw SQL with parameters (escape hatch).
     Raw { sql: String, params: Vec<Value> },
 
@@ -180,6 +206,42 @@ impl Expr {
             expr: Box::new(self),
             collation: collation.into(),
         }
+    }
+
+    /// Build a JSON array from expressions.
+    pub fn json_array(items: Vec<Expr>) -> Self {
+        Expr::JsonArray(items)
+    }
+
+    /// Build a JSON object from key-value pairs.
+    pub fn json_object(pairs: Vec<(impl Into<String>, Expr)>) -> Self {
+        Expr::JsonObject(pairs.into_iter().map(|(k, v)| (k.into(), v)).collect())
+    }
+
+    /// Aggregate values into a JSON array.
+    pub fn json_agg(expr: Expr) -> Self {
+        Expr::JsonAgg {
+            expr: Box::new(expr),
+            distinct: false,
+            filter: None,
+            order_by: None,
+        }
+    }
+
+    /// Concatenate strings with a delimiter.
+    pub fn string_agg(expr: Expr, delimiter: impl Into<String>) -> Self {
+        Expr::StringAgg {
+            expr: Box::new(expr),
+            delimiter: delimiter.into(),
+            distinct: false,
+            filter: None,
+            order_by: None,
+        }
+    }
+
+    /// Current timestamp.
+    pub fn now() -> Self {
+        Expr::Now
     }
 }
 

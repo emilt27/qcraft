@@ -817,3 +817,51 @@ fn insert_upsert_returning() {
         ]
     );
 }
+
+// ---------------------------------------------------------------------------
+// Array → JSON string conversion
+// ---------------------------------------------------------------------------
+
+#[test]
+fn insert_array_value_as_json() {
+    let stmt = MutationStmt::Insert(InsertStmt {
+        table: SchemaRef::new("items"),
+        columns: Some(vec!["tags".into()]),
+        source: InsertSource::Values(vec![vec![Expr::Value(Value::Array(vec![
+            Value::Str("python".into()),
+            Value::Str("rust".into()),
+        ]))]]),
+        on_conflict: None,
+        returning: None,
+        ctes: None,
+        overriding: None,
+        conflict_resolution: None,
+        partition: None,
+        ignore: false,
+    });
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"INSERT INTO "items" ("tags") VALUES (?)"#);
+    assert_eq!(params, vec![Value::Str(r#"["python", "rust"]"#.into())]);
+}
+
+#[test]
+fn insert_nested_array_as_json() {
+    let stmt = MutationStmt::Insert(InsertStmt {
+        table: SchemaRef::new("t"),
+        columns: Some(vec!["data".into()]),
+        source: InsertSource::Values(vec![vec![Expr::Value(Value::Array(vec![
+            Value::Int(1),
+            Value::Array(vec![Value::Int(2), Value::Int(3)]),
+        ]))]]),
+        on_conflict: None,
+        returning: None,
+        ctes: None,
+        overriding: None,
+        conflict_resolution: None,
+        partition: None,
+        ignore: false,
+    });
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(sql, r#"INSERT INTO "t" ("data") VALUES (?)"#);
+    assert_eq!(params, vec![Value::Str("[1, [2, 3]]".into())]);
+}

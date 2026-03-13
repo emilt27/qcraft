@@ -11,6 +11,7 @@ pub enum Value {
     Null,
     Bool(bool),
     Int(i64),
+    BigInt(i64),
     Float(f64),
     Str(String),
     Bytes(Vec<u8>),
@@ -48,6 +49,21 @@ pub enum Value {
 
 String-based variants (`Date`, `DateTime`, `Time`, `Decimal`, `Uuid`, `Json`, `Jsonb`, `IpNetwork`) must be constructed directly -- there are no `From` impls to avoid ambiguity.
 
+### Int vs BigInt
+
+Both store `i64`, but they map to different PostgreSQL wire types:
+
+- `Value::Int` — maps to PG `int4` (`i32`) when the value fits, otherwise `int8`. Use for column values.
+- `Value::BigInt` — always maps to PG `int8`. Used internally by the renderer for LIMIT/OFFSET parameters.
+
+In SQLite both behave identically (SQLite has a single INTEGER type).
+
+### NULL parameterization
+
+In parameterized query mode (SELECT, INSERT, UPDATE, DELETE), `Value::Null` is sent as a bind parameter (`$1` / `?`), not inlined as the `NULL` keyword. This allows drivers to handle NULL correctly via the wire protocol.
+
+The only exception is `CompareOp::IsNull` — it always renders as `IS NULL` because `IS $1` is not valid SQL syntax.
+
 ## Expr
 
 Enum representing an expression in SQL.
@@ -68,6 +84,11 @@ pub enum Expr {
     ArraySubQuery(Box<QueryStmt>),
     Collate { expr: Box<Expr>, collation: String },
     Raw { sql: String, params: Vec<Value> },
+    JsonArray(Vec<Expr>),
+    JsonObject(Vec<(String, Expr)>),
+    JsonAgg { expr: Box<Expr>, distinct: bool, filter: Option<Conditions>, order_by: Option<Vec<OrderByDef>> },
+    StringAgg { expr: Box<Expr>, delimiter: String, distinct: bool, filter: Option<Conditions>, order_by: Option<Vec<OrderByDef>> },
+    Now,
     Custom(Box<dyn CustomExpr>),
 }
 ```
@@ -90,6 +111,11 @@ pub enum Expr {
 | `Expr::exists(query)` | `Expr::Exists(Box::new(query))` |
 | `Expr::subquery(query)` | `Expr::SubQuery(Box::new(query))` |
 | `expr.collate("C")` | `Expr::Collate { expr, collation: "C" }` |
+| `Expr::json_array(vec![...])` | `Expr::JsonArray(...)` — PG: `jsonb_build_array`, SQLite: `json_array` |
+| `Expr::json_object(vec![...])` | `Expr::JsonObject(...)` — PG: `jsonb_build_object`, SQLite: `json_object` |
+| `Expr::json_agg(expr)` | `Expr::JsonAgg { ... }` — PG: `jsonb_agg`, SQLite: `json_group_array` |
+| `Expr::string_agg(expr, ",")` | `Expr::StringAgg { ... }` — PG: `string_agg`, SQLite: `group_concat` |
+| `Expr::now()` | `Expr::Now` — PG: `now()`, SQLite: `datetime('now')` |
 
 ### From implementations
 
@@ -97,6 +123,29 @@ pub enum Expr {
 |---|---|
 | `Value` | `Expr::Value(v)` |
 | `FieldRef` | `Expr::Field(f)` |
+
+## FieldRef / FieldDef
+
+A field reference with optional schema namespace and JSON child path.
+
+```rust
+pub struct FieldRef {
+    pub field: FieldDef,
+    pub table_name: String,
+    pub namespace: Option<String>,  // schema prefix: "public"."table"."col"
+}
+
+pub struct FieldDef {
+    pub name: String,
+    pub child: Option<Box<FieldDef>>,  // JSON path: "col"->'key'->'nested'
+}
+```
+
+Constructor: `FieldRef::new("table", "column")` — no namespace, no child.
+
+With namespace: renders as `"public"."users"."id"`.
+
+With child chain: renders as `"users"."data"->'address'->'city'` (always `->`, use `Expr::Cast` for text extraction).
 
 ## CompareOp
 
@@ -109,25 +158,25 @@ Gt              >
 Gte             >=
 Lt              <
 Lte             <=
-In              IN
+In              IN (Value::Array expands to $1, $2, ...)
 Like            LIKE (raw pattern, caller provides wildcards)
-ILike           ILIKE (raw pattern, PG only)
+ILike           ILIKE (PG) / LOWER(col) LIKE LOWER(?) (SQLite)
 Contains        LIKE '%val%' (auto-escaped)
 StartsWith      LIKE 'val%' (auto-escaped)
 EndsWith        LIKE '%val' (auto-escaped)
 IContains       ILIKE '%val%' (PG) / LOWER(col) LIKE LOWER(?) (SQLite)
 IStartsWith     ILIKE 'val%' (PG) / LOWER(col) LIKE LOWER(?) (SQLite)
 IEndsWith       ILIKE '%val' (PG) / LOWER(col) LIKE LOWER(?) (SQLite)
-Between         BETWEEN
+Between         BETWEEN $1 AND $2 (Value::Array with 2 items)
 IsNull          IS NULL
 Similar         SIMILAR TO (PG)
 Regex           ~ (PG)
-IRegex          ~* (PG)
+IRegex          ~* (PG) / REGEXP '(?i)' || pattern (SQLite)
 JsonbContains       @> (PG JSONB)
 JsonbContainedBy    <@ (PG JSONB)
 JsonbHasKey         ? (PG JSONB)
-JsonbHasAnyKey      ?| (PG JSONB)
-JsonbHasAllKeys     ?& (PG JSONB)
+JsonbHasAnyKey      ?| (PG JSONB, auto-appends ::text[])
+JsonbHasAllKeys     ?& (PG JSONB, auto-appends ::text[])
 FtsMatch            @@ (PG full-text search)
 TrigramSimilar          % (PG trigram)
 TrigramWordSimilar      <% (PG trigram)
