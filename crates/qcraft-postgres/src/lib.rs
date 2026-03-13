@@ -1047,6 +1047,14 @@ impl Renderer for PostgresRenderer {
                 Ok(())
             }
 
+            Expr::JsonPathText { expr, path } => {
+                self.render_expr(expr, ctx)?;
+                ctx.operator("->>'")
+                    .write(&path.replace('\'', "''"))
+                    .write("'");
+                Ok(())
+            }
+
             Expr::Raw { sql, params } => {
                 if params.is_empty() {
                     ctx.keyword(sql);
@@ -2115,9 +2123,10 @@ impl PostgresRenderer {
         if let Some(ns) = &field_ref.namespace {
             ctx.ident(ns).operator(".");
         }
-        ctx.ident(&field_ref.table_name)
-            .operator(".")
-            .ident(&field_ref.field.name);
+        if !field_ref.table_name.is_empty() {
+            ctx.ident(&field_ref.table_name).operator(".");
+        }
+        ctx.ident(&field_ref.field.name);
         let mut child = &field_ref.field.child;
         while let Some(c) = child {
             ctx.operator("->'")
