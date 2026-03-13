@@ -11,8 +11,8 @@ use qcraft_postgres::PostgresRenderer;
 
 fn render(stmt: &SchemaMutationStmt) -> String {
     let renderer = PostgresRenderer::new();
-    let (sql, _) = renderer.render_schema_stmt(stmt).unwrap();
-    sql
+    let stmts = renderer.render_schema_stmt(stmt).unwrap();
+    stmts[0].0.clone()
 }
 
 // ==========================================================================
