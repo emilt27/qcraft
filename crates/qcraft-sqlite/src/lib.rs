@@ -264,6 +264,15 @@ impl Renderer for SqliteRenderer {
                 "SQLite does not support extensions.",
             )),
 
+            SchemaMutationStmt::CreateCollation { .. } => Err(RenderError::unsupported(
+                "CreateCollation",
+                "SQLite does not support CREATE COLLATION. Use sqlite3_create_collation() C API instead.",
+            )),
+            SchemaMutationStmt::DropCollation { .. } => Err(RenderError::unsupported(
+                "DropCollation",
+                "SQLite does not support DROP COLLATION.",
+            )),
+
             SchemaMutationStmt::Custom(_) => Err(RenderError::unsupported(
                 "CustomSchemaMutation",
                 "custom DDL must be handled by a wrapping renderer",
@@ -749,7 +758,12 @@ impl Renderer for SqliteRenderer {
             | CompareOp::TrigramStrictWordSimilar
             | CompareOp::RangeContains
             | CompareOp::RangeContainedBy
-            | CompareOp::RangeOverlap => {
+            | CompareOp::RangeOverlap
+            | CompareOp::RangeStrictlyLeft
+            | CompareOp::RangeStrictlyRight
+            | CompareOp::RangeNotLeft
+            | CompareOp::RangeNotRight
+            | CompareOp::RangeAdjacent => {
                 return Err(RenderError::unsupported(
                     "CompareOp",
                     "SQLite does not support PostgreSQL-specific operators (JSONB, FTS, trigram, range).",

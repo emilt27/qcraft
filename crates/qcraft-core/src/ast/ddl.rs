@@ -130,6 +130,23 @@ pub enum SchemaMutationStmt {
         cascade: bool,
     },
 
+    // ── Collation operations (PostgreSQL) ──
+    CreateCollation {
+        name: String,
+        if_not_exists: bool,
+        locale: Option<String>,
+        lc_collate: Option<String>,
+        lc_ctype: Option<String>,
+        provider: Option<String>,
+        deterministic: Option<bool>,
+        from_collation: Option<String>,
+    },
+    DropCollation {
+        name: String,
+        if_exists: bool,
+        cascade: bool,
+    },
+
     /// User-defined DDL operation (extension point).
     Custom(Box<dyn CustomSchemaMutation>),
 }
@@ -225,6 +242,27 @@ impl SchemaMutationStmt {
         Self::TruncateTable {
             schema_ref: SchemaRef::new(table),
             restart_identity: false,
+            cascade: false,
+        }
+    }
+
+    pub fn create_collation(name: &str) -> Self {
+        Self::CreateCollation {
+            name: name.to_string(),
+            if_not_exists: false,
+            locale: None,
+            lc_collate: None,
+            lc_ctype: None,
+            provider: None,
+            deterministic: None,
+            from_collation: None,
+        }
+    }
+
+    pub fn drop_collation(name: &str) -> Self {
+        Self::DropCollation {
+            name: name.to_string(),
+            if_exists: false,
             cascade: false,
         }
     }

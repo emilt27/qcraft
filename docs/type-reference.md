@@ -135,6 +135,11 @@ TrigramStrictWordSimilar    <<% (PG trigram)
 RangeContains       @> (PG range)
 RangeContainedBy    <@ (PG range)
 RangeOverlap        && (PG range)
+RangeStrictlyLeft   << (PG range)
+RangeStrictlyRight  >> (PG range)
+RangeNotLeft        &> (PG range)
+RangeNotRight       &< (PG range)
+RangeAdjacent       -|- (PG range)
 Custom(Box<dyn CustomCompareOp>)
 ```
 
