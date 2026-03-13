@@ -7,12 +7,11 @@ use qcraft_postgres::PostgresRenderer;
 
 fn render(stmt: &SchemaMutationStmt) -> String {
     let renderer = PostgresRenderer::new();
-    let (sql, _params) = renderer.render_schema_stmt(stmt).unwrap();
-    sql
+    let stmts = renderer.render_schema_stmt(stmt).unwrap();
+    stmts[0].0.clone()
 }
 
-#[allow(dead_code)]
-fn render_with_params(stmt: &SchemaMutationStmt) -> (String, Vec<Value>) {
+fn render_all(stmt: &SchemaMutationStmt) -> Vec<(String, Vec<Value>)> {
     let renderer = PostgresRenderer::new();
     renderer.render_schema_stmt(stmt).unwrap()
 }
@@ -1422,13 +1421,19 @@ fn partial_unique_generates_create_unique_index() {
         without_rowid: false,
         strict: false,
     };
-    let sql = render(&stmt);
+    let stmts = render_all(&stmt);
+    assert_eq!(stmts.len(), 2, "expected 2 statements, got {}", stmts.len());
+
+    let create_table = &stmts[0].0;
     assert!(
-        sql.contains(r#"UNIQUE ("email")"#),
-        "inline constraint missing: {sql}"
+        create_table.contains(r#"UNIQUE ("email")"#),
+        "inline constraint missing: {create_table}"
     );
+
+    let create_index = &stmts[1].0;
     assert!(
-        sql.contains(r#"; CREATE UNIQUE INDEX "uq_active_email" ON "users" ("email") WHERE"#),
-        "separate index missing: {sql}"
+        create_index
+            .starts_with(r#"CREATE UNIQUE INDEX "uq_active_email" ON "users" ("email") WHERE"#),
+        "separate index wrong: {create_index}"
     );
 }

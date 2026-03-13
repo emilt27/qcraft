@@ -127,14 +127,52 @@ impl PostgresRenderer {
         self
     }
 
-    /// Convenience: render a DDL statement to SQL string + params.
+    /// Convenience: render a DDL statement to a list of SQL statements + params.
+    ///
+    /// Most DDL operations return a single statement. `CreateTable` with partial
+    /// unique constraints returns the `CREATE TABLE` first, followed by one
+    /// `CREATE UNIQUE INDEX … WHERE …` per partial unique constraint.
     pub fn render_schema_stmt(
         &self,
         stmt: &SchemaMutationStmt,
-    ) -> RenderResult<(String, Vec<Value>)> {
+    ) -> RenderResult<Vec<(String, Vec<Value>)>> {
         let mut ctx = RenderCtx::new(self.param_style);
         self.render_schema_mutation(stmt, &mut ctx)?;
-        Ok(ctx.finish())
+        let mut results = vec![ctx.finish()];
+
+        // Partial unique constraints → separate CREATE UNIQUE INDEX statements
+        if let SchemaMutationStmt::CreateTable { schema, .. } = stmt {
+            if let Some(constraints) = &schema.constraints {
+                for constraint in constraints {
+                    if let ConstraintDef::Unique {
+                        name,
+                        columns,
+                        condition: Some(cond),
+                        ..
+                    } = constraint
+                    {
+                        let mut idx_ctx = RenderCtx::new(self.param_style);
+                        idx_ctx.keyword("CREATE UNIQUE INDEX");
+                        if let Some(n) = name {
+                            idx_ctx.ident(n);
+                        }
+                        idx_ctx.keyword("ON");
+                        if let Some(ns) = &schema.namespace {
+                            idx_ctx.ident(ns).operator(".");
+                        }
+                        idx_ctx.ident(&schema.name);
+                        idx_ctx.paren_open();
+                        self.pg_comma_idents(columns, &mut idx_ctx);
+                        idx_ctx.paren_close();
+                        idx_ctx.keyword("WHERE");
+                        self.render_condition(cond, &mut idx_ctx)?;
+                        results.push(idx_ctx.finish());
+                    }
+                }
+            }
+        }
+
+        Ok(results)
     }
 
     /// Convenience: render a TCL statement to SQL string + params.
@@ -2529,35 +2567,6 @@ impl PostgresRenderer {
         // TABLESPACE
         if let Some(ts) = tablespace {
             ctx.keyword("TABLESPACE").ident(ts);
-        }
-
-        // Partial unique constraints → separate CREATE UNIQUE INDEX statements
-        if let Some(constraints) = &schema.constraints {
-            for constraint in constraints {
-                if let ConstraintDef::Unique {
-                    name,
-                    columns,
-                    condition: Some(cond),
-                    ..
-                } = constraint
-                {
-                    ctx.write(";");
-                    ctx.keyword("CREATE UNIQUE INDEX");
-                    if let Some(n) = name {
-                        ctx.ident(n);
-                    }
-                    ctx.keyword("ON");
-                    if let Some(ns) = &schema.namespace {
-                        ctx.ident(ns).operator(".");
-                    }
-                    ctx.ident(&schema.name);
-                    ctx.paren_open();
-                    self.pg_comma_idents(columns, ctx);
-                    ctx.paren_close();
-                    ctx.keyword("WHERE");
-                    self.render_condition(cond, ctx)?;
-                }
-            }
         }
 
         Ok(())

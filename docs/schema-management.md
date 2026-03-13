@@ -3,10 +3,15 @@
 qcraft provides a type-safe Rust API for building DDL statements through `SchemaMutationStmt` and its associated types. All DDL statements use inline literals (not parameterized placeholders) and are rendered via:
 
 ```rust
-let (sql, _params) = renderer.render_schema_stmt(&stmt).unwrap();
+let stmts = renderer.render_schema_stmt(&stmt).unwrap();
+for (sql, _params) in &stmts {
+    // execute each statement
+}
 ```
 
 where `renderer` is either `PostgresRenderer::new()` or `SqliteRenderer::new()`.
+
+Most DDL operations return a single statement. `CreateTable` with partial unique constraints (PostgreSQL) returns the `CREATE TABLE` first, followed by separate `CREATE UNIQUE INDEX … WHERE …` statements.
 
 ---
 

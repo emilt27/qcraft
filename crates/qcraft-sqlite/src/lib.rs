@@ -59,10 +59,10 @@ impl SqliteRenderer {
     pub fn render_schema_stmt(
         &self,
         stmt: &SchemaMutationStmt,
-    ) -> RenderResult<(String, Vec<Value>)> {
+    ) -> RenderResult<Vec<(String, Vec<Value>)>> {
         let mut ctx = RenderCtx::new(ParamStyle::QMark);
         self.render_schema_mutation(stmt, &mut ctx)?;
-        Ok(ctx.finish())
+        Ok(vec![ctx.finish()])
     }
 
     pub fn render_transaction_stmt(
