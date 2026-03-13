@@ -1,7 +1,8 @@
 //! Tests that verify PostgreSQL renderer silently ignores SQLite/MySQL-specific DML features
 //! while still producing valid, executable SQL.
 
-use postgres::types::ToSql;
+mod common;
+
 use postgres::{Client, NoTls};
 use testcontainers::ImageExt;
 use testcontainers::runners::SyncRunner;
@@ -17,35 +18,6 @@ use qcraft_postgres::PostgresRenderer;
 fn render(stmt: &MutationStmt) -> (String, Vec<Value>) {
     let renderer = PostgresRenderer::new();
     renderer.render_mutation_stmt(stmt).unwrap()
-}
-
-fn to_pg_params(values: &[Value]) -> Vec<Box<dyn ToSql + Sync>> {
-    values
-        .iter()
-        .map(|v| -> Box<dyn ToSql + Sync> {
-            match v {
-                Value::Null => Box::new(Option::<String>::None),
-                Value::Bool(b) => Box::new(*b),
-                Value::Int(n) => match i32::try_from(*n) {
-                    Ok(i) => Box::new(i),
-                    Err(_) => Box::new(*n),
-                },
-                Value::Float(f) => Box::new(*f),
-                Value::Str(s) => Box::new(s.clone()),
-                Value::Bytes(b) => Box::new(b.clone()),
-                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
-                Value::Decimal(s) => Box::new(s.clone()),
-                Value::Uuid(s) => Box::new(s.clone()),
-                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
-                Value::IpNetwork(s) => Box::new(s.clone()),
-                _ => Box::new(format!("{:?}", v)),
-            }
-        })
-        .collect()
-}
-
-fn as_pg_params(boxed: &[Box<dyn ToSql + Sync>]) -> Vec<&(dyn ToSql + Sync)> {
-    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn connect() -> (impl std::any::Any, Client) {
@@ -83,8 +55,8 @@ fn insert_conflict_resolution_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let val: String = client.query_one("SELECT val FROM t", &[]).unwrap().get(0);
@@ -111,8 +83,8 @@ fn insert_partition_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -142,8 +114,8 @@ fn insert_ignore_flag_ignored() {
         ignore: true,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -195,8 +167,8 @@ fn update_conflict_resolution_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let val: String = client
@@ -239,8 +211,8 @@ fn update_order_by_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -276,8 +248,8 @@ fn update_limit_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -313,8 +285,8 @@ fn update_partition_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let val: String = client.query_one("SELECT val FROM t", &[]).unwrap().get(0);
@@ -347,8 +319,8 @@ fn update_ignore_flag_ignored() {
         ignore: true,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let val: String = client.query_one("SELECT val FROM t", &[]).unwrap().get(0);
@@ -390,8 +362,8 @@ fn delete_order_by_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -425,8 +397,8 @@ fn delete_limit_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -460,8 +432,8 @@ fn delete_partition_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -495,8 +467,8 @@ fn delete_ignore_flag_ignored() {
         ignore: true,
     });
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client

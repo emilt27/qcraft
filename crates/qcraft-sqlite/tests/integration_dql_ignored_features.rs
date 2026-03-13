@@ -8,33 +8,13 @@ use qcraft_core::ast::query::*;
 use qcraft_core::ast::value::Value;
 use qcraft_sqlite::SqliteRenderer;
 use rusqlite::Connection;
-use rusqlite::types::ToSql as RusqliteToSql;
+mod common;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn render(stmt: &QueryStmt) -> (String, Vec<Value>) {
     let renderer = SqliteRenderer::new();
     renderer.render_query_stmt(stmt).unwrap()
-}
-
-fn to_sqlite_params(values: &[Value]) -> Vec<Box<dyn RusqliteToSql>> {
-    values
-        .iter()
-        .map(|v| -> Box<dyn RusqliteToSql> {
-            match v {
-                Value::Null => Box::new(rusqlite::types::Null),
-                Value::Bool(b) => Box::new(*b),
-                Value::Int(n) => Box::new(*n),
-                Value::Float(f) => Box::new(*f),
-                Value::Str(s) => Box::new(s.clone()),
-                _ => Box::new(format!("{:?}", v)),
-            }
-        })
-        .collect()
-}
-
-fn as_sqlite_params(boxed: &[Box<dyn RusqliteToSql>]) -> Vec<&dyn RusqliteToSql> {
-    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn setup_db(conn: &Connection) {
@@ -100,8 +80,8 @@ fn from_only_ignored() {
     // ONLY should not appear in the rendered SQL
     assert!(!sql.contains("ONLY"));
     // Should still execute correctly
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))
@@ -143,8 +123,8 @@ fn cte_materialized_ignored() {
     // MATERIALIZED hint should not appear
     assert!(!sql.contains("MATERIALIZED"));
     // Should still execute correctly
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let mut st = db.prepare(&sql).unwrap();
     let rows: Vec<i64> = st
         .query_map(params.as_slice(), |row| row.get(0))

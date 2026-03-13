@@ -9,7 +9,7 @@ use qcraft_core::ast::query::TableSource;
 use qcraft_core::ast::value::Value;
 use qcraft_sqlite::SqliteRenderer;
 use rusqlite::Connection;
-use rusqlite::types::ToSql as RusqliteToSql;
+mod common;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -20,32 +20,6 @@ fn conn() -> Connection {
 fn render(stmt: &MutationStmt) -> (String, Vec<Value>) {
     let renderer = SqliteRenderer::new();
     renderer.render_mutation_stmt(stmt).unwrap()
-}
-
-fn to_sqlite_params(values: &[Value]) -> Vec<Box<dyn RusqliteToSql>> {
-    values
-        .iter()
-        .map(|v| -> Box<dyn RusqliteToSql> {
-            match v {
-                Value::Null => Box::new(rusqlite::types::Null),
-                Value::Bool(b) => Box::new(*b),
-                Value::Int(n) => Box::new(*n),
-                Value::Float(f) => Box::new(*f),
-                Value::Str(s) => Box::new(s.clone()),
-                Value::Bytes(b) => Box::new(b.clone()),
-                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
-                Value::Decimal(s) => Box::new(s.clone()),
-                Value::Uuid(s) => Box::new(s.clone()),
-                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
-                Value::IpNetwork(s) => Box::new(s.clone()),
-                _ => Box::new(format!("{:?}", v)),
-            }
-        })
-        .collect()
-}
-
-fn as_sqlite_params(boxed: &[Box<dyn RusqliteToSql>]) -> Vec<&dyn RusqliteToSql> {
-    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn setup_users(conn: &Connection) {
@@ -97,8 +71,8 @@ fn insert_overriding_ignored() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 1);
 }
@@ -125,8 +99,8 @@ fn insert_partition_ignored() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 1);
 }
@@ -153,8 +127,8 @@ fn insert_ignore_flag_ignored() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 1);
 }
@@ -198,8 +172,8 @@ fn update_only_ignored() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
@@ -245,8 +219,8 @@ fn update_partition_ignored() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
@@ -292,8 +266,8 @@ fn update_ignore_flag_ignored() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
@@ -342,8 +316,8 @@ fn delete_using_ignored() {
 
     // USING is silently dropped — the DELETE should still work
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 0);
 }
@@ -381,8 +355,8 @@ fn delete_only_ignored() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 0);
 }
@@ -420,8 +394,8 @@ fn delete_partition_ignored() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 0);
 }
@@ -459,8 +433,8 @@ fn delete_ignore_flag_ignored() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 0);
 }
