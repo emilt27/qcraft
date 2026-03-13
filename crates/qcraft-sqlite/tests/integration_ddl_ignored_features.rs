@@ -12,8 +12,8 @@ fn conn() -> Connection {
 
 fn render(stmt: &SchemaMutationStmt) -> String {
     let renderer = SqliteRenderer::new();
-    let (sql, _) = renderer.render_schema_stmt(stmt).unwrap();
-    sql
+    let stmts = renderer.render_schema_stmt(stmt).unwrap();
+    stmts[0].0.clone()
 }
 
 fn table_exists(conn: &Connection, table: &str) -> bool {
