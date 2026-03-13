@@ -135,6 +135,11 @@ TrigramStrictWordSimilar    <<% (PG trigram)
 RangeContains       @> (PG range)
 RangeContainedBy    <@ (PG range)
 RangeOverlap        && (PG range)
+RangeStrictlyLeft   << (PG range)
+RangeStrictlyRight  >> (PG range)
+RangeNotLeft        &> (PG range)
+RangeNotRight       &< (PG range)
+RangeAdjacent       -|- (PG range)
 Custom(Box<dyn CustomCompareOp>)
 ```
 
@@ -153,6 +158,27 @@ BitwiseOr       |
 ShiftLeft       <<
 ShiftRight      >>
 Concat          ||
+Custom(Box<dyn CustomBinaryOp>)
+```
+
+### PgVectorOp (qcraft-postgres)
+
+Ready-to-use pgvector distance operators, implements `CustomBinaryOp`:
+
+```
+PgVectorOp::L2Distance       <->
+PgVectorOp::InnerProduct      <#>
+PgVectorOp::CosineDistance     <=>
+PgVectorOp::L1Distance        <+>
+```
+
+Usage:
+```rust
+Expr::Binary {
+    left: Box::new(Expr::field("items", "embedding")),
+    op: PgVectorOp::L2Distance.into(),
+    right: Box::new(Expr::Value(Value::Vector(vec![1.0, 2.0, 3.0]))),
+}
 ```
 
 ## UnaryOp

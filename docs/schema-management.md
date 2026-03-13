@@ -1062,3 +1062,63 @@ DELETE FROM "users"
 ```
 
 The `restart_identity` and `cascade` options are silently ignored on SQLite.
+
+---
+
+## Collation management (PostgreSQL)
+
+### CREATE COLLATION
+
+```rust
+let stmt = SchemaMutationStmt::CreateCollation {
+    name: "german_phonebook".into(),
+    if_not_exists: false,
+    locale: Some("de-u-co-phonebk".into()),
+    lc_collate: None,
+    lc_ctype: None,
+    provider: Some("icu".into()),
+    deterministic: Some(true),
+    from_collation: None,
+};
+```
+
+```sql
+CREATE COLLATION "german_phonebook" (LOCALE = 'de-u-co-phonebk', PROVIDER = icu, DETERMINISTIC = TRUE)
+```
+
+You can also create from an existing collation:
+
+```rust
+let stmt = SchemaMutationStmt::CreateCollation {
+    name: "my_copy".into(),
+    if_not_exists: false,
+    locale: None,
+    lc_collate: None,
+    lc_ctype: None,
+    provider: None,
+    deterministic: None,
+    from_collation: Some("de_DE".into()),
+};
+```
+
+```sql
+CREATE COLLATION "my_copy" FROM "de_DE"
+```
+
+### DROP COLLATION
+
+```rust
+let stmt = SchemaMutationStmt::DropCollation {
+    name: "german_phonebook".into(),
+    if_exists: true,
+    cascade: true,
+};
+```
+
+```sql
+DROP COLLATION IF EXISTS "german_phonebook" CASCADE
+```
+
+### SQLite
+
+SQLite does not support `CREATE COLLATION` or `DROP COLLATION` via SQL. Collations in SQLite are registered programmatically using the `sqlite3_create_collation()` C API. Attempting to render these statements for SQLite returns an error.

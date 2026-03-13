@@ -276,6 +276,11 @@ pub enum CompareOp {
     RangeContains,
     RangeContainedBy,
     RangeOverlap,
+    RangeStrictlyLeft,
+    RangeStrictlyRight,
+    RangeNotLeft,
+    RangeNotRight,
+    RangeAdjacent,
 
     /// User-defined operator (extension point).
     Custom(Box<dyn CustomCompareOp>),

@@ -724,6 +724,29 @@ Common collations:
 | `"default"` — database default | `NOCASE` — case-insensitive ASCII |
 | ICU collations (`"uk-x-icu"`, etc.) | `RTRIM` — ignores trailing spaces |
 
+### Custom binary operators
+
+`BinaryOp::Custom` allows dialect-specific operators. `qcraft-postgres` ships with pgvector distance operators:
+
+```rust
+use qcraft_postgres::PgVectorOp;
+
+// ORDER BY nearest neighbor (L2 distance)
+OrderByDef::asc(Expr::Binary {
+    left: Box::new(Expr::field("items", "embedding")),
+    op: PgVectorOp::L2Distance.into(),
+    right: Box::new(Expr::Value(Value::Vector(vec![1.0, 2.0, 3.0]))),
+})
+```
+
+```sql
+ORDER BY "items"."embedding" <-> $1 ASC
+```
+
+Available operators: `L2Distance` (`<->`), `InnerProduct` (`<#>`), `CosineDistance` (`<=>`), `L1Distance` (`<+>`).
+
+SQLite returns a render error for custom binary operators.
+
 ---
 
 ## 7. LIMIT / OFFSET
