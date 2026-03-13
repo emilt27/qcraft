@@ -466,18 +466,29 @@ impl Renderer for SqliteRenderer {
 
             Expr::Binary { left, op, right } => {
                 self.render_expr(left, ctx)?;
-                ctx.keyword(match op {
-                    BinaryOp::Add => "+",
-                    BinaryOp::Sub => "-",
-                    BinaryOp::Mul => "*",
-                    BinaryOp::Div => "/",
-                    BinaryOp::Mod => "%",
-                    BinaryOp::BitwiseAnd => "&",
-                    BinaryOp::BitwiseOr => "|",
-                    BinaryOp::ShiftLeft => "<<",
-                    BinaryOp::ShiftRight => ">>",
-                    BinaryOp::Concat => "||",
-                });
+                match op {
+                    BinaryOp::Custom(_) => {
+                        return Err(RenderError::unsupported(
+                            "CustomBinaryOp",
+                            "SQLite does not support custom binary operators.",
+                        ));
+                    }
+                    _ => {
+                        ctx.keyword(match op {
+                            BinaryOp::Add => "+",
+                            BinaryOp::Sub => "-",
+                            BinaryOp::Mul => "*",
+                            BinaryOp::Div => "/",
+                            BinaryOp::Mod => "%",
+                            BinaryOp::BitwiseAnd => "&",
+                            BinaryOp::BitwiseOr => "|",
+                            BinaryOp::ShiftLeft => "<<",
+                            BinaryOp::ShiftRight => ">>",
+                            BinaryOp::Concat => "||",
+                            BinaryOp::Custom(_) => unreachable!(),
+                        });
+                    }
+                };
                 self.render_expr(right, ctx)
             }
 
