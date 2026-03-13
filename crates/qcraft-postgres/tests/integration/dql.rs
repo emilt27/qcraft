@@ -4,16 +4,6 @@
 //! All tests are read-only (SELECT), so they share a single database
 //! with seed data. No per-test DB cloning needed.
 
-use std::sync::LazyLock;
-use std::sync::atomic::{AtomicU32, Ordering};
-
-use postgres::{Client, NoTls};
-use testcontainers::ImageExt;
-use testcontainers::runners::SyncRunner;
-use testcontainers_modules::postgres::Postgres;
-
-mod common;
-
 use qcraft_core::ast::common::*;
 use qcraft_core::ast::conditions::*;
 use qcraft_core::ast::expr::*;
@@ -52,130 +42,28 @@ fn simple_cond_eq(left: Expr, right: Expr) -> Conditions {
     }))])
 }
 
-struct TestDb {
-    host: String,
-    port: u16,
-    _container: Box<dyn std::any::Any + Send + Sync>,
-}
-
-static TEST_DB: LazyLock<TestDb> = LazyLock::new(|| {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let host = node.get_host().unwrap().to_string();
-    let port = node.get_host_port_ipv4(5432).unwrap();
-
-    let conn_str =
-        format!("host={host} port={port} user=postgres password=postgres dbname=postgres");
-    let mut client = Client::connect(&conn_str, NoTls).unwrap();
-
-    client
-        .batch_execute("CREATE DATABASE template_dql TEMPLATE template0")
-        .unwrap();
-    drop(client);
-
-    let tmpl_conn =
-        format!("host={host} port={port} user=postgres password=postgres dbname=template_dql");
-    let mut tmpl = Client::connect(&tmpl_conn, NoTls).unwrap();
-    tmpl.batch_execute(
-        "
-        CREATE TABLE \"users\" (
-            \"id\" INTEGER PRIMARY KEY,
-            \"name\" TEXT NOT NULL,
-            \"email\" TEXT UNIQUE,
-            \"age\" INTEGER,
-            \"active\" BOOLEAN NOT NULL DEFAULT TRUE,
-            \"department\" TEXT
-        );
-        CREATE TABLE \"orders\" (
-            \"id\" INTEGER PRIMARY KEY,
-            \"user_id\" INTEGER NOT NULL REFERENCES \"users\"(\"id\"),
-            \"product\" TEXT NOT NULL,
-            \"amount\" NUMERIC(10,2) NOT NULL,
-            \"created_at\" DATE NOT NULL
-        );
-        CREATE TABLE \"products\" (
-            \"id\" INTEGER PRIMARY KEY,
-            \"name\" TEXT NOT NULL,
-            \"price\" NUMERIC(10,2) NOT NULL,
-            \"category\" TEXT NOT NULL
-        );
-
-        INSERT INTO \"users\" VALUES (1, 'Alice', 'alice@example.com', 30, TRUE, 'engineering');
-        INSERT INTO \"users\" VALUES (2, 'Bob', 'bob@example.com', 25, TRUE, 'engineering');
-        INSERT INTO \"users\" VALUES (3, 'Charlie', 'charlie@example.com', 35, FALSE, 'sales');
-        INSERT INTO \"users\" VALUES (4, 'Diana', 'diana@example.com', 28, TRUE, 'sales');
-        INSERT INTO \"users\" VALUES (5, 'Eve', 'eve@example.com', NULL, TRUE, 'engineering');
-
-        INSERT INTO \"orders\" VALUES (1, 1, 'Widget', 10.50, '2024-01-15');
-        INSERT INTO \"orders\" VALUES (2, 1, 'Gadget', 25.00, '2024-01-20');
-        INSERT INTO \"orders\" VALUES (3, 2, 'Widget', 10.50, '2024-02-01');
-        INSERT INTO \"orders\" VALUES (4, 4, 'Gizmo', 50.00, '2024-02-15');
-        INSERT INTO \"orders\" VALUES (5, 4, 'Widget', 10.50, '2024-03-01');
-
-        INSERT INTO \"products\" VALUES (1, 'Widget', 10.50, 'hardware');
-        INSERT INTO \"products\" VALUES (2, 'Gadget', 25.00, 'electronics');
-        INSERT INTO \"products\" VALUES (3, 'Gizmo', 50.00, 'electronics');
-        INSERT INTO \"products\" VALUES (4, 'Doohickey', 5.00, 'hardware');
-    ",
-    )
-    .unwrap();
-    drop(tmpl);
-
-    TestDb {
-        host,
-        port,
-        _container: Box::new(node),
-    }
-});
-
-static DB_COUNTER: AtomicU32 = AtomicU32::new(0);
-
-fn test_client() -> Client {
-    let db = &*TEST_DB;
-    let n = DB_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let test_db = format!("test_dql_{n}");
-
-    let admin_conn = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        db.host, db.port
-    );
-    let mut admin = Client::connect(&admin_conn, NoTls).unwrap();
-    admin
-        .execute(
-            &format!("CREATE DATABASE \"{test_db}\" TEMPLATE template_dql"),
-            &[],
-        )
-        .unwrap();
-    drop(admin);
-
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname={test_db}",
-        db.host, db.port
-    );
-    Client::connect(&conn_str, NoTls).unwrap()
-}
-
 // ==========================================================================
 // SELECT basics
 // ==========================================================================
 
 #[test]
 fn select_star() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
 
 #[test]
 fn select_columns() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![
             SelectColumn::Field {
@@ -196,8 +84,8 @@ fn select_columns() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].get::<_, i32>(0), 1);
@@ -208,7 +96,7 @@ fn select_columns() {
 
 #[test]
 fn select_with_alias() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -223,8 +111,8 @@ fn select_with_alias() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].get::<_, String>(0), "Alice");
@@ -232,7 +120,7 @@ fn select_with_alias() {
 
 #[test]
 fn select_expr() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Expr {
             expr: Expr::Func {
@@ -245,8 +133,8 @@ fn select_expr() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, i64>(0), 5);
@@ -254,7 +142,7 @@ fn select_expr() {
 
 #[test]
 fn select_table_star() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(Some("u".into()))],
         from: Some(vec![FromItem::table(
@@ -263,15 +151,15 @@ fn select_table_star() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
 
 #[test]
 fn select_no_from() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Expr {
             expr: Expr::raw("1"),
@@ -280,8 +168,8 @@ fn select_no_from() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, i32>(0), 1);
@@ -289,7 +177,7 @@ fn select_no_from() {
 
 #[test]
 fn select_distinct() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "department"),
@@ -300,15 +188,15 @@ fn select_distinct() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
 }
 
 #[test]
 fn select_distinct_on() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         distinct: Some(DistinctDef::DistinctOn(vec![Expr::Field(FieldRef::new(
@@ -331,8 +219,8 @@ fn select_distinct_on() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 2 departments → 2 rows (first row per department)
     assert_eq!(rows.len(), 2);
@@ -344,7 +232,7 @@ fn select_distinct_on() {
 
 #[test]
 fn from_with_schema() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(
@@ -353,15 +241,15 @@ fn from_with_schema() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
 
 #[test]
 fn from_multiple_tables() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![
@@ -375,8 +263,8 @@ fn from_multiple_tables() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Same as inner join: 5 matching order rows
     assert_eq!(rows.len(), 5);
@@ -384,7 +272,7 @@ fn from_multiple_tables() {
 
 #[test]
 fn from_subquery() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let inner = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -404,15 +292,15 @@ fn from_subquery() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 4);
 }
 
 #[test]
 fn from_function() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem {
@@ -428,15 +316,15 @@ fn from_function() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
 
 #[test]
 fn from_values() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem {
@@ -455,8 +343,8 @@ fn from_values() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].get::<_, i32>(0), 1);
@@ -465,7 +353,7 @@ fn from_values() {
 
 #[test]
 fn from_only() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem {
@@ -477,8 +365,8 @@ fn from_only() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     // ONLY on non-inherited table just returns the same rows
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
@@ -486,7 +374,7 @@ fn from_only() {
 
 #[test]
 fn from_tablesample() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem {
@@ -502,8 +390,8 @@ fn from_tablesample() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // BERNOULLI(100) should return all rows
     assert_eq!(rows.len(), 5);
@@ -515,7 +403,7 @@ fn from_tablesample() {
 
 #[test]
 fn where_simple() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -530,15 +418,15 @@ fn where_simple() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 4);
 }
 
 #[test]
 fn where_and() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -559,8 +447,8 @@ fn where_and() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Alice, Bob, Eve are engineering + active
     assert_eq!(rows.len(), 3);
@@ -568,7 +456,7 @@ fn where_and() {
 
 #[test]
 fn where_or() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -589,15 +477,15 @@ fn where_or() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
 
 #[test]
 fn where_comparison() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -612,8 +500,8 @@ fn where_comparison() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Alice (30), Charlie (35)
     assert_eq!(rows.len(), 2);
@@ -621,7 +509,7 @@ fn where_comparison() {
 
 #[test]
 fn where_is_null() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -636,8 +524,8 @@ fn where_is_null() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Eve has NULL age
     assert_eq!(rows.len(), 1);
@@ -646,7 +534,7 @@ fn where_is_null() {
 
 #[test]
 fn where_like() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -661,8 +549,8 @@ fn where_like() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(1), "Alice");
@@ -674,7 +562,7 @@ fn where_like() {
 
 #[test]
 fn where_contains_filters_correctly() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -690,8 +578,8 @@ fn where_contains_filters_correctly() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
     assert_eq!(names, vec!["Alice", "Charlie"]);
@@ -699,7 +587,7 @@ fn where_contains_filters_correctly() {
 
 #[test]
 fn where_starts_with_filters_correctly() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -713,8 +601,8 @@ fn where_starts_with_filters_correctly() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Alice");
@@ -722,7 +610,7 @@ fn where_starts_with_filters_correctly() {
 
 #[test]
 fn where_ends_with_filters_correctly() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -733,8 +621,8 @@ fn where_ends_with_filters_correctly() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Bob");
@@ -742,7 +630,7 @@ fn where_ends_with_filters_correctly() {
 
 #[test]
 fn where_icontains_case_insensitive() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -756,8 +644,8 @@ fn where_icontains_case_insensitive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Alice");
@@ -765,7 +653,7 @@ fn where_icontains_case_insensitive() {
 
 #[test]
 fn where_istarts_with_case_insensitive() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -779,8 +667,8 @@ fn where_istarts_with_case_insensitive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Alice");
@@ -788,7 +676,7 @@ fn where_istarts_with_case_insensitive() {
 
 #[test]
 fn where_iends_with_case_insensitive() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -802,8 +690,8 @@ fn where_iends_with_case_insensitive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Bob");
@@ -811,7 +699,7 @@ fn where_iends_with_case_insensitive() {
 
 #[test]
 fn where_contains_escapes_percent_in_db() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     // Insert rows with special characters in name
     client
         .execute(
@@ -837,8 +725,8 @@ fn where_contains_escapes_percent_in_db() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
     assert_eq!(names, vec!["50% off"]);
@@ -846,7 +734,7 @@ fn where_contains_escapes_percent_in_db() {
 
 #[test]
 fn where_contains_escapes_underscore_in_db() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     client
         .execute(
             "INSERT INTO \"users\" VALUES (12, 'user_admin', 'ua@test.com', 20, TRUE, 'engineering')",
@@ -874,8 +762,8 @@ fn where_contains_escapes_underscore_in_db() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
     assert_eq!(names, vec!["user_admin"]);
@@ -883,7 +771,7 @@ fn where_contains_escapes_underscore_in_db() {
 
 #[test]
 fn where_contains_no_match() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -897,15 +785,15 @@ fn where_contains_no_match() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 0);
 }
 
 #[test]
 fn where_between() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -923,8 +811,8 @@ fn where_between() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Bob (25), Diana (28), Alice (30)
     assert_eq!(rows.len(), 3);
@@ -932,7 +820,7 @@ fn where_between() {
 
 #[test]
 fn where_in_list() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -950,8 +838,8 @@ fn where_in_list() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Alice, Bob, Eve
     assert_eq!(rows.len(), 3);
@@ -959,7 +847,7 @@ fn where_in_list() {
 
 #[test]
 fn where_negated() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -975,8 +863,8 @@ fn where_negated() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // NOT (active = FALSE) → 4 rows (all except Charlie)
     assert_eq!(rows.len(), 4);
@@ -988,7 +876,7 @@ fn where_negated() {
 
 #[test]
 fn inner_join() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(
@@ -1006,15 +894,15 @@ fn inner_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
 
 #[test]
 fn left_join() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![
             SelectColumn::Field {
@@ -1050,8 +938,8 @@ fn left_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 5 orders + Charlie (no orders) + Eve (no orders) = 7
     assert_eq!(rows.len(), 7);
@@ -1065,7 +953,7 @@ fn left_join() {
 
 #[test]
 fn right_join() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(
@@ -1083,8 +971,8 @@ fn right_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // All users appear; users without orders get NULLs for order cols
     assert_eq!(rows.len(), 7);
@@ -1092,7 +980,7 @@ fn right_join() {
 
 #[test]
 fn full_join() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(
@@ -1110,8 +998,8 @@ fn full_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // All matched + unmatched from both sides = 7
     assert_eq!(rows.len(), 7);
@@ -1119,7 +1007,7 @@ fn full_join() {
 
 #[test]
 fn cross_join() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(
@@ -1134,8 +1022,8 @@ fn cross_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 5 users * 4 products = 20
     assert_eq!(rows.len(), 20);
@@ -1143,7 +1031,7 @@ fn cross_join() {
 
 #[test]
 fn natural_join() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     // NATURAL JOIN on products and orders — they share "id" column
     // We use a subquery to control column overlap
     let left = QueryStmt {
@@ -1172,8 +1060,8 @@ fn natural_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Both produce key=1, NATURAL JOIN matches → 1 row
     assert_eq!(rows.len(), 1);
@@ -1182,7 +1070,7 @@ fn natural_join() {
 
 #[test]
 fn join_using() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     // Rename user_id to id via subquery, then JOIN USING (id)
     let orders_sub = QueryStmt {
         columns: vec![
@@ -1212,15 +1100,15 @@ fn join_using() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
 
 #[test]
 fn lateral_join() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let inner = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("orders"))]),
@@ -1274,8 +1162,8 @@ fn lateral_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // All 5 users appear (LEFT JOIN), some with NULL product
     assert_eq!(rows.len(), 5);
@@ -1287,7 +1175,7 @@ fn lateral_join() {
 
 #[test]
 fn group_by_simple() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![
             SelectColumn::Field {
@@ -1315,8 +1203,8 @@ fn group_by_simple() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].get::<_, String>(0), "engineering");
@@ -1327,7 +1215,7 @@ fn group_by_simple() {
 
 #[test]
 fn group_by_having() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![
             SelectColumn::Field {
@@ -1361,8 +1249,8 @@ fn group_by_having() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Only engineering has > 2 users
     assert_eq!(rows.len(), 1);
@@ -1371,7 +1259,7 @@ fn group_by_having() {
 
 #[test]
 fn group_by_rollup() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![
             SelectColumn::Field {
@@ -1394,8 +1282,8 @@ fn group_by_rollup() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 2 departments + 1 totals row = 3
     assert_eq!(rows.len(), 3);
@@ -1403,7 +1291,7 @@ fn group_by_rollup() {
 
 #[test]
 fn group_by_cube() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![
             SelectColumn::Field {
@@ -1426,8 +1314,8 @@ fn group_by_cube() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // CUBE on single column = same as ROLLUP: 2 + 1 = 3
     assert_eq!(rows.len(), 3);
@@ -1435,7 +1323,7 @@ fn group_by_cube() {
 
 #[test]
 fn group_by_grouping_sets() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![
             SelectColumn::Field {
@@ -1458,8 +1346,8 @@ fn group_by_grouping_sets() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 2 department groups + 1 grand total = 3
     assert_eq!(rows.len(), 3);
@@ -1471,7 +1359,7 @@ fn group_by_grouping_sets() {
 
 #[test]
 fn order_by_asc() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -1486,15 +1374,15 @@ fn order_by_asc() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows[0].get::<_, String>(0), "Alice");
 }
 
 #[test]
 fn order_by_desc() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -1509,15 +1397,15 @@ fn order_by_desc() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows[0].get::<_, String>(0), "Eve");
 }
 
 #[test]
 fn order_by_nulls_first() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "age"),
@@ -1532,8 +1420,8 @@ fn order_by_nulls_first() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Eve's age is NULL → first
     assert!(rows[0].get::<_, Option<i32>>(0).is_none());
@@ -1541,7 +1429,7 @@ fn order_by_nulls_first() {
 
 #[test]
 fn order_by_nulls_last() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "age"),
@@ -1556,8 +1444,8 @@ fn order_by_nulls_last() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Eve's NULL age → last
     assert!(rows[4].get::<_, Option<i32>>(0).is_none());
@@ -1570,7 +1458,7 @@ fn order_by_nulls_last() {
 
 #[test]
 fn limit_only() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -1581,15 +1469,15 @@ fn limit_only() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
 }
 
 #[test]
 fn limit_offset() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "id"),
@@ -1608,8 +1496,8 @@ fn limit_offset() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
     // ids 3 and 4 (offset 2 skips 1, 2)
@@ -1619,7 +1507,7 @@ fn limit_offset() {
 
 #[test]
 fn fetch_first_rows_only() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -1634,15 +1522,15 @@ fn fetch_first_rows_only() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 3);
 }
 
 #[test]
 fn fetch_first_with_ties() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     // All 5 users have distinct ages (or NULL), but we need WITH TIES to work
     // We use department for ordering: engineering=3, sales=2
     // FETCH FIRST 3 WITH TIES + ORDER BY department → should get at least 3
@@ -1665,8 +1553,8 @@ fn fetch_first_with_ties() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // First 3 are engineering, but the 3rd ties with others in engineering → 3 rows
     assert!(rows.len() >= 3);
@@ -1678,7 +1566,7 @@ fn fetch_first_with_ties() {
 
 #[test]
 fn cte_simple() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let cte_query = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -1705,15 +1593,15 @@ fn cte_simple() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 4);
 }
 
 #[test]
 fn cte_recursive() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     // WITH RECURSIVE nums(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM nums WHERE n < 5)
     // PG requires recursive CTE body = non-recursive UNION ALL recursive directly.
     // The AST wraps SetOp in a FROM, so we use Raw SQL for the CTE body and verify
@@ -1742,8 +1630,8 @@ fn cte_recursive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     assert!(sql.contains("WITH RECURSIVE"));
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
@@ -1751,7 +1639,7 @@ fn cte_recursive() {
 
 #[test]
 fn cte_materialized() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let cte_query = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -1770,8 +1658,8 @@ fn cte_materialized() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
@@ -1782,7 +1670,7 @@ fn cte_materialized() {
 
 #[test]
 fn union_all() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let left = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -1815,8 +1703,8 @@ fn union_all() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 5 + 5 = 10
     assert_eq!(rows.len(), 10);
@@ -1824,7 +1712,7 @@ fn union_all() {
 
 #[test]
 fn union_distinct() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let left = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -1857,8 +1745,8 @@ fn union_distinct() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Deduplicated: 5 unique names
     assert_eq!(rows.len(), 5);
@@ -1866,7 +1754,7 @@ fn union_distinct() {
 
 #[test]
 fn intersect() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let left = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -1907,8 +1795,8 @@ fn intersect() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Intersection: engineering users = 3
     assert_eq!(rows.len(), 3);
@@ -1916,7 +1804,7 @@ fn intersect() {
 
 #[test]
 fn except() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let left = QueryStmt {
         columns: vec![SelectColumn::Field {
             field: FieldRef::new("users", "name"),
@@ -1957,8 +1845,8 @@ fn except() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // All names minus engineering names = sales names = 2
     assert_eq!(rows.len(), 2);
@@ -1970,7 +1858,7 @@ fn except() {
 
 #[test]
 fn window_row_number() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![
             SelectColumn::Field {
@@ -2003,8 +1891,8 @@ fn window_row_number() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].get::<_, i64>(1), 1);
@@ -2013,7 +1901,7 @@ fn window_row_number() {
 
 #[test]
 fn window_partition_by() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![
             SelectColumn::Field {
@@ -2050,8 +1938,8 @@ fn window_partition_by() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
     // First engineering user (Alice, id=1) should have rn=1
@@ -2061,7 +1949,7 @@ fn window_partition_by() {
 
 #[test]
 fn window_named() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     // Use WINDOW clause and reference it via Expr::Raw for OVER "w"
     let stmt = QueryStmt {
         columns: vec![
@@ -2097,8 +1985,8 @@ fn window_named() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].get::<_, i64>(1), 1);
@@ -2111,7 +1999,7 @@ fn window_named() {
 
 #[test]
 fn for_update() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -2125,8 +2013,8 @@ fn for_update() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     // FOR UPDATE must be inside a transaction
     client.batch_execute("BEGIN").unwrap();
     let rows = client.query(&sql, &params).unwrap();
@@ -2136,7 +2024,7 @@ fn for_update() {
 
 #[test]
 fn for_share() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -2150,8 +2038,8 @@ fn for_share() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.batch_execute("BEGIN").unwrap();
     let rows = client.query(&sql, &params).unwrap();
     client.batch_execute("COMMIT").unwrap();
@@ -2160,7 +2048,7 @@ fn for_share() {
 
 #[test]
 fn for_update_nowait() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -2174,8 +2062,8 @@ fn for_update_nowait() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     assert!(sql.contains("FOR UPDATE NOWAIT"));
     client.batch_execute("BEGIN").unwrap();
     let rows = client.query(&sql, &params).unwrap();
@@ -2185,7 +2073,7 @@ fn for_update_nowait() {
 
 #[test]
 fn for_update_skip_locked() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Star(None)],
         from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
@@ -2199,8 +2087,8 @@ fn for_update_skip_locked() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     assert!(sql.contains("FOR UPDATE SKIP LOCKED"));
     client.batch_execute("BEGIN").unwrap();
     let rows = client.query(&sql, &params).unwrap();
@@ -2214,7 +2102,7 @@ fn for_update_skip_locked() {
 
 #[test]
 fn full_pipeline() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     // WITH active AS (SELECT * FROM users WHERE active = TRUE)
     // SELECT u.name, COUNT(1) AS order_count
     // FROM active AS u
@@ -2298,8 +2186,8 @@ fn full_pipeline() {
         lock: None,
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Active users with orders: Alice (2 orders), Bob (1), Diana (2)
     assert_eq!(rows.len(), 3);
@@ -2317,7 +2205,7 @@ fn full_pipeline() {
 
 #[test]
 fn collate_c_order_by() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
     // Insert mixed-case name
     client
         .execute(
@@ -2355,8 +2243,8 @@ fn collate_c_order_by() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
     // C collation: 'A' (65) < 'a' (97) — uppercase first
@@ -2365,7 +2253,7 @@ fn collate_c_order_by() {
 
 #[test]
 fn collate_in_where_comparison() {
-    let mut client = test_client();
+    let mut client = crate::test_client("template_dql");
 
     // Use COLLATE on a comparison to force case-sensitive matching with "C" collation
     let stmt = QueryStmt {
@@ -2390,8 +2278,8 @@ fn collate_in_where_comparison() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
     // With "C" collation, only names < 'D' in byte order:

@@ -1,13 +1,6 @@
 //! Integration tests for PostgreSQL DML (INSERT / UPDATE / DELETE) rendering
 //! executed against a real PostgreSQL instance via testcontainers.
 
-mod common;
-
-use postgres::{Client, NoTls};
-use testcontainers::ImageExt;
-use testcontainers::runners::SyncRunner;
-use testcontainers_modules::postgres::Postgres;
-
 use qcraft_core::ast::common::{FieldRef, SchemaRef};
 use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use qcraft_core::ast::dml::*;
@@ -21,24 +14,13 @@ fn render(stmt: &MutationStmt) -> (String, Vec<Value>) {
     renderer.render_mutation_stmt(stmt).unwrap()
 }
 
-fn connect() -> (impl std::any::Any, Client) {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let client = Client::connect(&conn_str, NoTls).unwrap();
-    (node, client)
-}
-
 // ==========================================================================
 // INSERT — basic
 // ==========================================================================
 
 #[test]
 fn insert_single_row() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT)",
@@ -62,8 +44,8 @@ fn insert_single_row() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let rows = client.query("SELECT name, email FROM users", &[]).unwrap();
@@ -76,7 +58,7 @@ fn insert_single_row() {
 
 #[test]
 fn insert_multi_row() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -101,8 +83,8 @@ fn insert_multi_row() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -114,7 +96,7 @@ fn insert_multi_row() {
 
 #[test]
 fn insert_default_values() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE counters (id SERIAL PRIMARY KEY, value INTEGER DEFAULT 0)",
@@ -135,8 +117,8 @@ fn insert_default_values() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let row = client
@@ -150,7 +132,7 @@ fn insert_default_values() {
 
 #[test]
 fn insert_no_columns() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute("CREATE TABLE t (a INTEGER, b TEXT)", &[])
         .unwrap();
@@ -171,8 +153,8 @@ fn insert_no_columns() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let row = client.query_one("SELECT a, b FROM t", &[]).unwrap();
@@ -188,7 +170,7 @@ fn insert_no_columns() {
 
 #[test]
 fn insert_returning_star() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -209,8 +191,8 @@ fn insert_returning_star() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     let id: i32 = rows[0].get(0);
@@ -221,7 +203,7 @@ fn insert_returning_star() {
 
 #[test]
 fn insert_returning_columns() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -251,8 +233,8 @@ fn insert_returning_columns() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     let id: i32 = rows[0].get(0);
@@ -267,7 +249,7 @@ fn insert_returning_columns() {
 
 #[test]
 fn insert_on_conflict_do_nothing() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT)",
@@ -303,8 +285,8 @@ fn insert_on_conflict_do_nothing() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -321,7 +303,7 @@ fn insert_on_conflict_do_nothing() {
 
 #[test]
 fn insert_on_conflict_do_update() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT)",
@@ -366,8 +348,8 @@ fn insert_on_conflict_do_update() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let name: String = client
@@ -379,7 +361,7 @@ fn insert_on_conflict_do_update() {
 
 #[test]
 fn insert_on_conflict_on_constraint() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT NOT NULL, CONSTRAINT uq_email UNIQUE (email))",
@@ -406,8 +388,8 @@ fn insert_on_conflict_on_constraint() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -419,7 +401,7 @@ fn insert_on_conflict_on_constraint() {
 
 #[test]
 fn insert_on_conflict_do_update_with_where() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE counters (key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0)",
@@ -477,8 +459,8 @@ fn insert_on_conflict_do_update_with_where() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let value: i32 = client
@@ -489,8 +471,8 @@ fn insert_on_conflict_do_update_with_where() {
 
     // Now value = 1000, so WHERE counters.value < 1000 is false — no update
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
     let value: i32 = client
         .query_one("SELECT value FROM counters WHERE key = 'hits'", &[])
@@ -501,7 +483,7 @@ fn insert_on_conflict_do_update_with_where() {
 
 #[test]
 fn insert_on_conflict_partial_index() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE)",
@@ -555,8 +537,8 @@ fn insert_on_conflict_partial_index() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -568,7 +550,7 @@ fn insert_on_conflict_partial_index() {
 
 #[test]
 fn insert_overriding_system_value() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT NOT NULL)",
@@ -592,8 +574,8 @@ fn insert_overriding_system_value() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let row = client.query_one("SELECT id, name FROM users", &[]).unwrap();
@@ -605,7 +587,7 @@ fn insert_overriding_system_value() {
 
 #[test]
 fn insert_with_namespace() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute("CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)", &[])
         .unwrap();
@@ -623,8 +605,8 @@ fn insert_with_namespace() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let name: String = client
@@ -636,7 +618,7 @@ fn insert_with_namespace() {
 
 #[test]
 fn insert_with_expression() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, created_at TIMESTAMPTZ)",
@@ -663,8 +645,8 @@ fn insert_with_expression() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let row = client
@@ -685,7 +667,7 @@ fn insert_with_expression() {
 
 #[test]
 fn update_simple() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -724,8 +706,8 @@ fn update_simple() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let name: String = client
@@ -744,7 +726,7 @@ fn update_simple() {
 
 #[test]
 fn update_multiple_assignments() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, age INTEGER NOT NULL DEFAULT 0)",
@@ -786,8 +768,8 @@ fn update_multiple_assignments() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let row = client
@@ -801,7 +783,7 @@ fn update_multiple_assignments() {
 
 #[test]
 fn update_no_where() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -831,8 +813,8 @@ fn update_no_where() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -844,7 +826,7 @@ fn update_no_where() {
 
 #[test]
 fn update_with_returning() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -883,8 +865,8 @@ fn update_with_returning() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     let id: i32 = rows[0].get(0);
@@ -895,7 +877,7 @@ fn update_with_returning() {
 
 #[test]
 fn update_only() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE events (id SERIAL PRIMARY KEY, status TEXT NOT NULL DEFAULT 'active')",
@@ -928,8 +910,8 @@ fn update_only() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     // Parent row should be updated
@@ -951,7 +933,7 @@ fn update_only() {
 fn update_with_from() {
     use qcraft_core::ast::query::TableSource;
 
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -1007,8 +989,8 @@ fn update_with_from() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let status: String = client
@@ -1020,7 +1002,7 @@ fn update_with_from() {
 
 #[test]
 fn update_with_expression() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE counters (key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0)",
@@ -1065,8 +1047,8 @@ fn update_with_expression() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let value: i32 = client
@@ -1078,7 +1060,7 @@ fn update_with_expression() {
 
 #[test]
 fn update_with_alias() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -1117,8 +1099,8 @@ fn update_with_alias() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let name: String = client
@@ -1134,7 +1116,7 @@ fn update_with_alias() {
 
 #[test]
 fn delete_simple() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -1171,8 +1153,8 @@ fn delete_simple() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -1189,7 +1171,7 @@ fn delete_simple() {
 
 #[test]
 fn delete_no_where() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -1217,8 +1199,8 @@ fn delete_no_where() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -1230,7 +1212,7 @@ fn delete_no_where() {
 
 #[test]
 fn delete_with_returning() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE)",
@@ -1270,8 +1252,8 @@ fn delete_with_returning() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
 
@@ -1284,7 +1266,7 @@ fn delete_with_returning() {
 
 #[test]
 fn delete_only() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE events (id SERIAL PRIMARY KEY, status TEXT NOT NULL DEFAULT 'active')",
@@ -1315,8 +1297,8 @@ fn delete_only() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     // Parent rows deleted
@@ -1338,7 +1320,7 @@ fn delete_only() {
 fn delete_with_using() {
     use qcraft_core::ast::query::TableSource;
 
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -1392,8 +1374,8 @@ fn delete_with_using() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -1405,7 +1387,7 @@ fn delete_with_using() {
 
 #[test]
 fn delete_with_alias() {
-    let (_node, mut client) = connect();
+    let mut client = crate::test_client("template0");
     client
         .execute(
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
@@ -1442,8 +1424,8 @@ fn delete_with_alias() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client

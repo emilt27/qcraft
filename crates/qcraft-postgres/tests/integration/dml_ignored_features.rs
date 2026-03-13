@@ -1,13 +1,6 @@
 //! Tests that verify PostgreSQL renderer silently ignores SQLite/MySQL-specific DML features
 //! while still producing valid, executable SQL.
 
-mod common;
-
-use postgres::{Client, NoTls};
-use testcontainers::ImageExt;
-use testcontainers::runners::SyncRunner;
-use testcontainers_modules::postgres::Postgres;
-
 use qcraft_core::ast::common::{OrderByDef, OrderDir, SchemaRef};
 use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use qcraft_core::ast::dml::*;
@@ -20,27 +13,13 @@ fn render(stmt: &MutationStmt) -> (String, Vec<Value>) {
     renderer.render_mutation_stmt(stmt).unwrap()
 }
 
-fn connect() -> (impl std::any::Any, Client) {
-    let node = Postgres::default().with_tag("16-alpine").start().unwrap();
-    let conn_str = format!(
-        "host={} port={} user=postgres password=postgres dbname=postgres",
-        node.get_host().unwrap(),
-        node.get_host_port_ipv4(5432).unwrap(),
-    );
-    let client = Client::connect(&conn_str, NoTls).unwrap();
-    (node, client)
-}
-
 // ==========================================================================
 // INSERT — ignored SQLite/MySQL features
 // ==========================================================================
 
 #[test]
 fn insert_conflict_resolution_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
 
     let stmt = MutationStmt::Insert(InsertStmt {
         table: SchemaRef::new("t"),
@@ -55,8 +34,8 @@ fn insert_conflict_resolution_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let val: String = client.query_one("SELECT val FROM t", &[]).unwrap().get(0);
@@ -65,10 +44,7 @@ fn insert_conflict_resolution_ignored() {
 
 #[test]
 fn insert_partition_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
 
     let stmt = MutationStmt::Insert(InsertStmt {
         table: SchemaRef::new("t"),
@@ -83,8 +59,8 @@ fn insert_partition_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -96,10 +72,7 @@ fn insert_partition_ignored() {
 
 #[test]
 fn insert_ignore_flag_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
 
     let stmt = MutationStmt::Insert(InsertStmt {
         table: SchemaRef::new("t"),
@@ -114,8 +87,8 @@ fn insert_ignore_flag_ignored() {
         ignore: true,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -131,10 +104,7 @@ fn insert_ignore_flag_ignored() {
 
 #[test]
 fn update_conflict_resolution_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
     client
         .execute("INSERT INTO t (val) VALUES ('old')", &[])
         .unwrap();
@@ -167,8 +137,8 @@ fn update_conflict_resolution_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let val: String = client
@@ -180,10 +150,7 @@ fn update_conflict_resolution_ignored() {
 
 #[test]
 fn update_order_by_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
     client
         .execute("INSERT INTO t (val) VALUES ('a'), ('b')", &[])
         .unwrap();
@@ -211,8 +178,8 @@ fn update_order_by_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -224,10 +191,7 @@ fn update_order_by_ignored() {
 
 #[test]
 fn update_limit_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
     client
         .execute("INSERT INTO t (val) VALUES ('a'), ('b')", &[])
         .unwrap();
@@ -248,8 +212,8 @@ fn update_limit_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -261,10 +225,7 @@ fn update_limit_ignored() {
 
 #[test]
 fn update_partition_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
     client
         .execute("INSERT INTO t (val) VALUES ('old')", &[])
         .unwrap();
@@ -285,8 +246,8 @@ fn update_partition_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let val: String = client.query_one("SELECT val FROM t", &[]).unwrap().get(0);
@@ -295,10 +256,7 @@ fn update_partition_ignored() {
 
 #[test]
 fn update_ignore_flag_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
     client
         .execute("INSERT INTO t (val) VALUES ('old')", &[])
         .unwrap();
@@ -319,8 +277,8 @@ fn update_ignore_flag_ignored() {
         ignore: true,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let val: String = client.query_one("SELECT val FROM t", &[]).unwrap().get(0);
@@ -333,10 +291,7 @@ fn update_ignore_flag_ignored() {
 
 #[test]
 fn delete_order_by_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
     client
         .execute("INSERT INTO t (val) VALUES ('a'), ('b')", &[])
         .unwrap();
@@ -362,8 +317,8 @@ fn delete_order_by_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -375,10 +330,7 @@ fn delete_order_by_ignored() {
 
 #[test]
 fn delete_limit_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
     client
         .execute("INSERT INTO t (val) VALUES ('a'), ('b')", &[])
         .unwrap();
@@ -397,8 +349,8 @@ fn delete_limit_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -410,10 +362,7 @@ fn delete_limit_ignored() {
 
 #[test]
 fn delete_partition_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
     client
         .execute("INSERT INTO t (val) VALUES ('a')", &[])
         .unwrap();
@@ -432,8 +381,8 @@ fn delete_partition_ignored() {
         ignore: false,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
@@ -445,10 +394,7 @@ fn delete_partition_ignored() {
 
 #[test]
 fn delete_ignore_flag_ignored() {
-    let (_node, mut client) = connect();
-    client
-        .execute("CREATE TABLE t (id SERIAL PRIMARY KEY, val TEXT)", &[])
-        .unwrap();
+    let mut client = crate::test_client("template_dml_ign");
     client
         .execute("INSERT INTO t (val) VALUES ('a')", &[])
         .unwrap();
@@ -467,8 +413,8 @@ fn delete_ignore_flag_ignored() {
         ignore: true,
     });
     let (sql, values) = render(&stmt);
-    let boxed = common::to_pg_params(&values);
-    let params = common::as_pg_params(&boxed);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
     client.execute(&sql, &params).unwrap();
 
     let count: i64 = client
