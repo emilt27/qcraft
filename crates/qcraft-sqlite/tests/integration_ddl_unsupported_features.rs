@@ -250,6 +250,6 @@ fn truncate_restart_identity_ignored() {
         restart_identity: true,
         cascade: true,
     };
-    let (sql, _) = renderer.render_schema_stmt(&stmt).unwrap();
-    assert_eq!(sql, r#"DELETE FROM "t""#);
+    let stmts = renderer.render_schema_stmt(&stmt).unwrap();
+    assert_eq!(stmts[0].0, r#"DELETE FROM "t""#);
 }

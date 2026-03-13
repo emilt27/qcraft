@@ -108,7 +108,7 @@ The results above were collected on:
 
 - **CPU**: Apple Silicon
 - **Rust**: 1.85 (edition 2024)
-- **qcraft**: 1.0.0
+- **qcraft**: 2.0.0
 - **sea-query**: 0.32.7
 - **criterion**: 0.5.1
 
