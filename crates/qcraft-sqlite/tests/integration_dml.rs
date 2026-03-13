@@ -9,7 +9,7 @@ use qcraft_core::ast::query::SelectColumn;
 use qcraft_core::ast::value::Value;
 use qcraft_sqlite::SqliteRenderer;
 use rusqlite::Connection;
-use rusqlite::types::ToSql as RusqliteToSql;
+mod common;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -20,32 +20,6 @@ fn conn() -> Connection {
 fn render(stmt: &MutationStmt) -> (String, Vec<Value>) {
     let renderer = SqliteRenderer::new();
     renderer.render_mutation_stmt(stmt).unwrap()
-}
-
-fn to_sqlite_params(values: &[Value]) -> Vec<Box<dyn RusqliteToSql>> {
-    values
-        .iter()
-        .map(|v| -> Box<dyn RusqliteToSql> {
-            match v {
-                Value::Null => Box::new(rusqlite::types::Null),
-                Value::Bool(b) => Box::new(*b),
-                Value::Int(n) => Box::new(*n),
-                Value::Float(f) => Box::new(*f),
-                Value::Str(s) => Box::new(s.clone()),
-                Value::Bytes(b) => Box::new(b.clone()),
-                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
-                Value::Decimal(s) => Box::new(s.clone()),
-                Value::Uuid(s) => Box::new(s.clone()),
-                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
-                Value::IpNetwork(s) => Box::new(s.clone()),
-                _ => Box::new(format!("{:?}", v)),
-            }
-        })
-        .collect()
-}
-
-fn as_sqlite_params(boxed: &[Box<dyn RusqliteToSql>]) -> Vec<&dyn RusqliteToSql> {
-    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn setup_users(conn: &Connection) {
@@ -89,8 +63,8 @@ fn insert_single_row() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let (name, email): (String, String) = c
@@ -132,8 +106,8 @@ fn insert_multi_row() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 2);
 }
@@ -161,8 +135,8 @@ fn insert_default_values() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let val: i64 = c
@@ -193,8 +167,8 @@ fn insert_returning_star() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let (id, name, email): (i64, String, String) = c
         .query_row(&sql, params.as_slice(), |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -236,8 +210,8 @@ fn insert_returning_columns() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let (id, name): (i64, String) = c
         .query_row(&sql, params.as_slice(), |row| {
             Ok((row.get(0)?, row.get(1)?))
@@ -278,8 +252,8 @@ fn insert_or_replace() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
@@ -320,8 +294,8 @@ fn insert_or_ignore() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     // First row should remain unchanged
@@ -372,8 +346,8 @@ fn insert_or_abort() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let result = c.execute(&sql, params.as_slice());
     assert!(result.is_err(), "expected conflict error");
 
@@ -423,8 +397,8 @@ fn insert_on_conflict_do_nothing() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     // Original row stays
@@ -482,8 +456,8 @@ fn insert_on_conflict_do_update() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
@@ -520,8 +494,8 @@ fn insert_on_conflict_catch_all() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     // Original row stays, no error
@@ -550,8 +524,8 @@ fn insert_with_namespace() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 1);
 }
@@ -579,8 +553,8 @@ fn insert_bool_as_integer() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let val: i64 = c
@@ -632,8 +606,8 @@ fn update_simple() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let name: String = c
@@ -689,8 +663,8 @@ fn update_multiple_assignments() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let (name, email): (String, String) = c
@@ -731,8 +705,8 @@ fn update_no_where() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let names: Vec<String> = {
@@ -785,8 +759,8 @@ fn update_with_returning() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let (id, name, email): (i64, String, String) = c
         .query_row(&sql, params.as_slice(), |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -841,8 +815,8 @@ fn update_or_replace() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     // Only one row should remain with key='a', value='beta'
@@ -938,8 +912,8 @@ fn update_with_expression() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
 
     let val: i64 = c
@@ -993,8 +967,8 @@ fn delete_simple() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 1);
 
@@ -1029,8 +1003,8 @@ fn delete_no_where() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     c.execute(&sql, params.as_slice()).unwrap();
     assert_eq!(count_rows(&c, "users"), 0);
 }
@@ -1072,8 +1046,8 @@ fn delete_with_returning() {
     });
 
     let (sql, values) = render(&stmt);
-    let boxed = to_sqlite_params(&values);
-    let params = as_sqlite_params(&boxed);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
     let (id, name, email): (i64, String, String) = c
         .query_row(&sql, params.as_slice(), |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))

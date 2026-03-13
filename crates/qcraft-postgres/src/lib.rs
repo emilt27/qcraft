@@ -644,7 +644,6 @@ impl Renderer for PostgresRenderer {
                 name,
                 columns,
                 include,
-                autoincrement: _, // SQLite-specific — Ignore
             } => {
                 if let Some(n) = name {
                     ctx.keyword("CONSTRAINT").ident(n);
@@ -872,7 +871,7 @@ impl Renderer for PostgresRenderer {
             Expr::Window(win) => self.render_window(win, ctx),
 
             Expr::Exists(query) => {
-                ctx.keyword("EXISTS").paren_open();
+                ctx.keyword("EXISTS").write("(");
                 self.render_query(query, ctx)?;
                 ctx.paren_close();
                 Ok(())
@@ -898,10 +897,92 @@ impl Renderer for PostgresRenderer {
                 Ok(())
             }
 
+            Expr::JsonArray(items) => {
+                ctx.keyword("jsonb_build_array").write("(");
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        ctx.comma();
+                    }
+                    self.render_expr(item, ctx)?;
+                }
+                ctx.paren_close();
+                Ok(())
+            }
+
+            Expr::JsonObject(pairs) => {
+                ctx.keyword("jsonb_build_object").write("(");
+                for (i, (key, val)) in pairs.iter().enumerate() {
+                    if i > 0 {
+                        ctx.comma();
+                    }
+                    ctx.string_literal(key).comma();
+                    self.render_expr(val, ctx)?;
+                }
+                ctx.paren_close();
+                Ok(())
+            }
+
+            Expr::JsonAgg {
+                expr,
+                distinct,
+                filter,
+                order_by,
+            } => {
+                ctx.keyword("jsonb_agg").write("(");
+                if *distinct {
+                    ctx.keyword("DISTINCT");
+                }
+                self.render_expr(expr, ctx)?;
+                if let Some(ob) = order_by {
+                    ctx.keyword("ORDER BY");
+                    self.pg_order_by_list(ob, ctx)?;
+                }
+                ctx.paren_close();
+                if let Some(f) = filter {
+                    ctx.keyword("FILTER").paren_open().keyword("WHERE");
+                    self.render_condition(f, ctx)?;
+                    ctx.paren_close();
+                }
+                Ok(())
+            }
+
+            Expr::StringAgg {
+                expr,
+                delimiter,
+                distinct,
+                filter,
+                order_by,
+            } => {
+                ctx.keyword("string_agg").write("(");
+                if *distinct {
+                    ctx.keyword("DISTINCT");
+                }
+                self.render_expr(expr, ctx)?;
+                ctx.comma().string_literal(delimiter);
+                if let Some(ob) = order_by {
+                    ctx.keyword("ORDER BY");
+                    self.pg_order_by_list(ob, ctx)?;
+                }
+                ctx.paren_close();
+                if let Some(f) = filter {
+                    ctx.keyword("FILTER").paren_open().keyword("WHERE");
+                    self.render_condition(f, ctx)?;
+                    ctx.paren_close();
+                }
+                Ok(())
+            }
+
+            Expr::Now => {
+                ctx.keyword("now()");
+                Ok(())
+            }
+
             Expr::Raw { sql, params } => {
-                ctx.keyword(sql);
-                // Raw params are already embedded in the SQL string
-                let _ = params;
+                if params.is_empty() {
+                    ctx.keyword(sql);
+                } else {
+                    ctx.raw_with_params(sql, params);
+                }
                 Ok(())
             }
 
@@ -983,6 +1064,19 @@ impl Renderer for PostgresRenderer {
     // ── Conditions ───────────────────────────────────────────────────────
 
     fn render_condition(&self, cond: &Conditions, ctx: &mut RenderCtx) -> RenderResult<()> {
+        // Special case: negated + single Exists child → NOT EXISTS (...)
+        if cond.negated
+            && cond.children.len() == 1
+            && matches!(cond.children[0], ConditionNode::Exists(_))
+        {
+            if let ConditionNode::Exists(query) = &cond.children[0] {
+                ctx.keyword("NOT EXISTS").write("(");
+                self.render_query(query, ctx)?;
+                ctx.paren_close();
+                return Ok(());
+            }
+        }
+
         if cond.negated {
             ctx.keyword("NOT").paren_open();
         }
@@ -1010,7 +1104,7 @@ impl Renderer for PostgresRenderer {
                     ctx.paren_close();
                 }
                 ConditionNode::Exists(query) => {
-                    ctx.keyword("EXISTS").paren_open();
+                    ctx.keyword("EXISTS").write("(");
                     self.render_query(query, ctx)?;
                     ctx.paren_close();
                 }
@@ -1055,10 +1149,38 @@ impl Renderer for PostgresRenderer {
                 render_like_pattern(op, right, ctx)?;
                 return Ok(());
             }
-            CompareOp::In => ctx.keyword("IN"),
+            CompareOp::In => {
+                if let Expr::Value(Value::Array(items)) = right {
+                    ctx.keyword("IN").paren_open();
+                    for (i, item) in items.iter().enumerate() {
+                        if i > 0 {
+                            ctx.comma();
+                        }
+                        self.pg_value(item, ctx)?;
+                    }
+                    ctx.paren_close();
+                } else {
+                    ctx.keyword("IN");
+                    self.render_expr(right, ctx)?;
+                }
+                return Ok(());
+            }
             CompareOp::Between => {
                 ctx.keyword("BETWEEN");
-                self.render_expr(right, ctx)?;
+                if let Expr::Value(Value::Array(items)) = right {
+                    if items.len() == 2 {
+                        self.pg_value(&items[0], ctx)?;
+                        ctx.keyword("AND");
+                        self.pg_value(&items[1], ctx)?;
+                    } else {
+                        return Err(RenderError::unsupported(
+                            "Between",
+                            "BETWEEN requires exactly 2 values",
+                        ));
+                    }
+                } else {
+                    self.render_expr(right, ctx)?;
+                }
                 return Ok(());
             }
             CompareOp::IsNull => {
@@ -1071,8 +1193,18 @@ impl Renderer for PostgresRenderer {
             CompareOp::JsonbContains => ctx.write(" @> "),
             CompareOp::JsonbContainedBy => ctx.write(" <@ "),
             CompareOp::JsonbHasKey => ctx.write(" ? "),
-            CompareOp::JsonbHasAnyKey => ctx.write(" ?| "),
-            CompareOp::JsonbHasAllKeys => ctx.write(" ?& "),
+            CompareOp::JsonbHasAnyKey => {
+                ctx.write(" ?| ");
+                self.render_expr(right, ctx)?;
+                ctx.write("::text[]");
+                return Ok(());
+            }
+            CompareOp::JsonbHasAllKeys => {
+                ctx.write(" ?& ");
+                self.render_expr(right, ctx)?;
+                ctx.write("::text[]");
+                return Ok(());
+            }
             CompareOp::FtsMatch => ctx.write(" @@ "),
             CompareOp::TrigramSimilar => {
                 if self.param_style == ParamStyle::Percent {
@@ -1325,16 +1457,18 @@ impl Renderer for PostgresRenderer {
                 JoinType::OuterApply => "LEFT JOIN LATERAL",
             });
             self.pg_render_from_item(&join.source, ctx)?;
-            if let Some(condition) = &join.condition {
-                match condition {
-                    JoinCondition::On(cond) => {
-                        ctx.keyword("ON");
-                        self.render_condition(cond, ctx)?;
-                    }
-                    JoinCondition::Using(cols) => {
-                        ctx.keyword("USING").paren_open();
-                        self.pg_comma_idents(cols, ctx);
-                        ctx.paren_close();
+            if !matches!(join.join_type, JoinType::Cross) {
+                if let Some(condition) = &join.condition {
+                    match condition {
+                        JoinCondition::On(cond) => {
+                            ctx.keyword("ON");
+                            self.render_condition(cond, ctx)?;
+                        }
+                        JoinCondition::Using(cols) => {
+                            ctx.keyword("USING").paren_open();
+                            self.pg_comma_idents(cols, ctx);
+                            ctx.paren_close();
+                        }
                     }
                 }
             }
@@ -1356,7 +1490,12 @@ impl Renderer for PostgresRenderer {
     fn render_limit(&self, limit: &LimitDef, ctx: &mut RenderCtx) -> RenderResult<()> {
         match &limit.kind {
             LimitKind::Limit(n) => {
-                ctx.keyword("LIMIT").space().write(&n.to_string());
+                ctx.keyword("LIMIT");
+                if ctx.parameterize() {
+                    ctx.param(Value::BigInt(*n as i64));
+                } else {
+                    ctx.space().write(&n.to_string());
+                }
             }
             LimitKind::FetchFirst {
                 count,
@@ -1384,11 +1523,21 @@ impl Renderer for PostgresRenderer {
             }
             LimitKind::Top { count, .. } => {
                 // PG doesn't support TOP, convert to LIMIT
-                ctx.keyword("LIMIT").space().write(&count.to_string());
+                ctx.keyword("LIMIT");
+                if ctx.parameterize() {
+                    ctx.param(Value::BigInt(*count as i64));
+                } else {
+                    ctx.space().write(&count.to_string());
+                }
             }
         }
         if let Some(offset) = limit.offset {
-            ctx.keyword("OFFSET").space().write(&offset.to_string());
+            ctx.keyword("OFFSET");
+            if ctx.parameterize() {
+                ctx.param(Value::BigInt(offset as i64));
+            } else {
+                ctx.space().write(&offset.to_string());
+            }
         }
         Ok(())
     }
@@ -1893,9 +2042,19 @@ impl PostgresRenderer {
     }
 
     fn pg_field_ref(&self, field_ref: &FieldRef, ctx: &mut RenderCtx) {
+        if let Some(ns) = &field_ref.namespace {
+            ctx.ident(ns).operator(".");
+        }
         ctx.ident(&field_ref.table_name)
             .operator(".")
             .ident(&field_ref.field.name);
+        let mut child = &field_ref.field.child;
+        while let Some(c) = child {
+            ctx.operator("->'")
+                .write(&c.name.replace('\'', "''"))
+                .write("'");
+            child = &c.child;
+        }
     }
 
     fn pg_comma_idents(&self, names: &[String], ctx: &mut RenderCtx) {
@@ -1908,8 +2067,11 @@ impl PostgresRenderer {
     }
 
     fn pg_value(&self, val: &Value, ctx: &mut RenderCtx) -> RenderResult<()> {
-        // NULL is always rendered as keyword, never as parameter.
-        if matches!(val, Value::Null) {
+        // In parameterized mode, NULL goes as a bind parameter (drivers handle
+        // it correctly via the extended query protocol). Only IS NULL
+        // comparisons need the keyword — that path is handled separately in
+        // render_compare_op.
+        if matches!(val, Value::Null) && !ctx.parameterize() {
             ctx.keyword("NULL");
             return Ok(());
         }
@@ -1934,7 +2096,7 @@ impl PostgresRenderer {
             Value::Bool(b) => {
                 ctx.keyword(if *b { "TRUE" } else { "FALSE" });
             }
-            Value::Int(n) => {
+            Value::Int(n) | Value::BigInt(n) => {
                 ctx.keyword(&n.to_string());
             }
             Value::Float(f) => {
@@ -2367,6 +2529,35 @@ impl PostgresRenderer {
         // TABLESPACE
         if let Some(ts) = tablespace {
             ctx.keyword("TABLESPACE").ident(ts);
+        }
+
+        // Partial unique constraints → separate CREATE UNIQUE INDEX statements
+        if let Some(constraints) = &schema.constraints {
+            for constraint in constraints {
+                if let ConstraintDef::Unique {
+                    name,
+                    columns,
+                    condition: Some(cond),
+                    ..
+                } = constraint
+                {
+                    ctx.write(";");
+                    ctx.keyword("CREATE UNIQUE INDEX");
+                    if let Some(n) = name {
+                        ctx.ident(n);
+                    }
+                    ctx.keyword("ON");
+                    if let Some(ns) = &schema.namespace {
+                        ctx.ident(ns).operator(".");
+                    }
+                    ctx.ident(&schema.name);
+                    ctx.paren_open();
+                    self.pg_comma_idents(columns, ctx);
+                    ctx.paren_close();
+                    ctx.keyword("WHERE");
+                    self.render_condition(cond, ctx)?;
+                }
+            }
         }
 
         Ok(())

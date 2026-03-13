@@ -72,6 +72,50 @@ let stmt = QueryStmt {
 SELECT "u"."id", "u"."name" FROM "users" AS "u"
 ```
 
+### Field with schema namespace
+
+```rust
+SelectColumn::Field {
+    field: FieldRef {
+        field: FieldDef::new("id"),
+        table_name: "users".into(),
+        namespace: Some("public".into()),
+    },
+    alias: None,
+}
+```
+
+```sql
+"public"."users"."id"
+```
+
+### JSON path access (FieldDef child)
+
+`FieldDef.child` chains produce `->` operators for JSON traversal:
+
+```rust
+SelectColumn::Field {
+    field: FieldRef {
+        field: FieldDef {
+            name: "data".into(),
+            child: Some(Box::new(FieldDef {
+                name: "address".into(),
+                child: Some(Box::new(FieldDef::new("city"))),
+            })),
+        },
+        table_name: "users".into(),
+        namespace: None,
+    },
+    alias: None,
+}
+```
+
+```sql
+"users"."data"->'address'->'city'
+```
+
+> All child levels use `->` (returns JSON). For text extraction, wrap with `Expr::cast(expr, "text")` to get `->>` equivalent behavior.
+
 ### SELECT with alias
 
 ```rust
@@ -349,6 +393,26 @@ Conditions::iends_with(FieldRef::new("users", "name"), "ICE")
 LOWER("users"."name") LIKE LOWER(?) ESCAPE '\'
 ```
 
+### IN (values)
+
+```rust
+Conditions::and(vec![ConditionNode::Comparison(Box::new(Comparison::new(
+    Expr::Field(FieldRef::new("users", "status")),
+    CompareOp::In,
+    Expr::Value(Value::Array(vec![
+        Value::Str("active".into()),
+        Value::Str("pending".into()),
+    ])),
+)))])
+```
+
+```sql
+"users"."status" IN ($1, $2)
+-- params: [Str("active"), Str("pending")]
+```
+
+> When the right side is `Value::Array`, the renderer expands it into separate parameters.
+
 ### IN (subquery)
 
 ```rust
@@ -363,6 +427,23 @@ Conditions::in_subquery(FieldRef::new("users", "id"), sub)
 ```sql
 "users"."id" IN (SELECT "orders"."user_id" FROM "orders")
 ```
+
+### BETWEEN
+
+```rust
+Conditions::and(vec![ConditionNode::Comparison(Box::new(Comparison::new(
+    Expr::Field(FieldRef::new("users", "age")),
+    CompareOp::Between,
+    Expr::Value(Value::Array(vec![Value::Int(18), Value::Int(65)])),
+)))])
+```
+
+```sql
+"users"."age" BETWEEN $1 AND $2
+-- params: [Int(18), Int(65)]
+```
+
+> Pass exactly 2 values in the array. The renderer expands them into `BETWEEN $1 AND $2`.
 
 ### Combining: AND
 
@@ -427,7 +508,18 @@ ConditionNode::Exists(Box::new(subquery))
 ```
 
 ```sql
-EXISTS (SELECT ...)
+EXISTS(SELECT ...)
+```
+
+### NOT EXISTS
+
+```rust
+ConditionNode::Exists(Box::new(subquery))
+// Use inside Conditions with negated: true
+```
+
+```sql
+NOT EXISTS(SELECT ...)
 ```
 
 ---
@@ -507,6 +599,8 @@ JoinDef::cross(FromItem::table(SchemaRef::new("colors")))
 ```sql
 CROSS JOIN "colors"
 ```
+
+> Any join condition provided on a `CROSS JOIN` is silently ignored, since `CROSS JOIN ... ON` is a syntax error in both PostgreSQL and SQLite.
 
 ### JOIN USING
 
@@ -758,8 +852,11 @@ LimitDef::limit(10)
 ```
 
 ```sql
-LIMIT 10
+LIMIT $1
+-- params: [BigInt(10)]
 ```
+
+> LIMIT and OFFSET values are parameterized as `Value::BigInt` (PG `int8`) in query mode. In DDL/literal mode they render as inline numbers.
 
 ### LIMIT with OFFSET
 
@@ -768,7 +865,8 @@ LimitDef::limit_offset(10, 20)
 ```
 
 ```sql
-LIMIT 10 OFFSET 20
+LIMIT $1 OFFSET $2
+-- params: [BigInt(10), BigInt(20)]
 ```
 
 ### FETCH FIRST (PG)
@@ -829,10 +927,8 @@ LimitDef::top(5)
 ```
 
 ```sql
--- PG renders as:
-LIMIT 5
--- SQLite renders as:
-LIMIT 5
+LIMIT $1
+-- params: [BigInt(5)]
 ```
 
 ---
@@ -1358,6 +1454,6 @@ WHERE "u"."active" = $1
 GROUP BY "u"."name"
 HAVING COUNT("o"."id") > $2
 ORDER BY "u"."name" ASC
-LIMIT 10 OFFSET 0
--- params: [Bool(true), Int(0)]
+LIMIT $3 OFFSET $4
+-- params: [Bool(true), Int(0), BigInt(10), BigInt(0)]
 ```

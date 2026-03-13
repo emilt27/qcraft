@@ -12,7 +12,7 @@ use testcontainers::ImageExt;
 use testcontainers::runners::SyncRunner;
 use testcontainers_modules::postgres::Postgres;
 
-use postgres::types::ToSql;
+mod common;
 
 use qcraft_core::ast::common::*;
 use qcraft_core::ast::conditions::*;
@@ -24,35 +24,6 @@ use qcraft_postgres::PostgresRenderer;
 fn render(stmt: &QueryStmt) -> (String, Vec<Value>) {
     let renderer = PostgresRenderer::new();
     renderer.render_query_stmt(stmt).unwrap()
-}
-
-fn to_pg_params(values: &[Value]) -> Vec<Box<dyn ToSql + Sync>> {
-    values
-        .iter()
-        .map(|v| -> Box<dyn ToSql + Sync> {
-            match v {
-                Value::Null => Box::new(Option::<String>::None),
-                Value::Bool(b) => Box::new(*b),
-                Value::Int(n) => match i32::try_from(*n) {
-                    Ok(i) => Box::new(i),
-                    Err(_) => Box::new(*n),
-                },
-                Value::Float(f) => Box::new(*f),
-                Value::Str(s) => Box::new(s.clone()),
-                Value::Bytes(b) => Box::new(b.clone()),
-                Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
-                Value::Decimal(s) => Box::new(s.clone()),
-                Value::Uuid(s) => Box::new(s.clone()),
-                Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
-                Value::IpNetwork(s) => Box::new(s.clone()),
-                _ => Box::new(format!("{:?}", v)),
-            }
-        })
-        .collect()
-}
-
-fn as_pg_params(boxed: &[Box<dyn ToSql + Sync>]) -> Vec<&(dyn ToSql + Sync)> {
-    boxed.iter().map(|b| b.as_ref()).collect()
 }
 
 fn simple_query() -> QueryStmt {
@@ -196,8 +167,8 @@ fn select_star() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
@@ -225,8 +196,8 @@ fn select_columns() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].get::<_, i32>(0), 1);
@@ -252,8 +223,8 @@ fn select_with_alias() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].get::<_, String>(0), "Alice");
@@ -274,8 +245,8 @@ fn select_expr() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, i64>(0), 5);
@@ -292,8 +263,8 @@ fn select_table_star() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
@@ -309,8 +280,8 @@ fn select_no_from() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, i32>(0), 1);
@@ -329,8 +300,8 @@ fn select_distinct() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
 }
@@ -360,8 +331,8 @@ fn select_distinct_on() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 2 departments → 2 rows (first row per department)
     assert_eq!(rows.len(), 2);
@@ -382,8 +353,8 @@ fn from_with_schema() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
@@ -404,8 +375,8 @@ fn from_multiple_tables() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Same as inner join: 5 matching order rows
     assert_eq!(rows.len(), 5);
@@ -433,8 +404,8 @@ fn from_subquery() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 4);
 }
@@ -457,8 +428,8 @@ fn from_function() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
@@ -484,8 +455,8 @@ fn from_values() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].get::<_, i32>(0), 1);
@@ -506,8 +477,8 @@ fn from_only() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     // ONLY on non-inherited table just returns the same rows
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
@@ -531,8 +502,8 @@ fn from_tablesample() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // BERNOULLI(100) should return all rows
     assert_eq!(rows.len(), 5);
@@ -559,8 +530,8 @@ fn where_simple() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 4);
 }
@@ -588,8 +559,8 @@ fn where_and() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Alice, Bob, Eve are engineering + active
     assert_eq!(rows.len(), 3);
@@ -618,8 +589,8 @@ fn where_or() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
@@ -641,8 +612,8 @@ fn where_comparison() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Alice (30), Charlie (35)
     assert_eq!(rows.len(), 2);
@@ -665,8 +636,8 @@ fn where_is_null() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Eve has NULL age
     assert_eq!(rows.len(), 1);
@@ -690,8 +661,8 @@ fn where_like() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(1), "Alice");
@@ -719,8 +690,8 @@ fn where_contains_filters_correctly() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
     assert_eq!(names, vec!["Alice", "Charlie"]);
@@ -742,8 +713,8 @@ fn where_starts_with_filters_correctly() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Alice");
@@ -762,8 +733,8 @@ fn where_ends_with_filters_correctly() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Bob");
@@ -785,8 +756,8 @@ fn where_icontains_case_insensitive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Alice");
@@ -808,8 +779,8 @@ fn where_istarts_with_case_insensitive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Alice");
@@ -831,8 +802,8 @@ fn where_iends_with_case_insensitive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Bob");
@@ -866,8 +837,8 @@ fn where_contains_escapes_percent_in_db() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
     assert_eq!(names, vec!["50% off"]);
@@ -903,8 +874,8 @@ fn where_contains_escapes_underscore_in_db() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
     assert_eq!(names, vec!["user_admin"]);
@@ -926,8 +897,8 @@ fn where_contains_no_match() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 0);
 }
@@ -952,8 +923,8 @@ fn where_between() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Bob (25), Diana (28), Alice (30)
     assert_eq!(rows.len(), 3);
@@ -979,8 +950,8 @@ fn where_in_list() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Alice, Bob, Eve
     assert_eq!(rows.len(), 3);
@@ -1004,8 +975,8 @@ fn where_negated() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // NOT (active = FALSE) → 4 rows (all except Charlie)
     assert_eq!(rows.len(), 4);
@@ -1035,8 +1006,8 @@ fn inner_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
@@ -1079,8 +1050,8 @@ fn left_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 5 orders + Charlie (no orders) + Eve (no orders) = 7
     assert_eq!(rows.len(), 7);
@@ -1112,8 +1083,8 @@ fn right_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // All users appear; users without orders get NULLs for order cols
     assert_eq!(rows.len(), 7);
@@ -1139,8 +1110,8 @@ fn full_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // All matched + unmatched from both sides = 7
     assert_eq!(rows.len(), 7);
@@ -1163,8 +1134,8 @@ fn cross_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 5 users * 4 products = 20
     assert_eq!(rows.len(), 20);
@@ -1201,8 +1172,8 @@ fn natural_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Both produce key=1, NATURAL JOIN matches → 1 row
     assert_eq!(rows.len(), 1);
@@ -1241,8 +1212,8 @@ fn join_using() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
@@ -1303,8 +1274,8 @@ fn lateral_join() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // All 5 users appear (LEFT JOIN), some with NULL product
     assert_eq!(rows.len(), 5);
@@ -1344,8 +1315,8 @@ fn group_by_simple() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].get::<_, String>(0), "engineering");
@@ -1390,8 +1361,8 @@ fn group_by_having() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Only engineering has > 2 users
     assert_eq!(rows.len(), 1);
@@ -1423,8 +1394,8 @@ fn group_by_rollup() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 2 departments + 1 totals row = 3
     assert_eq!(rows.len(), 3);
@@ -1455,8 +1426,8 @@ fn group_by_cube() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // CUBE on single column = same as ROLLUP: 2 + 1 = 3
     assert_eq!(rows.len(), 3);
@@ -1487,8 +1458,8 @@ fn group_by_grouping_sets() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 2 department groups + 1 grand total = 3
     assert_eq!(rows.len(), 3);
@@ -1515,8 +1486,8 @@ fn order_by_asc() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows[0].get::<_, String>(0), "Alice");
 }
@@ -1538,8 +1509,8 @@ fn order_by_desc() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows[0].get::<_, String>(0), "Eve");
 }
@@ -1561,8 +1532,8 @@ fn order_by_nulls_first() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Eve's age is NULL → first
     assert!(rows[0].get::<_, Option<i32>>(0).is_none());
@@ -1585,8 +1556,8 @@ fn order_by_nulls_last() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Eve's NULL age → last
     assert!(rows[4].get::<_, Option<i32>>(0).is_none());
@@ -1610,8 +1581,8 @@ fn limit_only() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
 }
@@ -1637,8 +1608,8 @@ fn limit_offset() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 2);
     // ids 3 and 4 (offset 2 skips 1, 2)
@@ -1663,8 +1634,8 @@ fn fetch_first_rows_only() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 3);
 }
@@ -1694,8 +1665,8 @@ fn fetch_first_with_ties() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // First 3 are engineering, but the 3rd ties with others in engineering → 3 rows
     assert!(rows.len() >= 3);
@@ -1734,8 +1705,8 @@ fn cte_simple() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 4);
 }
@@ -1771,8 +1742,8 @@ fn cte_recursive() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     assert!(sql.contains("WITH RECURSIVE"));
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
@@ -1799,8 +1770,8 @@ fn cte_materialized() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
 }
@@ -1844,8 +1815,8 @@ fn union_all() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // 5 + 5 = 10
     assert_eq!(rows.len(), 10);
@@ -1886,8 +1857,8 @@ fn union_distinct() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Deduplicated: 5 unique names
     assert_eq!(rows.len(), 5);
@@ -1936,8 +1907,8 @@ fn intersect() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Intersection: engineering users = 3
     assert_eq!(rows.len(), 3);
@@ -1986,8 +1957,8 @@ fn except() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // All names minus engineering names = sales names = 2
     assert_eq!(rows.len(), 2);
@@ -2032,8 +2003,8 @@ fn window_row_number() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].get::<_, i64>(1), 1);
@@ -2079,8 +2050,8 @@ fn window_partition_by() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
     // First engineering user (Alice, id=1) should have rn=1
@@ -2126,8 +2097,8 @@ fn window_named() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].get::<_, i64>(1), 1);
@@ -2154,8 +2125,8 @@ fn for_update() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     // FOR UPDATE must be inside a transaction
     client.batch_execute("BEGIN").unwrap();
     let rows = client.query(&sql, &params).unwrap();
@@ -2179,8 +2150,8 @@ fn for_share() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     client.batch_execute("BEGIN").unwrap();
     let rows = client.query(&sql, &params).unwrap();
     client.batch_execute("COMMIT").unwrap();
@@ -2203,8 +2174,8 @@ fn for_update_nowait() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     assert!(sql.contains("FOR UPDATE NOWAIT"));
     client.batch_execute("BEGIN").unwrap();
     let rows = client.query(&sql, &params).unwrap();
@@ -2228,8 +2199,8 @@ fn for_update_skip_locked() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     assert!(sql.contains("FOR UPDATE SKIP LOCKED"));
     client.batch_execute("BEGIN").unwrap();
     let rows = client.query(&sql, &params).unwrap();
@@ -2327,8 +2298,8 @@ fn full_pipeline() {
         lock: None,
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     // Active users with orders: Alice (2 orders), Bob (1), Diana (2)
     assert_eq!(rows.len(), 3);
@@ -2384,8 +2355,8 @@ fn collate_c_order_by() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
     // C collation: 'A' (65) < 'a' (97) — uppercase first
@@ -2419,8 +2390,8 @@ fn collate_in_where_comparison() {
         ..simple_query()
     };
     let (sql, values) = render(&stmt);
-    let boxed = to_pg_params(&values);
-    let params = as_pg_params(&boxed);
+    let boxed = common::to_pg_params(&values);
+    let params = common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
     let names: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
     // With "C" collation, only names < 'D' in byte order:

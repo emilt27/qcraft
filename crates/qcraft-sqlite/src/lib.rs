@@ -297,13 +297,8 @@ impl Renderer for SqliteRenderer {
             self.render_expr(default, ctx)?;
         }
 
-        // SQLite doesn't support IDENTITY — use INTEGER PRIMARY KEY AUTOINCREMENT instead
-        if col.identity.is_some() {
-            return Err(RenderError::unsupported(
-                "IdentityColumn",
-                "SQLite does not support GENERATED AS IDENTITY. Use INTEGER PRIMARY KEY AUTOINCREMENT.",
-            ));
-        }
+        // Identity is handled at CREATE TABLE level (rendered as PRIMARY KEY AUTOINCREMENT inline)
+        // Nothing to render here — just skip
 
         if let Some(generated) = &col.generated {
             ctx.keyword("GENERATED ALWAYS AS").space().paren_open();
@@ -362,7 +357,6 @@ impl Renderer for SqliteRenderer {
                 name,
                 columns,
                 include: _, // SQLite doesn't support INCLUDE — Ignore
-                autoincrement,
             } => {
                 if let Some(n) = name {
                     ctx.keyword("CONSTRAINT").ident(n);
@@ -370,9 +364,6 @@ impl Renderer for SqliteRenderer {
                 ctx.keyword("PRIMARY KEY").paren_open();
                 self.sqlite_comma_idents(columns, ctx);
                 ctx.paren_close();
-                if *autoincrement {
-                    ctx.keyword("AUTOINCREMENT");
-                }
             }
 
             ConstraintDef::ForeignKey {
@@ -528,10 +519,9 @@ impl Renderer for SqliteRenderer {
                 expr: inner,
                 to_type,
             } => {
-                ctx.keyword("CAST").paren_open();
+                ctx.keyword("CAST").write("(");
                 self.render_expr(inner, ctx)?;
-                ctx.keyword("AS").keyword(to_type);
-                ctx.paren_close();
+                ctx.keyword("AS").keyword(to_type).paren_close();
                 Ok(())
             }
 
@@ -539,7 +529,7 @@ impl Renderer for SqliteRenderer {
             Expr::Window(win) => self.render_window(win, ctx),
 
             Expr::Exists(query) => {
-                ctx.keyword("EXISTS").paren_open();
+                ctx.keyword("EXISTS").write("(");
                 self.render_query(query, ctx)?;
                 ctx.paren_close();
                 Ok(())
@@ -563,9 +553,95 @@ impl Renderer for SqliteRenderer {
                 Ok(())
             }
 
+            Expr::JsonArray(items) => {
+                ctx.keyword("json_array").write("(");
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        ctx.comma();
+                    }
+                    self.render_expr(item, ctx)?;
+                }
+                ctx.paren_close();
+                Ok(())
+            }
+
+            Expr::JsonObject(pairs) => {
+                ctx.keyword("json_object").write("(");
+                for (i, (key, val)) in pairs.iter().enumerate() {
+                    if i > 0 {
+                        ctx.comma();
+                    }
+                    ctx.string_literal(key).comma();
+                    self.render_expr(val, ctx)?;
+                }
+                ctx.paren_close();
+                Ok(())
+            }
+
+            Expr::JsonAgg {
+                expr,
+                distinct,
+                filter,
+                order_by,
+            } => {
+                ctx.keyword("json_group_array").write("(");
+                if *distinct {
+                    ctx.keyword("DISTINCT");
+                }
+                self.render_expr(expr, ctx)?;
+                if let Some(ob) = order_by {
+                    ctx.keyword("ORDER BY");
+                    self.sqlite_order_by_list(ob, ctx)?;
+                }
+                ctx.paren_close();
+                if let Some(f) = filter {
+                    ctx.keyword("FILTER").paren_open().keyword("WHERE");
+                    self.render_condition(f, ctx)?;
+                    ctx.paren_close();
+                }
+                Ok(())
+            }
+
+            Expr::StringAgg {
+                expr,
+                delimiter,
+                distinct,
+                filter,
+                order_by,
+            } => {
+                ctx.keyword("group_concat").write("(");
+                if *distinct {
+                    ctx.keyword("DISTINCT");
+                }
+                self.render_expr(expr, ctx)?;
+                ctx.comma().string_literal(delimiter);
+                if let Some(ob) = order_by {
+                    ctx.keyword("ORDER BY");
+                    self.sqlite_order_by_list(ob, ctx)?;
+                }
+                ctx.paren_close();
+                if let Some(f) = filter {
+                    ctx.keyword("FILTER").paren_open().keyword("WHERE");
+                    self.render_condition(f, ctx)?;
+                    ctx.paren_close();
+                }
+                Ok(())
+            }
+
+            Expr::Now => {
+                ctx.keyword("datetime")
+                    .write("(")
+                    .string_literal("now")
+                    .paren_close();
+                Ok(())
+            }
+
             Expr::Raw { sql, params } => {
-                ctx.keyword(sql);
-                let _ = params;
+                if params.is_empty() {
+                    ctx.keyword(sql);
+                } else {
+                    ctx.raw_with_params(sql, params);
+                }
                 Ok(())
             }
 
@@ -644,6 +720,19 @@ impl Renderer for SqliteRenderer {
     // ── Conditions ───────────────────────────────────────────────────────
 
     fn render_condition(&self, cond: &Conditions, ctx: &mut RenderCtx) -> RenderResult<()> {
+        // Special case: negated + single Exists child → NOT EXISTS (...)
+        if cond.negated
+            && cond.children.len() == 1
+            && matches!(cond.children[0], ConditionNode::Exists(_))
+        {
+            if let ConditionNode::Exists(query) = &cond.children[0] {
+                ctx.keyword("NOT EXISTS").write("(");
+                self.render_query(query, ctx)?;
+                ctx.paren_close();
+                return Ok(());
+            }
+        }
+
         if cond.negated {
             ctx.keyword("NOT").paren_open();
         }
@@ -671,7 +760,7 @@ impl Renderer for SqliteRenderer {
                     ctx.paren_close();
                 }
                 ConditionNode::Exists(query) => {
-                    ctx.keyword("EXISTS").paren_open();
+                    ctx.keyword("EXISTS").write("(");
                     self.render_query(query, ctx)?;
                     ctx.paren_close();
                 }
@@ -698,10 +787,10 @@ impl Renderer for SqliteRenderer {
     ) -> RenderResult<()> {
         let needs_lower = matches!(
             op,
-            CompareOp::IContains | CompareOp::IStartsWith | CompareOp::IEndsWith
+            CompareOp::ILike | CompareOp::IContains | CompareOp::IStartsWith | CompareOp::IEndsWith
         );
         if needs_lower {
-            ctx.keyword("LOWER").paren_open();
+            ctx.keyword("LOWER").write("(");
         }
         self.render_expr(left, ctx)?;
         if needs_lower {
@@ -723,16 +812,44 @@ impl Renderer for SqliteRenderer {
             }
             CompareOp::IContains | CompareOp::IStartsWith | CompareOp::IEndsWith => {
                 ctx.keyword("LIKE");
-                ctx.keyword("LOWER").paren_open();
+                ctx.keyword("LOWER").write("(");
                 render_like_pattern(op, right, ctx)?;
                 ctx.paren_close();
                 ctx.keyword("ESCAPE").string_literal("\\");
                 return Ok(());
             }
-            CompareOp::In => ctx.keyword("IN"),
+            CompareOp::In => {
+                if let Expr::Value(Value::Array(items)) = right {
+                    ctx.keyword("IN").paren_open();
+                    for (i, item) in items.iter().enumerate() {
+                        if i > 0 {
+                            ctx.comma();
+                        }
+                        self.sqlite_value(item, ctx)?;
+                    }
+                    ctx.paren_close();
+                } else {
+                    ctx.keyword("IN");
+                    self.render_expr(right, ctx)?;
+                }
+                return Ok(());
+            }
             CompareOp::Between => {
                 ctx.keyword("BETWEEN");
-                self.render_expr(right, ctx)?;
+                if let Expr::Value(Value::Array(items)) = right {
+                    if items.len() == 2 {
+                        self.sqlite_value(&items[0], ctx)?;
+                        ctx.keyword("AND");
+                        self.sqlite_value(&items[1], ctx)?;
+                    } else {
+                        return Err(RenderError::unsupported(
+                            "Between",
+                            "BETWEEN requires exactly 2 values",
+                        ));
+                    }
+                } else {
+                    self.render_expr(right, ctx)?;
+                }
                 return Ok(());
             }
             CompareOp::IsNull => {
@@ -740,11 +857,22 @@ impl Renderer for SqliteRenderer {
                 return Ok(());
             }
             CompareOp::Regex => ctx.keyword("REGEXP"),
-            // SQLite doesn't natively support these — Error
-            CompareOp::ILike | CompareOp::Similar | CompareOp::IRegex => {
+            CompareOp::IRegex => {
+                ctx.keyword("REGEXP").string_literal("(?i)").keyword("||");
+                self.render_expr(right, ctx)?;
+                return Ok(());
+            }
+            CompareOp::ILike => {
+                ctx.keyword("LIKE").keyword("LOWER").write("(");
+                self.render_expr(right, ctx)?;
+                ctx.paren_close();
+                return Ok(());
+            }
+            // SQLite doesn't natively support this — Error
+            CompareOp::Similar => {
                 return Err(RenderError::unsupported(
                     "CompareOp",
-                    "SQLite does not support ILIKE, SIMILAR TO, or case-insensitive regex.",
+                    "SQLite does not support SIMILAR TO.",
                 ));
             }
             CompareOp::JsonbContains
@@ -996,16 +1124,18 @@ impl Renderer for SqliteRenderer {
                 }
             });
             self.sqlite_render_from_item(&join.source, ctx)?;
-            if let Some(condition) = &join.condition {
-                match condition {
-                    JoinCondition::On(cond) => {
-                        ctx.keyword("ON");
-                        self.render_condition(cond, ctx)?;
-                    }
-                    JoinCondition::Using(cols) => {
-                        ctx.keyword("USING").paren_open();
-                        self.sqlite_comma_idents(cols, ctx);
-                        ctx.paren_close();
+            if !matches!(join.join_type, JoinType::Cross) {
+                if let Some(condition) = &join.condition {
+                    match condition {
+                        JoinCondition::On(cond) => {
+                            ctx.keyword("ON");
+                            self.render_condition(cond, ctx)?;
+                        }
+                        JoinCondition::Using(cols) => {
+                            ctx.keyword("USING").paren_open();
+                            self.sqlite_comma_idents(cols, ctx);
+                            ctx.paren_close();
+                        }
                     }
                 }
             }
@@ -1023,7 +1153,12 @@ impl Renderer for SqliteRenderer {
     fn render_limit(&self, limit: &LimitDef, ctx: &mut RenderCtx) -> RenderResult<()> {
         match &limit.kind {
             LimitKind::Limit(n) => {
-                ctx.keyword("LIMIT").space().write(&n.to_string());
+                ctx.keyword("LIMIT");
+                if ctx.parameterize() {
+                    ctx.param(Value::BigInt(*n as i64));
+                } else {
+                    ctx.space().write(&n.to_string());
+                }
             }
             LimitKind::FetchFirst {
                 count, with_ties, ..
@@ -1035,7 +1170,12 @@ impl Renderer for SqliteRenderer {
                     ));
                 }
                 // Convert FETCH FIRST to LIMIT
-                ctx.keyword("LIMIT").space().write(&count.to_string());
+                ctx.keyword("LIMIT");
+                if ctx.parameterize() {
+                    ctx.param(Value::BigInt(*count as i64));
+                } else {
+                    ctx.space().write(&count.to_string());
+                }
             }
             LimitKind::Top {
                 count, with_ties, ..
@@ -1047,11 +1187,21 @@ impl Renderer for SqliteRenderer {
                     ));
                 }
                 // Convert TOP to LIMIT
-                ctx.keyword("LIMIT").space().write(&count.to_string());
+                ctx.keyword("LIMIT");
+                if ctx.parameterize() {
+                    ctx.param(Value::BigInt(*count as i64));
+                } else {
+                    ctx.space().write(&count.to_string());
+                }
             }
         }
         if let Some(offset) = limit.offset {
-            ctx.keyword("OFFSET").space().write(&offset.to_string());
+            ctx.keyword("OFFSET");
+            if ctx.parameterize() {
+                ctx.param(Value::BigInt(offset as i64));
+            } else {
+                ctx.space().write(&offset.to_string());
+            }
         }
         Ok(())
     }
@@ -1461,9 +1611,19 @@ impl SqliteRenderer {
     }
 
     fn sqlite_field_ref(&self, field_ref: &FieldRef, ctx: &mut RenderCtx) {
+        if let Some(ns) = &field_ref.namespace {
+            ctx.ident(ns).operator(".");
+        }
         ctx.ident(&field_ref.table_name)
             .operator(".")
             .ident(&field_ref.field.name);
+        let mut child = &field_ref.field.child;
+        while let Some(c) = child {
+            ctx.operator("->'")
+                .write(&c.name.replace('\'', "''"))
+                .write("'");
+            child = &c.child;
+        }
     }
 
     fn sqlite_comma_idents(&self, names: &[String], ctx: &mut RenderCtx) {
@@ -1476,20 +1636,24 @@ impl SqliteRenderer {
     }
 
     fn sqlite_value(&self, val: &Value, ctx: &mut RenderCtx) -> RenderResult<()> {
-        // NULL is always rendered as keyword, never as parameter.
-        if matches!(val, Value::Null) {
+        if matches!(val, Value::Null) && !ctx.parameterize() {
             ctx.keyword("NULL");
+            return Ok(());
+        }
+
+        // Convert Array to JSON string for SQLite (no native array type).
+        if let Value::Array(items) = val {
+            let json = Self::array_to_json(items);
+            if ctx.parameterize() {
+                ctx.param(Value::Str(json));
+            } else {
+                ctx.string_literal(&json);
+            }
             return Ok(());
         }
 
         // Unsupported types always error, regardless of parameterize mode.
         match val {
-            Value::Array(_) => {
-                return Err(RenderError::unsupported(
-                    "ArrayValue",
-                    "SQLite does not support array literals.",
-                ));
-            }
             Value::Vector(_) => {
                 return Err(RenderError::unsupported(
                     "VectorValue",
@@ -1523,7 +1687,7 @@ impl SqliteRenderer {
             Value::Bool(b) => {
                 ctx.keyword(if *b { "1" } else { "0" });
             }
-            Value::Int(n) => {
+            Value::Int(n) | Value::BigInt(n) => {
                 ctx.keyword(&n.to_string());
             }
             Value::Float(f) => {
@@ -1555,11 +1719,72 @@ impl SqliteRenderer {
                 ctx.string_literal(s);
             }
             _ => {
-                // Array, Vector, TimeDelta — already caught in sqlite_value
+                // Vector, TimeDelta — already caught in sqlite_value
                 unreachable!()
             }
         }
         Ok(())
+    }
+
+    fn array_to_json(items: &[Value]) -> String {
+        let mut s = String::from("[");
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 {
+                s.push_str(", ");
+            }
+            Self::value_to_json(item, &mut s);
+        }
+        s.push(']');
+        s
+    }
+
+    fn value_to_json(val: &Value, s: &mut String) {
+        match val {
+            Value::Null => s.push_str("null"),
+            Value::Bool(b) => s.push_str(if *b { "true" } else { "false" }),
+            Value::Int(n) | Value::BigInt(n) => s.push_str(&n.to_string()),
+            Value::Float(f) => s.push_str(&f.to_string()),
+            Value::Str(v) => {
+                s.push('"');
+                for ch in v.chars() {
+                    match ch {
+                        '"' => s.push_str("\\\""),
+                        '\\' => s.push_str("\\\\"),
+                        '\n' => s.push_str("\\n"),
+                        '\r' => s.push_str("\\r"),
+                        '\t' => s.push_str("\\t"),
+                        c => s.push(c),
+                    }
+                }
+                s.push('"');
+            }
+            Value::Array(items) => {
+                s.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        s.push_str(", ");
+                    }
+                    Self::value_to_json(item, s);
+                }
+                s.push(']');
+            }
+            // Date, DateTime, Time, Uuid, Json, Jsonb, etc. → string
+            Value::Date(v)
+            | Value::DateTime(v)
+            | Value::Time(v)
+            | Value::Uuid(v)
+            | Value::Decimal(v)
+            | Value::IpNetwork(v) => {
+                s.push('"');
+                s.push_str(v);
+                s.push('"');
+            }
+            Value::Json(v) | Value::Jsonb(v) => {
+                // Already JSON — embed directly
+                s.push_str(v);
+            }
+            _ => s.push_str("null"),
+        }
     }
 
     fn sqlite_referential_action(
@@ -1790,22 +2015,43 @@ impl SqliteRenderer {
         }
         ctx.ident(&schema.name);
 
-        // Detect AUTOINCREMENT PK — must be rendered inline on the column in SQLite
-        let autoincrement_pk_col = schema.constraints.as_ref().and_then(|cs| {
-            cs.iter().find_map(|c| {
-                if let ConstraintDef::PrimaryKey {
-                    columns,
-                    autoincrement: true,
-                    ..
-                } = c
-                {
-                    if columns.len() == 1 {
-                        return Some(columns[0].as_str());
+        // Collect PK column names for identity detection
+        let pk_columns: Vec<&str> = schema
+            .constraints
+            .as_ref()
+            .and_then(|cs| {
+                cs.iter().find_map(|c| {
+                    if let ConstraintDef::PrimaryKey { columns, .. } = c {
+                        Some(columns.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+                    } else {
+                        None
                     }
-                }
-                None
+                })
             })
+            .unwrap_or_default();
+
+        // Find identity column that should be rendered as PRIMARY KEY AUTOINCREMENT
+        let identity_pk_col = schema.columns.iter().find_map(|col| {
+            if col.identity.is_some() {
+                if pk_columns.contains(&col.name.as_str()) {
+                    Some(col.name.as_str())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         });
+
+        // Validate: identity without PK is an error in SQLite
+        for col in &schema.columns {
+            if col.identity.is_some() && !pk_columns.contains(&col.name.as_str()) {
+                return Err(RenderError::unsupported(
+                    "IdentityColumn",
+                    "SQLite requires identity columns to be PRIMARY KEY. Add a PrimaryKey constraint for this column.",
+                ));
+            }
+        }
 
         ctx.paren_open();
         let mut first = true;
@@ -1815,21 +2061,16 @@ impl SqliteRenderer {
             }
             first = false;
             self.render_column_def(col, ctx)?;
-            // Inline PRIMARY KEY AUTOINCREMENT on the column
-            if autoincrement_pk_col == Some(col.name.as_str()) {
+            // Inline PRIMARY KEY AUTOINCREMENT on the identity column
+            if identity_pk_col == Some(col.name.as_str()) {
                 ctx.keyword("PRIMARY KEY AUTOINCREMENT");
             }
         }
         if let Some(constraints) = &schema.constraints {
             for constraint in constraints {
-                // Skip the AUTOINCREMENT PK — already rendered inline
-                if let ConstraintDef::PrimaryKey {
-                    autoincrement: true,
-                    columns,
-                    ..
-                } = constraint
-                {
-                    if columns.len() == 1 {
+                // Skip single-column PK if it was inlined with AUTOINCREMENT
+                if let ConstraintDef::PrimaryKey { columns, .. } = constraint {
+                    if columns.len() == 1 && identity_pk_col == Some(columns[0].as_str()) {
                         continue;
                     }
                 }

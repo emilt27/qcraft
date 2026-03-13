@@ -231,21 +231,25 @@ Both can be combined:
 CREATE TABLE "kv_strict" ("key" TEXT NOT NULL, "val" INTEGER, PRIMARY KEY ("key")) WITHOUT ROWID, STRICT
 ```
 
-AUTOINCREMENT is set on `ConstraintDef::PrimaryKey`:
+AUTOINCREMENT is set via `identity` on `ColumnDef` (same as PG):
 
 ```rust
-schema.constraints = Some(vec![ConstraintDef::PrimaryKey {
-    name: None,
-    columns: vec!["id".into()],
-    include: None,
-    autoincrement: true,
-}]);
+let mut id_col = ColumnDef::new("id", FieldType::scalar("INTEGER"));
+id_col.not_null = true;
+id_col.identity = Some(IdentityColumn {
+    always: true,
+    ..Default::default()
+});
+schema.columns = vec![id_col, ColumnDef::new("name", FieldType::scalar("TEXT"))];
+schema.constraints = Some(vec![ConstraintDef::primary_key(vec!["id"])]);
 ```
 
 SQLite renders this as an inline column constraint:
 ```sql
 CREATE TABLE "events" ("id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, "name" TEXT)
 ```
+
+The column must also be in a `PrimaryKey` constraint — SQLite requires `INTEGER PRIMARY KEY` for autoincrement. If `identity` is set without a PK constraint, the renderer returns an error.
 
 ### PostgreSQL-specific: UNLOGGED, INHERITS, LIKE, PARTITION BY, tablespace, storage params
 
@@ -419,7 +423,6 @@ ConstraintDef::PrimaryKey {
     name: Some("pk_users".into()),
     columns: vec!["id".into()],
     include: None,
-    autoincrement: false,
 }
 ```
 
@@ -483,6 +486,33 @@ ConstraintDef::Unique {
 ```sql
 CONSTRAINT "uq_email" UNIQUE ("email")
 ```
+
+### Partial UNIQUE (with WHERE)
+
+When a `Unique` constraint has a `condition`, the renderer emits the inline constraint (without WHERE) **plus** a separate `CREATE UNIQUE INDEX ... WHERE` statement:
+
+```rust
+ConstraintDef::Unique {
+    name: Some("uq_active_email".into()),
+    columns: vec!["email".into()],
+    include: None,
+    nulls_distinct: None,
+    condition: Some(Conditions::eq(
+        FieldRef::new("users", "active"),
+        Expr::Value(Value::Bool(true)),
+    )),
+}
+```
+
+```sql
+-- Inline constraint (inside CREATE TABLE):
+CONSTRAINT "uq_active_email" UNIQUE ("email")
+
+-- Auto-generated after CREATE TABLE:
+; CREATE UNIQUE INDEX "uq_active_email" ON "users" ("email") WHERE "users"."active" = TRUE
+```
+
+> PostgreSQL does not support `WHERE` on inline `UNIQUE` constraints — only on `CREATE UNIQUE INDEX`. qcraft handles this automatically.
 
 ### CHECK
 

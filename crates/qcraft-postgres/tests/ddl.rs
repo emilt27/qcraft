@@ -1,4 +1,4 @@
-use qcraft_core::ast::common::{NullsOrder, OrderDir, SchemaRef};
+use qcraft_core::ast::common::{FieldRef, NullsOrder, OrderDir, SchemaRef};
 use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use qcraft_core::ast::ddl::*;
 use qcraft_core::ast::expr::Expr;
@@ -341,7 +341,6 @@ fn create_table_primary_key() {
                 name: Some("pk_users".into()),
                 columns: vec!["id".into()],
                 include: None,
-                autoincrement: false,
             }]),
             indexes: None,
             like_tables: None,
@@ -1376,5 +1375,60 @@ fn drop_collation_if_exists_cascade() {
     assert_eq!(
         render(&stmt),
         r#"DROP COLLATION IF EXISTS "my_collation" CASCADE"#
+    );
+}
+
+// ==========================================================================
+// Partial unique constraint → CREATE UNIQUE INDEX
+// ==========================================================================
+
+#[test]
+fn partial_unique_generates_create_unique_index() {
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema: SchemaDef {
+            name: "users".into(),
+            namespace: None,
+            columns: vec![
+                ColumnDef::new("id", FieldType::scalar("BIGINT")).not_null(),
+                ColumnDef::new("email", FieldType::scalar("TEXT")),
+                ColumnDef::new("active", FieldType::scalar("BOOLEAN")),
+            ],
+            constraints: Some(vec![ConstraintDef::Unique {
+                name: Some("uq_active_email".into()),
+                columns: vec!["email".into()],
+                include: None,
+                nulls_distinct: None,
+                condition: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+                    Comparison::new(
+                        Expr::Field(FieldRef::new("users", "active")),
+                        CompareOp::Eq,
+                        Expr::Value(Value::Bool(true)),
+                    ),
+                ))])),
+            }]),
+            indexes: None,
+            like_tables: None,
+        },
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    let sql = render(&stmt);
+    assert!(
+        sql.contains(r#"UNIQUE ("email")"#),
+        "inline constraint missing: {sql}"
+    );
+    assert!(
+        sql.contains(r#"; CREATE UNIQUE INDEX "uq_active_email" ON "users" ("email") WHERE"#),
+        "separate index missing: {sql}"
     );
 }
