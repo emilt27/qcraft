@@ -1846,3 +1846,107 @@ fn vector_l1_distance() {
     );
     assert_eq!(params, vec![Value::Vector(vec![1.0, 1.0])]);
 }
+
+// ==========================================================================
+// Range operators
+// ==========================================================================
+
+#[test]
+fn range_strictly_left() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeStrictlyLeft,
+                Expr::raw("'[2024-01-01, 2024-06-01)'::daterange"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."period" << '[2024-01-01, 2024-06-01)'::daterange"#
+    );
+}
+
+#[test]
+fn range_strictly_right() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeStrictlyRight,
+                Expr::raw("'[2025-01-01,)'::daterange"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."period" >> '[2025-01-01,)'::daterange"#
+    );
+}
+
+#[test]
+fn range_not_left() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeNotLeft,
+                Expr::raw("'[2024-01-01, 2024-12-31)'::daterange"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."period" &> '[2024-01-01, 2024-12-31)'::daterange"#
+    );
+}
+
+#[test]
+fn range_not_right() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeNotRight,
+                Expr::raw("'[2024-01-01, 2024-12-31)'::daterange"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."period" &< '[2024-01-01, 2024-12-31)'::daterange"#
+    );
+}
+
+#[test]
+fn range_adjacent() {
+    let (sql, _) = render_with_params(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeAdjacent,
+                Expr::raw("'[2024-06-01, 2024-07-01)'::daterange"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "events" WHERE "events"."period" -|- '[2024-06-01, 2024-07-01)'::daterange"#
+    );
+}

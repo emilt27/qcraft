@@ -482,6 +482,82 @@ impl Renderer for PostgresRenderer {
                 Ok(())
             }
 
+            SchemaMutationStmt::CreateCollation {
+                name,
+                if_not_exists,
+                locale,
+                lc_collate,
+                lc_ctype,
+                provider,
+                deterministic,
+                from_collation,
+            } => {
+                ctx.keyword("CREATE COLLATION");
+                if *if_not_exists {
+                    ctx.keyword("IF NOT EXISTS");
+                }
+                ctx.ident(name);
+                if let Some(from) = from_collation {
+                    ctx.keyword("FROM").ident(from);
+                } else {
+                    ctx.write(" (");
+                    let mut first = true;
+                    if let Some(loc) = locale {
+                        ctx.keyword("LOCALE").write(" = ").string_literal(loc);
+                        first = false;
+                    }
+                    if let Some(lc) = lc_collate {
+                        if !first {
+                            ctx.write(", ");
+                        }
+                        ctx.keyword("LC_COLLATE").write(" = ").string_literal(lc);
+                        first = false;
+                    }
+                    if let Some(lc) = lc_ctype {
+                        if !first {
+                            ctx.write(", ");
+                        }
+                        ctx.keyword("LC_CTYPE").write(" = ").string_literal(lc);
+                        first = false;
+                    }
+                    if let Some(prov) = provider {
+                        if !first {
+                            ctx.write(", ");
+                        }
+                        ctx.keyword("PROVIDER").write(" = ").keyword(prov);
+                        first = false;
+                    }
+                    if let Some(det) = deterministic {
+                        if !first {
+                            ctx.write(", ");
+                        }
+                        ctx.keyword("DETERMINISTIC").write(" = ").keyword(if *det {
+                            "TRUE"
+                        } else {
+                            "FALSE"
+                        });
+                    }
+                    ctx.write(")");
+                }
+                Ok(())
+            }
+
+            SchemaMutationStmt::DropCollation {
+                name,
+                if_exists,
+                cascade,
+            } => {
+                ctx.keyword("DROP COLLATION");
+                if *if_exists {
+                    ctx.keyword("IF EXISTS");
+                }
+                ctx.ident(name);
+                if *cascade {
+                    ctx.keyword("CASCADE");
+                }
+                Ok(())
+            }
+
             SchemaMutationStmt::Custom(_) => Err(RenderError::unsupported(
                 "CustomSchemaMutation",
                 "custom DDL must be handled by a wrapping renderer",
@@ -1022,6 +1098,11 @@ impl Renderer for PostgresRenderer {
             CompareOp::RangeContains => ctx.write(" @> "),
             CompareOp::RangeContainedBy => ctx.write(" <@ "),
             CompareOp::RangeOverlap => ctx.write(" && "),
+            CompareOp::RangeStrictlyLeft => ctx.write(" << "),
+            CompareOp::RangeStrictlyRight => ctx.write(" >> "),
+            CompareOp::RangeNotLeft => ctx.write(" &> "),
+            CompareOp::RangeNotRight => ctx.write(" &< "),
+            CompareOp::RangeAdjacent => ctx.write(" -|- "),
             CompareOp::Custom(_) => {
                 return Err(RenderError::unsupported(
                     "CustomCompareOp",

@@ -1138,3 +1138,41 @@ fn custom_binary_op_unsupported() {
     });
     assert!(err.contains("CustomBinaryOp"));
 }
+
+// ==========================================================================
+// Range operators unsupported
+// ==========================================================================
+
+#[test]
+fn range_strictly_left_unsupported() {
+    let err = render_err(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeStrictlyLeft,
+                Expr::raw("'[1,10)'::int4range"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert!(err.contains("range"));
+}
+
+#[test]
+fn range_adjacent_unsupported() {
+    let err = render_err(&QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("events", "period")),
+                CompareOp::RangeAdjacent,
+                Expr::raw("'[1,10)'::int4range"),
+            ),
+        ))])),
+        ..simple_query()
+    });
+    assert!(err.contains("range"));
+}

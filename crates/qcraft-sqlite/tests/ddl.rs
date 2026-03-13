@@ -1178,3 +1178,21 @@ fn truncate_table_options_ignored() {
     };
     assert_eq!(render(&stmt), r#"DELETE FROM "orders""#);
 }
+
+// ==========================================================================
+// Collation DDL unsupported
+// ==========================================================================
+
+#[test]
+fn create_collation_unsupported() {
+    let stmt = SchemaMutationStmt::create_collation("my_coll");
+    let err = render_err(&stmt);
+    assert!(err.contains("CreateCollation"));
+}
+
+#[test]
+fn drop_collation_unsupported() {
+    let stmt = SchemaMutationStmt::drop_collation("my_coll");
+    let err = render_err(&stmt);
+    assert!(err.contains("DropCollation"));
+}
