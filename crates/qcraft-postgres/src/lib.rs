@@ -875,7 +875,7 @@ impl Renderer for PostgresRenderer {
             ctx.keyword("USING").keyword(index_type);
         }
         ctx.paren_open();
-        self.pg_index_columns(&idx.columns, ctx)?;
+        self.pg_index_columns(&idx.columns, idx.index_type.as_deref(), ctx)?;
         ctx.paren_close();
         Ok(())
     }
@@ -2694,7 +2694,7 @@ impl PostgresRenderer {
         }
 
         ctx.paren_open();
-        self.pg_index_columns(&index.columns, ctx)?;
+        self.pg_index_columns(&index.columns, index.index_type.as_deref(), ctx)?;
         ctx.paren_close();
 
         if let Some(include) = &index.include {
@@ -2732,11 +2732,20 @@ impl PostgresRenderer {
         Ok(())
     }
 
+    fn supports_ordering(index_type: Option<&str>) -> bool {
+        match index_type {
+            None => true, // default is btree
+            Some(t) => t.eq_ignore_ascii_case("btree"),
+        }
+    }
+
     fn pg_index_columns(
         &self,
         columns: &[IndexColumnDef],
+        index_type: Option<&str>,
         ctx: &mut RenderCtx,
     ) -> RenderResult<()> {
+        let ordered = Self::supports_ordering(index_type);
         for (i, col) in columns.iter().enumerate() {
             if i > 0 {
                 ctx.comma();
@@ -2757,17 +2766,19 @@ impl PostgresRenderer {
             if let Some(opclass) = &col.opclass {
                 ctx.keyword(opclass);
             }
-            if let Some(dir) = col.direction {
-                ctx.keyword(match dir {
-                    OrderDir::Asc => "ASC",
-                    OrderDir::Desc => "DESC",
-                });
-            }
-            if let Some(nulls) = col.nulls {
-                ctx.keyword(match nulls {
-                    NullsOrder::First => "NULLS FIRST",
-                    NullsOrder::Last => "NULLS LAST",
-                });
+            if ordered {
+                if let Some(dir) = col.direction {
+                    ctx.keyword(match dir {
+                        OrderDir::Asc => "ASC",
+                        OrderDir::Desc => "DESC",
+                    });
+                }
+                if let Some(nulls) = col.nulls {
+                    ctx.keyword(match nulls {
+                        NullsOrder::First => "NULLS FIRST",
+                        NullsOrder::Last => "NULLS LAST",
+                    });
+                }
             }
         }
         Ok(())
