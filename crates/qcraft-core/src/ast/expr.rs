@@ -80,6 +80,9 @@ pub enum Expr {
     /// Current timestamp: PG `now()`, SQLite `datetime('now')`.
     Now,
 
+    /// Row/tuple constructor: `(expr1, expr2, ...)`.
+    Tuple(Vec<Expr>),
+
     /// Raw SQL with parameters (escape hatch).
     Raw { sql: String, params: Vec<Value> },
 

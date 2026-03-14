@@ -946,3 +946,65 @@ fn insert_upsert_returning() {
         ]
     );
 }
+
+// ---------------------------------------------------------------------------
+// Tuple expression — composite key DELETE with IN
+// ---------------------------------------------------------------------------
+
+#[test]
+fn delete_composite_key_tuple_in() {
+    let stmt = MutationStmt::Delete(DeleteStmt {
+        table: SchemaRef::new("order_items"),
+        using: None,
+        where_clause: Some(Conditions {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Tuple(vec![
+                    Expr::Field(FieldRef::new("", "user_id")),
+                    Expr::Field(FieldRef::new("", "product_id")),
+                ]),
+                op: CompareOp::In,
+                right: Expr::Tuple(vec![
+                    Expr::Tuple(vec![
+                        Expr::Value(Value::Int(1)),
+                        Expr::Value(Value::Int(10)),
+                    ]),
+                    Expr::Tuple(vec![
+                        Expr::Value(Value::Int(2)),
+                        Expr::Value(Value::Int(20)),
+                    ]),
+                    Expr::Tuple(vec![
+                        Expr::Value(Value::Int(3)),
+                        Expr::Value(Value::Int(30)),
+                    ]),
+                ]),
+                negate: false,
+            }))],
+            connector: Connector::And,
+            negated: false,
+        }),
+        returning: None,
+        ctes: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        only: false,
+        partition: None,
+        ignore: false,
+    });
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(
+        sql,
+        r#"DELETE FROM "order_items" WHERE ("user_id", "product_id") IN (($1, $2), ($3, $4), ($5, $6))"#
+    );
+    assert_eq!(
+        params,
+        vec![
+            Value::Int(1),
+            Value::Int(10),
+            Value::Int(2),
+            Value::Int(20),
+            Value::Int(3),
+            Value::Int(30),
+        ]
+    );
+}
