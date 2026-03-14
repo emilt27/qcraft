@@ -1,4 +1,4 @@
-use qcraft_core::ast::common::{FieldRef, NullsOrder, OrderByDef, OrderDir, SchemaRef};
+use qcraft_core::ast::common::{FieldDef, FieldRef, NullsOrder, OrderByDef, OrderDir, SchemaRef};
 use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use qcraft_core::ast::expr::{Expr, WindowFrameBound, WindowFrameDef, WindowFrameType};
 use qcraft_core::ast::query::*;
@@ -2484,4 +2484,99 @@ fn now_pg() {
         ..simple_query()
     });
     assert_eq!(sql, r#"SELECT now() AS "ts" FROM "t""#);
+}
+
+// ---------------------------------------------------------------------------
+// Tuple expression in WHERE
+// ---------------------------------------------------------------------------
+
+#[test]
+fn select_where_tuple_in_qualified() {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Star(None)],
+        from: Some(vec![FromItem::table(SchemaRef {
+            name: "users".into(),
+            namespace: Some("public".into()),
+            alias: None,
+        })]),
+        where_clause: Some(Conditions {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Tuple(vec![
+                    Expr::Field(FieldRef {
+                        field: FieldDef::new("id"),
+                        table_name: "users".into(),
+                        namespace: Some("public".into()),
+                    }),
+                    Expr::Field(FieldRef {
+                        field: FieldDef::new("tenant_id"),
+                        table_name: "users".into(),
+                        namespace: Some("public".into()),
+                    }),
+                ]),
+                op: CompareOp::In,
+                right: Expr::Tuple(vec![Expr::Tuple(vec![
+                    Expr::Value(Value::Int(1)),
+                    Expr::Value(Value::Int(100)),
+                ])]),
+                negate: false,
+            }))],
+            connector: Connector::And,
+            negated: false,
+        }),
+        ..simple_query()
+    };
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "public"."users" WHERE ("public"."users"."id", "public"."users"."tenant_id") IN (($1, $2))"#
+    );
+    assert_eq!(params, vec![Value::Int(1), Value::Int(100)]);
+}
+
+#[test]
+fn select_where_tuple_in() {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Field(FieldRef::new("", "name")),
+            alias: None,
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(Conditions {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Tuple(vec![
+                    Expr::Field(FieldRef::new("", "id")),
+                    Expr::Field(FieldRef::new("", "tenant_id")),
+                ]),
+                op: CompareOp::In,
+                right: Expr::Tuple(vec![
+                    Expr::Tuple(vec![
+                        Expr::Value(Value::Int(1)),
+                        Expr::Value(Value::Int(100)),
+                    ]),
+                    Expr::Tuple(vec![
+                        Expr::Value(Value::Int(2)),
+                        Expr::Value(Value::Int(200)),
+                    ]),
+                ]),
+                negate: false,
+            }))],
+            connector: Connector::And,
+            negated: false,
+        }),
+        ..simple_query()
+    };
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(
+        sql,
+        r#"SELECT "name" FROM "users" WHERE ("id", "tenant_id") IN (($1, $2), ($3, $4))"#
+    );
+    assert_eq!(
+        params,
+        vec![
+            Value::Int(1),
+            Value::Int(100),
+            Value::Int(2),
+            Value::Int(200)
+        ]
+    );
 }

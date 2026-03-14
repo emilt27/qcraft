@@ -645,6 +645,18 @@ impl Renderer for SqliteRenderer {
                 Ok(())
             }
 
+            Expr::Tuple(exprs) => {
+                ctx.paren_open();
+                for (i, expr) in exprs.iter().enumerate() {
+                    if i > 0 {
+                        ctx.comma();
+                    }
+                    self.render_expr(expr, ctx)?;
+                }
+                ctx.paren_close();
+                Ok(())
+            }
+
             Expr::Raw { sql, params } => {
                 if params.is_empty() {
                     ctx.keyword(sql);
