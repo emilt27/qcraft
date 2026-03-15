@@ -2,7 +2,7 @@ use qcraft_core::ast::common::{FieldRef, SchemaRef};
 use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use qcraft_core::ast::dml::*;
 use qcraft_core::ast::expr::Expr;
-use qcraft_core::ast::query::SelectColumn;
+use qcraft_core::ast::query::{SelectColumn, TableSource};
 use qcraft_core::ast::value::Value;
 use qcraft_postgres::PostgresRenderer;
 
@@ -943,6 +943,72 @@ fn insert_upsert_returning() {
         vec![
             Value::Str("alice@example.com".into()),
             Value::Str("Alice".into())
+        ]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// UPDATE FROM VALUES
+// ---------------------------------------------------------------------------
+
+#[test]
+fn update_from_values() {
+    let stmt = MutationStmt::Update(UpdateStmt {
+        table: SchemaRef::new("users"),
+        assignments: vec![
+            ("name".into(), Expr::Field(FieldRef::new("v", "name"))),
+            ("email".into(), Expr::Field(FieldRef::new("v", "email"))),
+        ],
+        from: Some(vec![TableSource::Values {
+            rows: vec![
+                vec![
+                    Expr::Value(Value::Int(1)),
+                    Expr::Value(Value::Str("Alice".into())),
+                    Expr::Value(Value::Str("alice@x.com".into())),
+                ],
+                vec![
+                    Expr::Value(Value::Int(2)),
+                    Expr::Value(Value::Str("Bob".into())),
+                    Expr::Value(Value::Str("bob@x.com".into())),
+                ],
+            ],
+            alias: "v".into(),
+            columns: vec!["id".into(), "name".into(), "email".into()],
+        }]),
+        where_clause: Some(Conditions {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Field(FieldRef::new("users", "id")),
+                op: CompareOp::Eq,
+                right: Expr::Field(FieldRef::new("v", "id")),
+                negate: false,
+            }))],
+            connector: Connector::And,
+            negated: false,
+        }),
+        returning: None,
+        ctes: None,
+        conflict_resolution: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        only: false,
+        partition: None,
+        ignore: false,
+    });
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(
+        sql,
+        r#"UPDATE "users" SET "name" = "v"."name", "email" = "v"."email" FROM (VALUES ($1, $2, $3), ($4, $5, $6)) AS "v" ("id", "name", "email") WHERE "users"."id" = "v"."id""#
+    );
+    assert_eq!(
+        params,
+        vec![
+            Value::Int(1),
+            Value::Str("Alice".into()),
+            Value::Str("alice@x.com".into()),
+            Value::Int(2),
+            Value::Str("Bob".into()),
+            Value::Str("bob@x.com".into()),
         ]
     );
 }

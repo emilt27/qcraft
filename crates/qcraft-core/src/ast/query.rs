@@ -151,12 +151,12 @@ impl FromItem {
         }
     }
 
-    pub fn values(rows: Vec<Vec<Expr>>, alias: impl Into<String>) -> Self {
+    pub fn values(rows: Vec<Vec<Expr>>, alias: impl Into<String>, columns: Vec<String>) -> Self {
         Self {
             source: TableSource::Values {
                 rows,
                 alias: alias.into(),
-                column_aliases: None,
+                columns,
             },
             only: false,
             sample: None,
@@ -198,7 +198,7 @@ pub enum TableSource {
     Values {
         rows: Vec<Vec<Expr>>,
         alias: String,
-        column_aliases: Option<Vec<String>>,
+        columns: Vec<String>,
     },
     /// User-defined table source (extension point).
     Custom(Box<dyn CustomTableSource>),

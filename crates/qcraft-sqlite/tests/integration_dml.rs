@@ -1132,3 +1132,85 @@ fn insert_timedelta_into_text_column() {
         .unwrap();
     assert!(!stored.is_empty());
 }
+
+// ==========================================================================
+// UPDATE FROM VALUES — bulk update (SQLite 3.33+)
+// ==========================================================================
+
+#[test]
+fn update_from_values_bulk() {
+    use qcraft_core::ast::query::TableSource;
+
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch(
+        "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT);
+         INSERT INTO users VALUES (1, 'old_a', 'a@old.com'), (2, 'old_b', 'b@old.com');",
+    )
+    .unwrap();
+
+    let stmt = MutationStmt::Update(UpdateStmt {
+        table: SchemaRef::new("users"),
+        assignments: vec![
+            ("name".into(), Expr::Field(FieldRef::new("v", "name"))),
+            ("email".into(), Expr::Field(FieldRef::new("v", "email"))),
+        ],
+        from: Some(vec![TableSource::Values {
+            rows: vec![
+                vec![
+                    Expr::Value(Value::Int(1)),
+                    Expr::Value(Value::Str("Alice".into())),
+                    Expr::Value(Value::Str("alice@new.com".into())),
+                ],
+                vec![
+                    Expr::Value(Value::Int(2)),
+                    Expr::Value(Value::Str("Bob".into())),
+                    Expr::Value(Value::Str("bob@new.com".into())),
+                ],
+            ],
+            alias: "v".into(),
+            columns: vec!["id".into(), "name".into(), "email".into()],
+        }]),
+        where_clause: Some(Conditions {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Field(FieldRef::new("users", "id")),
+                op: CompareOp::Eq,
+                right: Expr::Field(FieldRef::new("v", "id")),
+                negate: false,
+            }))],
+            connector: Connector::And,
+            negated: false,
+        }),
+        returning: None,
+        ctes: None,
+        conflict_resolution: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        only: false,
+        partition: None,
+        ignore: false,
+    });
+    let (sql, values) = {
+        let renderer = SqliteRenderer::new();
+        renderer.render_mutation_stmt(&stmt).unwrap()
+    };
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
+    db.execute(&sql, params.as_slice()).unwrap();
+
+    let mut st = db
+        .prepare("SELECT name, email FROM users ORDER BY id")
+        .unwrap();
+    let rows: Vec<(String, String)> = st
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            ("Alice".to_string(), "alice@new.com".to_string()),
+            ("Bob".to_string(), "bob@new.com".to_string()),
+        ]
+    );
+}

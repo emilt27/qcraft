@@ -5,7 +5,7 @@ use qcraft_core::ast::common::{FieldRef, SchemaRef};
 use qcraft_core::ast::conditions::{CompareOp, Comparison, ConditionNode, Conditions, Connector};
 use qcraft_core::ast::dml::*;
 use qcraft_core::ast::expr::Expr;
-use qcraft_core::ast::query::SelectColumn;
+use qcraft_core::ast::query::{SelectColumn, TableSource};
 use qcraft_core::ast::value::Value;
 use qcraft_postgres::PostgresRenderer;
 
@@ -1438,4 +1438,91 @@ fn delete_with_alias() {
         .unwrap()
         .get(0);
     assert_eq!(name, "Bob");
+}
+// ==========================================================================
+// UPDATE FROM VALUES — bulk update
+// ==========================================================================
+
+#[test]
+fn update_from_values_bulk() {
+    let mut client = crate::test_client("template0");
+    client
+        .execute(
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT)",
+            &[],
+        )
+        .unwrap();
+    client
+        .execute(
+            "INSERT INTO users (name, email) VALUES ('old_a', 'a@old.com'), ('old_b', 'b@old.com')",
+            &[],
+        )
+        .unwrap();
+
+    let stmt = MutationStmt::Update(UpdateStmt {
+        table: SchemaRef::new("users"),
+        assignments: vec![
+            ("name".into(), Expr::Field(FieldRef::new("v", "name"))),
+            ("email".into(), Expr::Field(FieldRef::new("v", "email"))),
+        ],
+        from: Some(vec![TableSource::Values {
+            rows: vec![
+                vec![
+                    Expr::Cast {
+                        expr: Box::new(Expr::Value(Value::Int(1))),
+                        to_type: "integer".into(),
+                    },
+                    Expr::Value(Value::Str("Alice".into())),
+                    Expr::Value(Value::Str("alice@new.com".into())),
+                ],
+                vec![
+                    Expr::Cast {
+                        expr: Box::new(Expr::Value(Value::Int(2))),
+                        to_type: "integer".into(),
+                    },
+                    Expr::Value(Value::Str("Bob".into())),
+                    Expr::Value(Value::Str("bob@new.com".into())),
+                ],
+            ],
+            alias: "v".into(),
+            columns: vec!["id".into(), "name".into(), "email".into()],
+        }]),
+        where_clause: Some(Conditions {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Field(FieldRef::new("users", "id")),
+                op: CompareOp::Eq,
+                right: Expr::Field(FieldRef::new("v", "id")),
+                negate: false,
+            }))],
+            connector: Connector::And,
+            negated: false,
+        }),
+        returning: None,
+        ctes: None,
+        conflict_resolution: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        only: false,
+        partition: None,
+        ignore: false,
+    });
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+    client.execute(&sql, &params).unwrap();
+
+    let rows: Vec<(String, String)> = client
+        .query("SELECT name, email FROM users ORDER BY id", &[])
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("Alice".to_string(), "alice@new.com".to_string()),
+            ("Bob".to_string(), "bob@new.com".to_string()),
+        ]
+    );
 }

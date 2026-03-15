@@ -1099,9 +1099,21 @@ impl Renderer for SqliteRenderer {
             TableSource::Values {
                 rows,
                 alias,
-                column_aliases,
+                columns,
             } => {
-                ctx.paren_open().keyword("VALUES");
+                // SQLite does not support AS t(col1, col2) syntax.
+                // Wrap in: (SELECT column1 AS "c1", column2 AS "c2"
+                //           FROM (VALUES (...), (...))) AS "t"
+                ctx.paren_open().keyword("SELECT");
+                for (i, c) in columns.iter().enumerate() {
+                    if i > 0 {
+                        ctx.comma();
+                    }
+                    ctx.keyword(&format!("column{}", i + 1))
+                        .keyword("AS")
+                        .ident(c);
+                }
+                ctx.keyword("FROM").paren_open().keyword("VALUES");
                 for (i, row) in rows.iter().enumerate() {
                     if i > 0 {
                         ctx.comma();
@@ -1115,17 +1127,7 @@ impl Renderer for SqliteRenderer {
                     }
                     ctx.paren_close();
                 }
-                ctx.paren_close().keyword("AS").ident(alias);
-                if let Some(cols) = column_aliases {
-                    ctx.paren_open();
-                    for (i, c) in cols.iter().enumerate() {
-                        if i > 0 {
-                            ctx.comma();
-                        }
-                        ctx.ident(c);
-                    }
-                    ctx.paren_close();
-                }
+                ctx.paren_close().paren_close().keyword("AS").ident(alias);
             }
             TableSource::Custom(_) => {
                 return Err(RenderError::unsupported(
