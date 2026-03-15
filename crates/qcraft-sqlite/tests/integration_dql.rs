@@ -392,7 +392,7 @@ fn from_values() {
                     ],
                 ],
                 alias: "t".into(),
-                column_aliases: None,
+                columns: vec!["id".into(), "name".into()],
             },
             only: false,
             sample: None,

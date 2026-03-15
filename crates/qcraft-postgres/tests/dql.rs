@@ -320,7 +320,7 @@ fn from_values() {
                     ],
                 ],
                 alias: "t".into(),
-                column_aliases: Some(vec!["id".into(), "name".into()]),
+                columns: vec!["id".into(), "name".into()],
             },
             only: false,
             sample: None,

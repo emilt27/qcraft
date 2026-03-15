@@ -250,7 +250,7 @@ FromItem {
             vec![Expr::Value(Value::Int(2)), Expr::Value(Value::Str("b".into()))],
         ],
         alias: "t".into(),
-        column_aliases: Some(vec!["id".into(), "name".into()]),
+        columns: vec!["id".into(), "name".into()],
     },
     only: false,
     sample: None,

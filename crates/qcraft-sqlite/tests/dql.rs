@@ -263,7 +263,7 @@ fn from_values() {
                     ],
                 ],
                 alias: "t".into(),
-                column_aliases: Some(vec!["id".into(), "name".into()]),
+                columns: vec!["id".into(), "name".into()],
             },
             only: false,
             sample: None,
@@ -274,7 +274,7 @@ fn from_values() {
     let (sql, params) = render_with_params(&stmt);
     assert_eq!(
         sql,
-        r#"SELECT * FROM (VALUES (?, ?), (?, ?)) AS "t" ("id", "name")"#
+        r#"SELECT * FROM (SELECT column1 AS "id", column2 AS "name" FROM (VALUES (?, ?), (?, ?))) AS "t""#
     );
     assert_eq!(
         params,

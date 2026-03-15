@@ -1529,7 +1529,7 @@ impl Renderer for PostgresRenderer {
             TableSource::Values {
                 rows,
                 alias,
-                column_aliases,
+                columns,
             } => {
                 ctx.paren_open().keyword("VALUES");
                 for (i, row) in rows.iter().enumerate() {
@@ -1546,16 +1546,14 @@ impl Renderer for PostgresRenderer {
                     ctx.paren_close();
                 }
                 ctx.paren_close().keyword("AS").ident(alias);
-                if let Some(cols) = column_aliases {
-                    ctx.paren_open();
-                    for (i, c) in cols.iter().enumerate() {
-                        if i > 0 {
-                            ctx.comma();
-                        }
-                        ctx.ident(c);
+                ctx.paren_open();
+                for (i, c) in columns.iter().enumerate() {
+                    if i > 0 {
+                        ctx.comma();
                     }
-                    ctx.paren_close();
+                    ctx.ident(c);
                 }
+                ctx.paren_close();
             }
             TableSource::Custom(_) => {
                 return Err(RenderError::unsupported(

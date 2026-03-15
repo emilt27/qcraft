@@ -335,7 +335,7 @@ fn from_values() {
                     vec![Expr::raw("2"), Expr::raw("'b'")],
                 ],
                 alias: "t".into(),
-                column_aliases: Some(vec!["id".into(), "name".into()]),
+                columns: vec!["id".into(), "name".into()],
             },
             only: false,
             sample: None,
