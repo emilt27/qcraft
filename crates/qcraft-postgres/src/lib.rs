@@ -1087,6 +1087,15 @@ impl Renderer for PostgresRenderer {
                 Ok(())
             }
 
+            Expr::Param { type_hint } => {
+                ctx.placeholder();
+                if let Some(hint) = type_hint {
+                    ctx.write("::");
+                    ctx.write(hint);
+                }
+                Ok(())
+            }
+
             Expr::Raw { sql, params } => {
                 if params.is_empty() {
                     ctx.keyword(sql);

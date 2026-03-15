@@ -83,6 +83,11 @@ pub enum Expr {
     /// Row/tuple constructor: `(expr1, expr2, ...)`.
     Tuple(Vec<Expr>),
 
+    /// Unbound parameter placeholder for executemany/batch operations.
+    /// Renders as `$N` (PG) or `?` (SQLite) without a concrete value.
+    /// Optional `type_hint` renders as `$N::type` in PG.
+    Param { type_hint: Option<String> },
+
     /// Raw SQL with parameters (escape hatch).
     Raw { sql: String, params: Vec<Value> },
 

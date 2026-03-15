@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.1.2"
+version = "2.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -19,7 +19,7 @@ categories = ["database"]
 readme = "README.md"
 
 [workspace.dependencies]
-qcraft-core = { path = "crates/qcraft-core", version = "2.1.2" }
-qcraft-postgres = { path = "crates/qcraft-postgres", version = "2.1.2" }
-qcraft-sqlite = { path = "crates/qcraft-sqlite", version = "2.1.2" }
+qcraft-core = { path = "crates/qcraft-core", version = "2.2.0" }
+qcraft-postgres = { path = "crates/qcraft-postgres", version = "2.2.0" }
+qcraft-sqlite = { path = "crates/qcraft-sqlite", version = "2.2.0" }
 thiserror = "2"
