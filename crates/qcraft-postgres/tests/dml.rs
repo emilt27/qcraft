@@ -952,6 +952,82 @@ fn insert_upsert_returning() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn update_with_param_placeholders() {
+    let stmt = MutationStmt::Update(UpdateStmt {
+        table: SchemaRef::new("users"),
+        assignments: vec![
+            ("name".into(), Expr::Param { type_hint: None }),
+            ("email".into(), Expr::Param { type_hint: None }),
+        ],
+        from: None,
+        where_clause: Some(Conditions {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Field(FieldRef::new("", "id")),
+                op: CompareOp::Eq,
+                right: Expr::Param { type_hint: None },
+                negate: false,
+            }))],
+            connector: Connector::And,
+            negated: false,
+        }),
+        returning: None,
+        ctes: None,
+        conflict_resolution: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        only: false,
+        partition: None,
+        ignore: false,
+    });
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(
+        sql,
+        r#"UPDATE "users" SET "name" = $1, "email" = $2 WHERE "id" = $3"#
+    );
+    assert!(params.is_empty());
+}
+
+#[test]
+fn update_param_with_type_hint() {
+    let stmt = MutationStmt::Update(UpdateStmt {
+        table: SchemaRef::new("events"),
+        assignments: vec![(
+            "payload".into(),
+            Expr::Param {
+                type_hint: Some("jsonb".into()),
+            },
+        )],
+        from: None,
+        where_clause: Some(Conditions {
+            children: vec![ConditionNode::Comparison(Box::new(Comparison {
+                left: Expr::Field(FieldRef::new("", "id")),
+                op: CompareOp::Eq,
+                right: Expr::Param { type_hint: None },
+                negate: false,
+            }))],
+            connector: Connector::And,
+            negated: false,
+        }),
+        returning: None,
+        ctes: None,
+        conflict_resolution: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        only: false,
+        partition: None,
+        ignore: false,
+    });
+    let (sql, params) = render_with_params(&stmt);
+    assert_eq!(
+        sql,
+        r#"UPDATE "events" SET "payload" = $1::jsonb WHERE "id" = $2"#
+    );
+    assert!(params.is_empty());
+}
+
+#[test]
 fn delete_composite_key_tuple_in() {
     let stmt = MutationStmt::Delete(DeleteStmt {
         table: SchemaRef::new("order_items"),

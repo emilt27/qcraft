@@ -657,6 +657,11 @@ impl Renderer for SqliteRenderer {
                 Ok(())
             }
 
+            Expr::Param { type_hint: _ } => {
+                ctx.placeholder();
+                Ok(())
+            }
+
             Expr::Raw { sql, params } => {
                 if params.is_empty() {
                     ctx.keyword(sql);

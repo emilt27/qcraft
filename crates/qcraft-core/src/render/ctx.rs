@@ -87,6 +87,14 @@ impl RenderCtx {
     /// Write a parameterized value. Appends the placeholder ($1, ?, etc.)
     /// and stores the value.
     pub fn param(&mut self, val: Value) -> &mut Self {
+        self.placeholder();
+        self.params.push(val);
+        self
+    }
+
+    /// Write a parameter placeholder (`$N`, `?`, `%s`) without pushing a value.
+    /// Used for unbound params in executemany/batch operations.
+    pub fn placeholder(&mut self) -> &mut Self {
         self.space_if_needed();
         self.param_index += 1;
         match self.param_style {
@@ -101,7 +109,6 @@ impl RenderCtx {
                 self.sql.push_str("%s");
             }
         }
-        self.params.push(val);
         self
     }
 
