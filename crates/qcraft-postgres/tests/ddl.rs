@@ -185,6 +185,50 @@ fn create_table_with_default() {
 }
 
 #[test]
+fn create_table_with_default_current_timestamp() {
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema: SchemaDef {
+            name: "events".into(),
+            namespace: None,
+            columns: vec![
+                ColumnDef::new("id", FieldType::scalar("SERIAL")),
+                ColumnDef {
+                    name: "created_at".into(),
+                    field_type: FieldType::scalar("TIMESTAMPTZ"),
+                    not_null: true,
+                    default: Some(Expr::CurrentTimestamp),
+                    generated: None,
+                    identity: None,
+                    collation: None,
+                    comment: None,
+                    storage: None,
+                    compression: None,
+                },
+            ],
+            constraints: None,
+            indexes: None,
+            like_tables: None,
+        },
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "events" ("id" SERIAL, "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)"#
+    );
+}
+
+#[test]
 fn create_table_with_identity() {
     let stmt = SchemaMutationStmt::CreateTable {
         schema: SchemaDef {
