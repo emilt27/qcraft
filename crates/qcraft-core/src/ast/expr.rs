@@ -80,6 +80,15 @@ pub enum Expr {
     /// Current timestamp: PG `now()`, SQLite `datetime('now')`.
     Now,
 
+    /// SQL CURRENT_TIMESTAMP keyword (rendered without parentheses).
+    CurrentTimestamp,
+
+    /// SQL CURRENT_DATE keyword (rendered without parentheses).
+    CurrentDate,
+
+    /// SQL CURRENT_TIME keyword (rendered without parentheses).
+    CurrentTime,
+
     /// Row/tuple constructor: `(expr1, expr2, ...)`.
     Tuple(Vec<Expr>),
 

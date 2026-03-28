@@ -1067,6 +1067,19 @@ impl Renderer for PostgresRenderer {
                 Ok(())
             }
 
+            Expr::CurrentTimestamp => {
+                ctx.keyword("CURRENT_TIMESTAMP");
+                Ok(())
+            }
+            Expr::CurrentDate => {
+                ctx.keyword("CURRENT_DATE");
+                Ok(())
+            }
+            Expr::CurrentTime => {
+                ctx.keyword("CURRENT_TIME");
+                Ok(())
+            }
+
             Expr::JsonPathText { expr, path } => {
                 self.render_expr(expr, ctx)?;
                 ctx.operator("->>'")
