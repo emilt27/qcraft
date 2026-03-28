@@ -172,7 +172,37 @@ fn create_table_with_default() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "config" ("key" TEXT NOT NULL, "value" TEXT DEFAULT 'default')"#,
+        r#"CREATE TABLE "config" ("key" TEXT NOT NULL, "value" TEXT DEFAULT ('default'))"#,
+    );
+}
+
+#[test]
+fn create_table_with_default_current_timestamp() {
+    let mut schema = SchemaDef::new("events");
+    schema.columns = vec![
+        ColumnDef::new("id", FieldType::scalar("INTEGER")),
+        ColumnDef::new("created_at", FieldType::scalar("TEXT"))
+            .not_null()
+            .default(Expr::CurrentTimestamp),
+    ];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "events" ("id" INTEGER, "created_at" TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP))"#
     );
 }
 
@@ -1188,7 +1218,7 @@ fn bool_rendered_as_integer() {
     };
     assert_eq!(
         render(&stmt),
-        r#"CREATE TABLE "t" ("flag" INTEGER DEFAULT 1)"#
+        r#"CREATE TABLE "t" ("flag" INTEGER DEFAULT (1))"#
     );
 }
 
