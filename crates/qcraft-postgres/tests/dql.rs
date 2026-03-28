@@ -2487,6 +2487,49 @@ fn now_pg() {
 }
 
 // ---------------------------------------------------------------------------
+// CURRENT_TIMESTAMP / CURRENT_DATE / CURRENT_TIME
+// ---------------------------------------------------------------------------
+
+#[test]
+fn current_timestamp_pg() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::CurrentTimestamp,
+            alias: Some("ts".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT CURRENT_TIMESTAMP AS "ts" FROM "t""#);
+}
+
+#[test]
+fn current_date_pg() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::CurrentDate,
+            alias: Some("d".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT CURRENT_DATE AS "d" FROM "t""#);
+}
+
+#[test]
+fn current_time_pg() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::CurrentTime,
+            alias: Some("t_col".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("t"))]),
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT CURRENT_TIME AS "t_col" FROM "t""#);
+}
+
+// ---------------------------------------------------------------------------
 // Tuple expression in WHERE
 // ---------------------------------------------------------------------------
 

@@ -1668,6 +1668,46 @@ fn now_sqlite() {
 }
 
 // ---------------------------------------------------------------------------
+// CURRENT_TIMESTAMP / CURRENT_DATE / CURRENT_TIME
+// ---------------------------------------------------------------------------
+
+#[test]
+fn current_timestamp_sqlite() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::CurrentTimestamp,
+            alias: Some("ts".into()),
+        }],
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT CURRENT_TIMESTAMP AS "ts" FROM "users""#);
+}
+
+#[test]
+fn current_date_sqlite() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::CurrentDate,
+            alias: Some("d".into()),
+        }],
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT CURRENT_DATE AS "d" FROM "users""#);
+}
+
+#[test]
+fn current_time_sqlite() {
+    let sql = render(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::CurrentTime,
+            alias: Some("t_col".into()),
+        }],
+        ..simple_query()
+    });
+    assert_eq!(sql, r#"SELECT CURRENT_TIME AS "t_col" FROM "users""#);
+}
+
+// ---------------------------------------------------------------------------
 // REGEXP / IRegex
 // ---------------------------------------------------------------------------
 

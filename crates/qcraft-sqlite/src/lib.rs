@@ -293,8 +293,9 @@ impl Renderer for SqliteRenderer {
         }
 
         if let Some(default) = &col.default {
-            ctx.keyword("DEFAULT");
+            ctx.keyword("DEFAULT").paren_open();
             self.render_expr(default, ctx)?;
+            ctx.paren_close();
         }
 
         // Identity is handled at CREATE TABLE level (rendered as PRIMARY KEY AUTOINCREMENT inline)
@@ -634,6 +635,19 @@ impl Renderer for SqliteRenderer {
                     .write("(")
                     .string_literal("now")
                     .paren_close();
+                Ok(())
+            }
+
+            Expr::CurrentTimestamp => {
+                ctx.keyword("CURRENT_TIMESTAMP");
+                Ok(())
+            }
+            Expr::CurrentDate => {
+                ctx.keyword("CURRENT_DATE");
+                Ok(())
+            }
+            Expr::CurrentTime => {
+                ctx.keyword("CURRENT_TIME");
                 Ok(())
             }
 
