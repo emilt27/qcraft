@@ -151,8 +151,11 @@ let expr = Expr::Raw {
 Or using the convenience constructor (no parameters):
 
 ```rust
-let expr = Expr::raw("CURRENT_TIMESTAMP");
+let expr = Expr::raw("my_custom_func()");
 ```
+
+> **Note:** For standard SQL datetime keywords, prefer the built-in variants
+> (`Expr::CurrentTimestamp`, `Expr::CurrentDate`, `Expr::CurrentTime`) over `Expr::raw`.
 
 Raw SQL is injected verbatim into the output. Use this sparingly -- it bypasses dialect validation entirely.
 
