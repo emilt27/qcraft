@@ -116,6 +116,9 @@ pub enum Expr {
 | `Expr::json_agg(expr)` | `Expr::JsonAgg { ... }` — PG: `jsonb_agg`, SQLite: `json_group_array` |
 | `Expr::string_agg(expr, ",")` | `Expr::StringAgg { ... }` — PG: `string_agg`, SQLite: `group_concat` |
 | `Expr::now()` | `Expr::Now` — PG: `now()`, SQLite: `datetime('now')` |
+| `Expr::CurrentTimestamp` | `CURRENT_TIMESTAMP` keyword (both dialects) |
+| `Expr::CurrentDate` | `CURRENT_DATE` keyword (both dialects) |
+| `Expr::CurrentTime` | `CURRENT_TIME` keyword (both dialects) |
 
 ### From implementations
 

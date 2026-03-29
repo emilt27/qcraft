@@ -2391,7 +2391,7 @@ impl PostgresRenderer {
                 ctx.keyword("CYCLE");
             }
             if let Some(cache) = identity.cache {
-                ctx.keyword("CACHE").write(&cache.to_string());
+                ctx.keyword("CACHE").keyword(&cache.to_string());
             }
             ctx.paren_close();
         }
