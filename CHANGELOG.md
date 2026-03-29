@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4.1
+
+### Fixed
+- PostgreSQL: missing space between `CACHE` and its value in identity column rendering (`.write()` → `.keyword()`)
+
 ## 2.4.0
 
 ### Added
