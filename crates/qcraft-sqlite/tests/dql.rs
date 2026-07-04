@@ -1231,6 +1231,48 @@ fn custom_binary_op_unsupported() {
     assert!(err.contains("CustomBinaryOp"));
 }
 
+// ---------------------------------------------------------------------------
+// Power — rendered as power(l, r)
+// ---------------------------------------------------------------------------
+
+fn render_expr_sqlite(expr: Expr) -> String {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr { expr, alias: None }],
+        from: None,
+        ..simple_query()
+    };
+    render(&stmt)
+}
+
+#[test]
+fn sqlite_power_renders_power_function() {
+    let e = Expr::Binary {
+        left: Box::new(Expr::field("t", "a")),
+        op: BinaryOp::Power,
+        right: Box::new(Expr::Value(Value::Int(2))),
+    };
+    // Value literals in DQL are parameterized (QMark) → the 2 becomes ?.
+    let sql = render_expr_sqlite(e);
+    assert_eq!(sql, r#"SELECT power("t"."a", ?)"#);
+}
+
+#[test]
+fn sqlite_power_with_grouped_left_operand() {
+    // Caller-supplied grouping via Tuple: (a + b) ** 2
+    let inner = Expr::Binary {
+        left: Box::new(Expr::field("t", "a")),
+        op: BinaryOp::Add,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    let e = Expr::Binary {
+        left: Box::new(Expr::Tuple(vec![inner])),
+        op: BinaryOp::Power,
+        right: Box::new(Expr::Value(Value::Int(2))),
+    };
+    let sql = render_expr_sqlite(e);
+    assert_eq!(sql, r#"SELECT power(("t"."a" + "t"."b"), ?)"#);
+}
+
 // ==========================================================================
 // Range operators unsupported
 // ==========================================================================
