@@ -272,6 +272,92 @@ impl Expr {
     pub fn now() -> Self {
         Expr::Now
     }
+
+    /// True if this expression tree contains an unbound `Expr::Param` placeholder.
+    /// Used to reject double-render forms that would corrupt positional binding.
+    /// Does not descend into subquery `QueryStmt`s (those are rejected separately).
+    pub fn contains_unbound_param(&self) -> bool {
+        match self {
+            Expr::Param { .. } => true,
+            Expr::Binary { left, right, .. } => {
+                left.contains_unbound_param() || right.contains_unbound_param()
+            }
+            Expr::Unary { expr, .. }
+            | Expr::Cast { expr, .. }
+            | Expr::Collate { expr, .. }
+            | Expr::JsonPathText { expr, .. } => expr.contains_unbound_param(),
+            Expr::Func { args, .. } | Expr::Tuple(args) | Expr::JsonArray(args) => {
+                args.iter().any(|a| a.contains_unbound_param())
+            }
+            Expr::JsonObject(pairs) => pairs.iter().any(|(_, v)| v.contains_unbound_param()),
+            Expr::Aggregate(agg) => {
+                agg.expression
+                    .as_ref()
+                    .is_some_and(|e| e.contains_unbound_param())
+                    || agg
+                        .args
+                        .as_ref()
+                        .is_some_and(|a| a.iter().any(|e| e.contains_unbound_param()))
+            }
+            Expr::Window(w) => {
+                w.expression.contains_unbound_param()
+                    || w.partition_by
+                        .as_ref()
+                        .is_some_and(|ps| ps.iter().any(|e| e.contains_unbound_param()))
+            }
+            Expr::JsonAgg { expr, .. } | Expr::StringAgg { expr, .. } => {
+                expr.contains_unbound_param()
+            }
+            Expr::Case(c) => {
+                c.cases.iter().any(|w| w.result.contains_unbound_param())
+                    || c.default
+                        .as_ref()
+                        .is_some_and(|d| d.contains_unbound_param())
+            }
+            _ => false,
+        }
+    }
+
+    /// True if this expression tree contains a subquery
+    /// (`Exists`/`SubQuery`/`ArraySubQuery`), including nested inside other exprs.
+    /// Used to reject SQLite XOR operands that would be executed twice.
+    pub fn contains_subquery(&self) -> bool {
+        match self {
+            Expr::Exists(_) | Expr::SubQuery(_) | Expr::ArraySubQuery(_) => true,
+            Expr::Binary { left, right, .. } => {
+                left.contains_subquery() || right.contains_subquery()
+            }
+            Expr::Unary { expr, .. }
+            | Expr::Cast { expr, .. }
+            | Expr::Collate { expr, .. }
+            | Expr::JsonPathText { expr, .. } => expr.contains_subquery(),
+            Expr::Func { args, .. } | Expr::Tuple(args) | Expr::JsonArray(args) => {
+                args.iter().any(|a| a.contains_subquery())
+            }
+            Expr::JsonObject(pairs) => pairs.iter().any(|(_, v)| v.contains_subquery()),
+            Expr::Aggregate(agg) => {
+                agg.expression
+                    .as_ref()
+                    .is_some_and(|e| e.contains_subquery())
+                    || agg
+                        .args
+                        .as_ref()
+                        .is_some_and(|a| a.iter().any(|e| e.contains_subquery()))
+            }
+            Expr::Window(w) => {
+                w.expression.contains_subquery()
+                    || w.partition_by
+                        .as_ref()
+                        .is_some_and(|ps| ps.iter().any(|e| e.contains_subquery()))
+            }
+            Expr::JsonAgg { expr, .. } | Expr::StringAgg { expr, .. } => expr.contains_subquery(),
+            Expr::Case(c) => {
+                c.cases.iter().any(|w| w.result.contains_subquery())
+                    || c.default.as_ref().is_some_and(|d| d.contains_subquery())
+            }
+            _ => false,
+        }
+    }
 }
 
 impl From<Value> for Expr {
@@ -294,8 +380,10 @@ pub enum BinaryOp {
     Mul,
     Div,
     Mod,
+    Power,
     BitwiseAnd,
     BitwiseOr,
+    BitwiseXor,
     ShiftLeft,
     ShiftRight,
     Concat,
@@ -407,4 +495,59 @@ pub enum WindowFrameBound {
     CurrentRow,
     Preceding(Option<u64>),
     Following(Option<u64>),
+}
+
+#[cfg(test)]
+mod predicate_tests {
+    use super::*;
+    use crate::ast::query::QueryStmt;
+
+    fn param() -> Expr {
+        Expr::Param { type_hint: None }
+    }
+
+    #[test]
+    fn contains_unbound_param_detects_nested_param() {
+        let e = Expr::Binary {
+            left: Box::new(Expr::Binary {
+                left: Box::new(param()),
+                op: BinaryOp::Add,
+                right: Box::new(Expr::Value(Value::Int(1))),
+            }),
+            op: BinaryOp::Mul,
+            right: Box::new(Expr::Value(Value::Int(2))),
+        };
+        assert!(e.contains_unbound_param());
+    }
+
+    #[test]
+    fn contains_unbound_param_false_for_plain_values() {
+        let e = Expr::Binary {
+            left: Box::new(Expr::field("t", "a")),
+            op: BinaryOp::Add,
+            right: Box::new(Expr::Value(Value::Int(1))),
+        };
+        assert!(!e.contains_unbound_param());
+    }
+
+    #[test]
+    fn contains_subquery_detects_nested_subquery() {
+        let sub = Expr::SubQuery(Box::<QueryStmt>::default());
+        let e = Expr::Binary {
+            left: Box::new(sub),
+            op: BinaryOp::Add,
+            right: Box::new(Expr::Value(Value::Int(1))),
+        };
+        assert!(e.contains_subquery());
+    }
+
+    #[test]
+    fn contains_subquery_false_for_plain_expr() {
+        let e = Expr::Binary {
+            left: Box::new(Expr::field("t", "a")),
+            op: BinaryOp::BitwiseXor,
+            right: Box::new(Expr::Value(Value::Int(1))),
+        };
+        assert!(!e.contains_subquery());
+    }
 }

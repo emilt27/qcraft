@@ -904,6 +904,13 @@ impl Renderer for PostgresRenderer {
                     BinaryOp::Custom(custom) => {
                         render_custom_binary_op(custom.as_ref(), ctx)?;
                     }
+                    // TEMP (Task 4 replaces): render as native infix.
+                    BinaryOp::Power | BinaryOp::BitwiseXor => {
+                        return Err(RenderError::unsupported(
+                            "BinaryOp",
+                            "Power/BitwiseXor rendering not yet implemented",
+                        ));
+                    }
                     _ => {
                         ctx.keyword(match op {
                             BinaryOp::Add => "+",
@@ -916,6 +923,7 @@ impl Renderer for PostgresRenderer {
                             BinaryOp::ShiftLeft => "<<",
                             BinaryOp::ShiftRight => ">>",
                             BinaryOp::Concat => "||",
+                            BinaryOp::Power | BinaryOp::BitwiseXor => unreachable!(),
                             BinaryOp::Custom(_) => unreachable!(),
                         });
                     }
