@@ -493,11 +493,60 @@ impl Renderer for SqliteRenderer {
                     Ok(())
                 }
 
-                // TEMP (Task 6 replaces): composite XOR with guards.
-                BinaryOp::BitwiseXor => Err(RenderError::unsupported(
-                    "BitwiseXor",
-                    "SQLite XOR rendering not yet implemented",
-                )),
+                BinaryOp::BitwiseXor => {
+                    // Guard 1: a subquery operand would be executed twice (the composite
+                    // duplicates operand text). Reject in any param mode.
+                    if left.contains_subquery() || right.contains_subquery() {
+                        return Err(RenderError::unsupported(
+                            "BitwiseXor",
+                            "SQLite XOR is emulated by a composite that duplicates operands; \
+                             a subquery operand would execute twice — not supported",
+                        ));
+                    }
+                    if ctx.param_style() == ParamStyle::QMarkNumbered {
+                        // render-once, splice: (((L) | (R)) - ((L) & (R)))
+                        let l = ctx.capture(|c| self.render_expr(left, c))?;
+                        let r = ctx.capture(|c| self.render_expr(right, c))?;
+                        ctx.paren_open();
+                        ctx.write("((")
+                            .write(&l)
+                            .write(") | (")
+                            .write(&r)
+                            .write("))");
+                        ctx.write(" - ");
+                        ctx.write("((")
+                            .write(&l)
+                            .write(") & (")
+                            .write(&r)
+                            .write("))");
+                        ctx.paren_close();
+                        Ok(())
+                    } else {
+                        // Guard 2: unbound Param would corrupt positional binding under
+                        // double-render; require QMarkNumbered for that case.
+                        if left.contains_unbound_param() || right.contains_unbound_param() {
+                            return Err(RenderError::unsupported(
+                                "BitwiseXor",
+                                "SQLite XOR duplicates operands in non-numbered mode; an unbound \
+                                 Param would corrupt positional binding — use ParamStyle::QMarkNumbered",
+                            ));
+                        }
+                        ctx.paren_open();
+                        ctx.write("((");
+                        self.render_expr(left, ctx)?;
+                        ctx.write(") | (");
+                        self.render_expr(right, ctx)?;
+                        ctx.write("))");
+                        ctx.write(" - ");
+                        ctx.write("((");
+                        self.render_expr(left, ctx)?;
+                        ctx.write(") & (");
+                        self.render_expr(right, ctx)?;
+                        ctx.write("))");
+                        ctx.paren_close();
+                        Ok(())
+                    }
+                }
 
                 // Everything else stays infix.
                 _ => {
