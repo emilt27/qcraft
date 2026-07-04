@@ -49,18 +49,29 @@ fn render_like_pattern(op: &CompareOp, right: &Expr, ctx: &mut RenderCtx) -> Ren
     Ok(())
 }
 
-pub struct SqliteRenderer;
+pub struct SqliteRenderer {
+    param_style: ParamStyle,
+}
 
 impl SqliteRenderer {
     pub fn new() -> Self {
-        Self
+        Self {
+            param_style: ParamStyle::QMark,
+        }
+    }
+
+    /// Set the parameter placeholder style (default `QMark`). Use
+    /// `QMarkNumbered` to enable operand reuse for XOR / executemany.
+    pub fn with_param_style(mut self, style: ParamStyle) -> Self {
+        self.param_style = style;
+        self
     }
 
     pub fn render_schema_stmt(
         &self,
         stmt: &SchemaMutationStmt,
     ) -> RenderResult<Vec<(String, Vec<Value>)>> {
-        let mut ctx = RenderCtx::new(ParamStyle::QMark);
+        let mut ctx = RenderCtx::new(self.param_style);
         self.render_schema_mutation(stmt, &mut ctx)?;
         Ok(vec![ctx.finish()])
     }
@@ -69,19 +80,19 @@ impl SqliteRenderer {
         &self,
         stmt: &TransactionStmt,
     ) -> RenderResult<(String, Vec<Value>)> {
-        let mut ctx = RenderCtx::new(ParamStyle::QMark);
+        let mut ctx = RenderCtx::new(self.param_style);
         self.render_transaction(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 
     pub fn render_mutation_stmt(&self, stmt: &MutationStmt) -> RenderResult<(String, Vec<Value>)> {
-        let mut ctx = RenderCtx::new(ParamStyle::QMark).with_parameterize(true);
+        let mut ctx = RenderCtx::new(self.param_style).with_parameterize(true);
         self.render_mutation(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
 
     pub fn render_query_stmt(&self, stmt: &QueryStmt) -> RenderResult<(String, Vec<Value>)> {
-        let mut ctx = RenderCtx::new(ParamStyle::QMark).with_parameterize(true);
+        let mut ctx = RenderCtx::new(self.param_style).with_parameterize(true);
         self.render_query(stmt, &mut ctx)?;
         Ok(ctx.finish())
     }
