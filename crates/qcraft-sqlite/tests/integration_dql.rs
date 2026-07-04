@@ -2206,3 +2206,36 @@ fn custom_binary_op_rejected_by_sqlite() {
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("CustomBinaryOp"));
 }
+
+// ---------------------------------------------------------------------------
+// BitwiseXor — composite computes a real XOR
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sqlite_xor_computes_real_xor_via_rusqlite() {
+    use qcraft_core::render::ctx::ParamStyle;
+
+    let conn = Connection::open_in_memory().unwrap();
+
+    // Build:  SELECT (a ^ b)  with a, b as unbound params, numbered mode.
+    let expr = Expr::Binary {
+        left: Box::new(Expr::Param { type_hint: None }),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::Param { type_hint: None }),
+    };
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr { expr, alias: None }],
+        from: None,
+        ..simple_query()
+    };
+    let renderer = SqliteRenderer::new().with_param_style(ParamStyle::QMarkNumbered);
+    let (sql, _params) = renderer.render_query_stmt(&stmt).unwrap();
+
+    // Bind a,b per row and compare to Rust's a ^ b.
+    for (a, b) in [(6_i64, 3_i64), (12, 10), (255, 0), (255, 255), (1024, 1)] {
+        let got: i64 = conn
+            .query_row(&sql, rusqlite::params![a, b], |row| row.get(0))
+            .unwrap();
+        assert_eq!(got, a ^ b, "sql={sql}");
+    }
+}

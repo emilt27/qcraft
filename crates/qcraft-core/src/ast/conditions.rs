@@ -186,6 +186,32 @@ impl Conditions {
             negate: false,
         }))])
     }
+
+    /// True if any comparison operand in this condition tree contains an unbound
+    /// `Expr::Param`. Does not descend into `Exists`/subquery bodies (same
+    /// invariant as `Expr::contains_unbound_param`).
+    pub fn contains_unbound_param(&self) -> bool {
+        self.children.iter().any(|node| match node {
+            ConditionNode::Comparison(c) => {
+                c.left.contains_unbound_param() || c.right.contains_unbound_param()
+            }
+            ConditionNode::Group(g) => g.contains_unbound_param(),
+            ConditionNode::Exists(_) | ConditionNode::Custom(_) => false,
+        })
+    }
+
+    /// True if this condition tree contains a subquery: either an `Exists` node
+    /// or a comparison operand that itself contains a subquery.
+    pub fn contains_subquery(&self) -> bool {
+        self.children.iter().any(|node| match node {
+            ConditionNode::Comparison(c) => {
+                c.left.contains_subquery() || c.right.contains_subquery()
+            }
+            ConditionNode::Group(g) => g.contains_subquery(),
+            ConditionNode::Exists(_) => true,
+            ConditionNode::Custom(_) => false,
+        })
+    }
 }
 
 impl Comparison {

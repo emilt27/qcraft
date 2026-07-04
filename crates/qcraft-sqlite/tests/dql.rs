@@ -4,6 +4,7 @@ use qcraft_core::ast::custom::CustomBinaryOp;
 use qcraft_core::ast::expr::*;
 use qcraft_core::ast::query::*;
 use qcraft_core::ast::value::Value;
+use qcraft_core::render::ctx::ParamStyle;
 use qcraft_sqlite::SqliteRenderer;
 
 fn render(stmt: &QueryStmt) -> String {
@@ -1230,6 +1231,174 @@ fn custom_binary_op_unsupported() {
     assert!(err.contains("CustomBinaryOp"));
 }
 
+// ---------------------------------------------------------------------------
+// Power — rendered as power(l, r)
+// ---------------------------------------------------------------------------
+
+fn render_expr_sqlite(expr: Expr) -> String {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr { expr, alias: None }],
+        from: None,
+        ..simple_query()
+    };
+    render(&stmt)
+}
+
+#[test]
+fn sqlite_power_renders_power_function() {
+    let e = Expr::Binary {
+        left: Box::new(Expr::field("t", "a")),
+        op: BinaryOp::Power,
+        right: Box::new(Expr::Value(Value::Int(2))),
+    };
+    // Value literals in DQL are parameterized (QMark) → the 2 becomes ?.
+    let sql = render_expr_sqlite(e);
+    assert_eq!(sql, r#"SELECT power("t"."a", ?)"#);
+}
+
+#[test]
+fn sqlite_power_with_grouped_left_operand() {
+    // Caller-supplied grouping via Tuple: (a + b) ** 2
+    let inner = Expr::Binary {
+        left: Box::new(Expr::field("t", "a")),
+        op: BinaryOp::Add,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    let e = Expr::Binary {
+        left: Box::new(Expr::Tuple(vec![inner])),
+        op: BinaryOp::Power,
+        right: Box::new(Expr::Value(Value::Int(2))),
+    };
+    let sql = render_expr_sqlite(e);
+    assert_eq!(sql, r#"SELECT power(("t"."a" + "t"."b"), ?)"#);
+}
+
+// ---------------------------------------------------------------------------
+// BitwiseXor — composite `(((L) | (R)) - ((L) & (R)))` with guards
+// ---------------------------------------------------------------------------
+
+fn render_expr_sqlite_numbered(expr: Expr) -> (String, Vec<Value>) {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr { expr, alias: None }],
+        from: None,
+        ..simple_query()
+    };
+    let renderer = SqliteRenderer::new().with_param_style(ParamStyle::QMarkNumbered);
+    renderer.render_query_stmt(&stmt).unwrap()
+}
+
+#[test]
+fn sqlite_xor_qmark_fields_canonical_form() {
+    let e = Expr::Binary {
+        left: Box::new(Expr::field("t", "a")),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    assert_eq!(
+        render_expr_sqlite(e),
+        r#"SELECT ((("t"."a") | ("t"."b")) - (("t"."a") & ("t"."b")))"#
+    );
+}
+
+#[test]
+fn sqlite_xor_inside_parent_expr_is_isolated() {
+    // 1 + (a ^ b) — outer parens must isolate the composite from +.
+    let xor = Expr::Binary {
+        left: Box::new(Expr::field("t", "a")),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    let e = Expr::Binary {
+        left: Box::new(Expr::Value(Value::Int(1))),
+        op: BinaryOp::Add,
+        right: Box::new(xor),
+    };
+    assert_eq!(
+        render_expr_sqlite(e),
+        r#"SELECT ? + ((("t"."a") | ("t"."b")) - (("t"."a") & ("t"."b")))"#
+    );
+}
+
+#[test]
+fn sqlite_xor_subquery_operand_rejected() {
+    let e = Expr::Binary {
+        left: Box::new(Expr::SubQuery(Box::new(simple_query()))),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    let err = render_err(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: e,
+            alias: None,
+        }],
+        ..simple_query()
+    });
+    assert!(err.contains("BitwiseXor"), "got: {err}");
+}
+
+#[test]
+fn sqlite_xor_unbound_param_rejected_in_qmark_mode() {
+    let e = Expr::Binary {
+        left: Box::new(Expr::Param { type_hint: None }),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    let err = render_err(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: e,
+            alias: None,
+        }],
+        ..simple_query()
+    });
+    assert!(err.contains("BitwiseXor"), "got: {err}");
+}
+
+#[test]
+fn sqlite_xor_numbered_complex_operand_binds_once() {
+    // (x + y) ^ z, all unbound params, numbered mode → 3 params, reuse.
+    // Left is a raw Binary (x + y); the composite wraps each operand itself,
+    // so no caller Tuple is needed (a Tuple would add a second paren layer).
+    let left = Expr::Binary {
+        left: Box::new(Expr::Param { type_hint: None }),
+        op: BinaryOp::Add,
+        right: Box::new(Expr::Param { type_hint: None }),
+    };
+    let e = Expr::Binary {
+        left: Box::new(left),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::Param { type_hint: None }),
+    };
+    let (sql, params) = render_expr_sqlite_numbered(e);
+    // ?1,?2 (from x+y) reused; ?3 from z.
+    assert_eq!(sql, "SELECT (((?1 + ?2) | (?3)) - ((?1 + ?2) & (?3)))");
+    // The contract: exactly 3 distinct logical params, each reused — NOT 6.
+    // Unbound Params push no bound values here (executemany/batch path), so the
+    // values vec is empty; the proof lives in the placeholder indices. If either
+    // operand were double-counted we'd see ?4..?6 (six distinct indices).
+    assert!(
+        params.is_empty(),
+        "unbound params bind no values: {params:?}"
+    );
+    assert!(sql.contains("?3"), "expected highest index ?3 in {sql}");
+    assert!(
+        !sql.contains("?4"),
+        "operand double-counted — indices leaked past ?3 in {sql}"
+    );
+}
+
+#[test]
+fn sqlite_xor_numbered_bound_values_bind_once() {
+    // 6 ^ 3 as bound Values, numbered mode → each operand registered once (2 params, not 4).
+    let e = Expr::Binary {
+        left: Box::new(Expr::Value(Value::Int(6))),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::Value(Value::Int(3))),
+    };
+    let (sql, params) = render_expr_sqlite_numbered(e);
+    assert_eq!(sql, "SELECT (((?1) | (?2)) - ((?1) & (?2)))");
+    assert_eq!(params, vec![Value::Int(6), Value::Int(3)]);
+}
+
 // ==========================================================================
 // Range operators unsupported
 // ==========================================================================
@@ -1419,6 +1588,33 @@ fn field_ref_with_json_child() {
         sql,
         r#"SELECT "users"."data"->'address'->'city' FROM "users""#
     );
+}
+
+// ---------------------------------------------------------------------------
+// ParamStyle::QMarkNumbered
+// ---------------------------------------------------------------------------
+
+#[test]
+fn numbered_param_style_emits_indexed_placeholders() {
+    // SELECT ?1, ?2  with two literal values in QMarkNumbered mode.
+    let stmt = QueryStmt {
+        columns: vec![
+            SelectColumn::Expr {
+                expr: Expr::Value(Value::Int(10)),
+                alias: None,
+            },
+            SelectColumn::Expr {
+                expr: Expr::Value(Value::Int(20)),
+                alias: None,
+            },
+        ],
+        from: None,
+        ..simple_query()
+    };
+    let renderer = SqliteRenderer::new().with_param_style(ParamStyle::QMarkNumbered);
+    let (sql, params) = renderer.render_query_stmt(&stmt).unwrap();
+    assert_eq!(sql, "SELECT ?1, ?2");
+    assert_eq!(params, vec![Value::Int(10), Value::Int(20)]);
 }
 
 // ---------------------------------------------------------------------------
