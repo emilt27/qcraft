@@ -4,6 +4,7 @@ use qcraft_core::ast::custom::CustomBinaryOp;
 use qcraft_core::ast::expr::*;
 use qcraft_core::ast::query::*;
 use qcraft_core::ast::value::Value;
+use qcraft_core::render::ctx::ParamStyle;
 use qcraft_sqlite::SqliteRenderer;
 
 fn render(stmt: &QueryStmt) -> String {
@@ -1419,6 +1420,33 @@ fn field_ref_with_json_child() {
         sql,
         r#"SELECT "users"."data"->'address'->'city' FROM "users""#
     );
+}
+
+// ---------------------------------------------------------------------------
+// ParamStyle::QMarkNumbered
+// ---------------------------------------------------------------------------
+
+#[test]
+fn numbered_param_style_emits_indexed_placeholders() {
+    // SELECT ?1, ?2  with two literal values in QMarkNumbered mode.
+    let stmt = QueryStmt {
+        columns: vec![
+            SelectColumn::Expr {
+                expr: Expr::Value(Value::Int(10)),
+                alias: None,
+            },
+            SelectColumn::Expr {
+                expr: Expr::Value(Value::Int(20)),
+                alias: None,
+            },
+        ],
+        from: None,
+        ..simple_query()
+    };
+    let renderer = SqliteRenderer::new().with_param_style(ParamStyle::QMarkNumbered);
+    let (sql, params) = renderer.render_query_stmt(&stmt).unwrap();
+    assert_eq!(sql, "SELECT ?1, ?2");
+    assert_eq!(params, vec![Value::Int(10), Value::Int(20)]);
 }
 
 // ---------------------------------------------------------------------------
