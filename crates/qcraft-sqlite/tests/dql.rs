@@ -1368,9 +1368,22 @@ fn sqlite_xor_numbered_complex_operand_binds_once() {
         op: BinaryOp::BitwiseXor,
         right: Box::new(Expr::Param { type_hint: None }),
     };
-    let (sql, _params) = render_expr_sqlite_numbered(e);
-    // ?1,?2 (from x+y) reused; ?3 from z. Max index 3 → 3 bound values per row.
+    let (sql, params) = render_expr_sqlite_numbered(e);
+    // ?1,?2 (from x+y) reused; ?3 from z.
     assert_eq!(sql, "SELECT (((?1 + ?2) | (?3)) - ((?1 + ?2) & (?3)))");
+    // The contract: exactly 3 distinct logical params, each reused — NOT 6.
+    // Unbound Params push no bound values here (executemany/batch path), so the
+    // values vec is empty; the proof lives in the placeholder indices. If either
+    // operand were double-counted we'd see ?4..?6 (six distinct indices).
+    assert!(
+        params.is_empty(),
+        "unbound params bind no values: {params:?}"
+    );
+    assert!(sql.contains("?3"), "expected highest index ?3 in {sql}");
+    assert!(
+        !sql.contains("?4"),
+        "operand double-counted — indices leaked past ?3 in {sql}"
+    );
 }
 
 // ==========================================================================
