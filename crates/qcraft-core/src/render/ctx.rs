@@ -1,4 +1,5 @@
 use crate::ast::value::Value;
+use crate::error::RenderResult;
 
 /// Style of parameter placeholders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7,6 +8,9 @@ pub enum ParamStyle {
     Dollar,
     /// SQLite / MySQL: `?`
     QMark,
+    /// SQLite numbered: `?1`, `?2` — lets a composite reference a logical
+    /// operand multiple times while binding it once (used for XOR / executemany).
+    QMarkNumbered,
     /// psycopg / DB-API 2.0: `%s`
     Percent,
 }
@@ -60,6 +64,30 @@ impl RenderCtx {
         &self.params
     }
 
+    /// The parameter placeholder style in effect.
+    pub fn param_style(&self) -> ParamStyle {
+        self.param_style
+    }
+
+    /// Render a fragment via `f`, return its SQL text (whitespace-trimmed) and
+    /// remove that text from the buffer, while leaving `param_index`/`params`
+    /// advanced by exactly one render of the fragment. The returned text can be
+    /// spliced in multiple times: in numbered mode its `?N` markers refer to the
+    /// same already-registered parameters, so an operand binds only once.
+    pub fn capture<F>(&mut self, f: F) -> RenderResult<String>
+    where
+        F: FnOnce(&mut RenderCtx) -> RenderResult<()>,
+    {
+        let start = self.sql.len();
+        f(self)?;
+        // Trim is required: space_if_needed may have prepended a leading space
+        // depending on the buffer state before the fragment; without trimming the
+        // fragment would be context-dependent and exact-string tests would drift.
+        let frag = self.sql[start..].trim().to_string();
+        self.sql.truncate(start); // start is a valid boundary (a prior length)
+        Ok(frag)
+    }
+
     // ── Semantic writing methods (chainable) ──
 
     /// Write a SQL keyword. Adds a leading space if the buffer is non-empty
@@ -104,6 +132,10 @@ impl RenderCtx {
             }
             ParamStyle::QMark => {
                 self.sql.push('?');
+            }
+            ParamStyle::QMarkNumbered => {
+                self.sql.push('?');
+                self.sql.push_str(&self.param_index.to_string());
             }
             ParamStyle::Percent => {
                 self.sql.push_str("%s");
@@ -190,6 +222,10 @@ impl RenderCtx {
                             }
                             ParamStyle::QMark => {
                                 self.sql.push('?');
+                            }
+                            ParamStyle::QMarkNumbered => {
+                                self.sql.push('?');
+                                self.sql.push_str(&self.param_index.to_string());
                             }
                             ParamStyle::Percent => {
                                 self.sql.push_str("%s");
@@ -378,5 +414,42 @@ mod tests {
         let (sql, params) = ctx.finish();
         assert_eq!(sql, "$1 AND x = $2");
         assert_eq!(params, vec![Value::Int(0), Value::Int(1)]);
+    }
+
+    #[test]
+    fn param_qmark_numbered_style() {
+        let mut ctx = RenderCtx::new(ParamStyle::QMarkNumbered);
+        ctx.param(Value::Int(10)).comma().param(Value::Int(20));
+        let (sql, params) = ctx.finish();
+        assert_eq!(sql, "?1, ?2");
+        assert_eq!(params, vec![Value::Int(10), Value::Int(20)]);
+    }
+
+    #[test]
+    fn param_style_getter() {
+        let ctx = RenderCtx::new(ParamStyle::QMarkNumbered);
+        assert_eq!(ctx.param_style(), ParamStyle::QMarkNumbered);
+    }
+
+    #[test]
+    fn capture_returns_fragment_and_keeps_params_advanced() {
+        let mut ctx = RenderCtx::new(ParamStyle::QMarkNumbered);
+        ctx.keyword("SELECT");
+        let frag = ctx
+            .capture(|c| {
+                c.param(Value::Int(1)).keyword("+").param(Value::Int(2));
+                Ok(())
+            })
+            .unwrap();
+        // Fragment captured and removed from buffer (buffer unchanged past "SELECT"),
+        // but params + param_index stayed advanced so the next placeholder is ?3.
+        assert_eq!(frag, "?1 + ?2");
+        ctx.write(" ")
+            .write(&frag)
+            .write(" - ")
+            .param(Value::Int(9));
+        let (sql, params) = ctx.finish();
+        assert_eq!(sql, "SELECT ?1 + ?2 - ?3");
+        assert_eq!(params, vec![Value::Int(1), Value::Int(2), Value::Int(9)]);
     }
 }

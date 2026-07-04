@@ -916,6 +916,8 @@ impl Renderer for PostgresRenderer {
                             BinaryOp::ShiftLeft => "<<",
                             BinaryOp::ShiftRight => ">>",
                             BinaryOp::Concat => "||",
+                            BinaryOp::Power => "^",
+                            BinaryOp::BitwiseXor => "#",
                             BinaryOp::Custom(_) => unreachable!(),
                         });
                     }

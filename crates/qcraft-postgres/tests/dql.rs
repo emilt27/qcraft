@@ -2623,3 +2623,52 @@ fn select_where_tuple_in() {
         ]
     );
 }
+
+// ==========================================================================
+// BinaryOp::Power / BinaryOp::BitwiseXor
+// ==========================================================================
+
+fn render_expr_pg(expr: Expr) -> (String, Vec<Value>) {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr { expr, alias: None }],
+        ..simple_query()
+    };
+    render_with_params(&stmt)
+}
+
+#[test]
+fn pg_power_renders_caret() {
+    let e = Expr::Binary {
+        left: Box::new(Expr::Value(Value::Int(2))),
+        op: qcraft_core::ast::expr::BinaryOp::Power,
+        right: Box::new(Expr::Value(Value::Int(3))),
+    };
+    let (sql, params) = render_expr_pg(e);
+    assert_eq!(sql, "SELECT $1 ^ $2");
+    assert_eq!(params, vec![Value::Int(2), Value::Int(3)]);
+}
+
+#[test]
+fn pg_bitwise_xor_renders_hash() {
+    let e = Expr::Binary {
+        left: Box::new(Expr::field("t", "a")),
+        op: qcraft_core::ast::expr::BinaryOp::BitwiseXor,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    let (sql, _params) = render_expr_pg(e);
+    assert_eq!(sql, r#"SELECT "t"."a" # "t"."b""#);
+}
+
+#[test]
+fn pg_xor_with_subquery_operand_is_allowed() {
+    // PG renders once — no double-execution, so subquery operands are fine.
+    let sub = Expr::SubQuery(Box::new(simple_query()));
+    let e = Expr::Binary {
+        left: Box::new(sub),
+        op: qcraft_core::ast::expr::BinaryOp::BitwiseXor,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    // Just assert it renders without error and contains the # operator.
+    let (sql, _params) = render_expr_pg(e);
+    assert!(sql.contains(" # "), "got: {sql}");
+}
