@@ -1386,6 +1386,19 @@ fn sqlite_xor_numbered_complex_operand_binds_once() {
     );
 }
 
+#[test]
+fn sqlite_xor_numbered_bound_values_bind_once() {
+    // 6 ^ 3 as bound Values, numbered mode → each operand registered once (2 params, not 4).
+    let e = Expr::Binary {
+        left: Box::new(Expr::Value(Value::Int(6))),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::Value(Value::Int(3))),
+    };
+    let (sql, params) = render_expr_sqlite_numbered(e);
+    assert_eq!(sql, "SELECT (((?1) | (?2)) - ((?1) & (?2)))");
+    assert_eq!(params, vec![Value::Int(6), Value::Int(3)]);
+}
+
 // ==========================================================================
 // Range operators unsupported
 // ==========================================================================
