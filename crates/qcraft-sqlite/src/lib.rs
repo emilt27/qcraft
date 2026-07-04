@@ -477,41 +477,48 @@ impl Renderer for SqliteRenderer {
                 Ok(())
             }
 
-            Expr::Binary { left, op, right } => {
-                self.render_expr(left, ctx)?;
-                match op {
-                    BinaryOp::Custom(_) => {
-                        return Err(RenderError::unsupported(
-                            "CustomBinaryOp",
-                            "SQLite does not support custom binary operators.",
-                        ));
-                    }
-                    // TEMP (Tasks 5-6 replace): power() and composite XOR.
-                    BinaryOp::Power | BinaryOp::BitwiseXor => {
-                        return Err(RenderError::unsupported(
-                            "BinaryOp",
-                            "Power/BitwiseXor rendering not yet implemented",
-                        ));
-                    }
-                    _ => {
-                        ctx.keyword(match op {
-                            BinaryOp::Add => "+",
-                            BinaryOp::Sub => "-",
-                            BinaryOp::Mul => "*",
-                            BinaryOp::Div => "/",
-                            BinaryOp::Mod => "%",
-                            BinaryOp::BitwiseAnd => "&",
-                            BinaryOp::BitwiseOr => "|",
-                            BinaryOp::ShiftLeft => "<<",
-                            BinaryOp::ShiftRight => ">>",
-                            BinaryOp::Concat => "||",
-                            BinaryOp::Power | BinaryOp::BitwiseXor => unreachable!(),
-                            BinaryOp::Custom(_) => unreachable!(),
-                        });
-                    }
-                };
-                self.render_expr(right, ctx)
-            }
+            Expr::Binary { left, op, right } => match op {
+                BinaryOp::Custom(_) => Err(RenderError::unsupported(
+                    "CustomBinaryOp",
+                    "SQLite does not support custom binary operators.",
+                )),
+
+                // power(l, r) — operands rendered once; works in any param mode.
+                BinaryOp::Power => {
+                    ctx.keyword("power").write("(");
+                    self.render_expr(left, ctx)?;
+                    ctx.comma();
+                    self.render_expr(right, ctx)?;
+                    ctx.paren_close();
+                    Ok(())
+                }
+
+                // TEMP (Task 6 replaces): composite XOR with guards.
+                BinaryOp::BitwiseXor => Err(RenderError::unsupported(
+                    "BitwiseXor",
+                    "SQLite XOR rendering not yet implemented",
+                )),
+
+                // Everything else stays infix.
+                _ => {
+                    self.render_expr(left, ctx)?;
+                    ctx.keyword(match op {
+                        BinaryOp::Add => "+",
+                        BinaryOp::Sub => "-",
+                        BinaryOp::Mul => "*",
+                        BinaryOp::Div => "/",
+                        BinaryOp::Mod => "%",
+                        BinaryOp::BitwiseAnd => "&",
+                        BinaryOp::BitwiseOr => "|",
+                        BinaryOp::ShiftLeft => "<<",
+                        BinaryOp::ShiftRight => ">>",
+                        BinaryOp::Concat => "||",
+                        BinaryOp::Power | BinaryOp::BitwiseXor => unreachable!(),
+                        BinaryOp::Custom(_) => unreachable!(),
+                    });
+                    self.render_expr(right, ctx)
+                }
+            },
 
             Expr::Unary { op, expr: inner } => {
                 match op {
