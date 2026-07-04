@@ -298,21 +298,49 @@ impl Expr {
                         .args
                         .as_ref()
                         .is_some_and(|a| a.iter().any(|e| e.contains_unbound_param()))
+                    || agg
+                        .filter
+                        .as_ref()
+                        .is_some_and(|f| f.contains_unbound_param())
+                    || agg
+                        .order_by
+                        .as_ref()
+                        .is_some_and(|obs| obs.iter().any(|o| o.expr.contains_unbound_param()))
             }
             Expr::Window(w) => {
                 w.expression.contains_unbound_param()
                     || w.partition_by
                         .as_ref()
                         .is_some_and(|ps| ps.iter().any(|e| e.contains_unbound_param()))
+                    || w.order_by
+                        .as_ref()
+                        .is_some_and(|obs| obs.iter().any(|o| o.expr.contains_unbound_param()))
             }
-            Expr::JsonAgg { expr, .. } | Expr::StringAgg { expr, .. } => {
+            Expr::JsonAgg {
+                expr,
+                filter,
+                order_by,
+                ..
+            }
+            | Expr::StringAgg {
+                expr,
+                filter,
+                order_by,
+                ..
+            } => {
                 expr.contains_unbound_param()
+                    || filter.as_ref().is_some_and(|f| f.contains_unbound_param())
+                    || order_by
+                        .as_ref()
+                        .is_some_and(|obs| obs.iter().any(|o| o.expr.contains_unbound_param()))
             }
             Expr::Case(c) => {
-                c.cases.iter().any(|w| w.result.contains_unbound_param())
-                    || c.default
-                        .as_ref()
-                        .is_some_and(|d| d.contains_unbound_param())
+                c.cases.iter().any(|w| {
+                    w.condition.contains_unbound_param() || w.result.contains_unbound_param()
+                }) || c
+                    .default
+                    .as_ref()
+                    .is_some_and(|d| d.contains_unbound_param())
             }
             _ => false,
         }
@@ -343,16 +371,43 @@ impl Expr {
                         .args
                         .as_ref()
                         .is_some_and(|a| a.iter().any(|e| e.contains_subquery()))
+                    || agg.filter.as_ref().is_some_and(|f| f.contains_subquery())
+                    || agg
+                        .order_by
+                        .as_ref()
+                        .is_some_and(|obs| obs.iter().any(|o| o.expr.contains_subquery()))
             }
             Expr::Window(w) => {
                 w.expression.contains_subquery()
                     || w.partition_by
                         .as_ref()
                         .is_some_and(|ps| ps.iter().any(|e| e.contains_subquery()))
+                    || w.order_by
+                        .as_ref()
+                        .is_some_and(|obs| obs.iter().any(|o| o.expr.contains_subquery()))
             }
-            Expr::JsonAgg { expr, .. } | Expr::StringAgg { expr, .. } => expr.contains_subquery(),
+            Expr::JsonAgg {
+                expr,
+                filter,
+                order_by,
+                ..
+            }
+            | Expr::StringAgg {
+                expr,
+                filter,
+                order_by,
+                ..
+            } => {
+                expr.contains_subquery()
+                    || filter.as_ref().is_some_and(|f| f.contains_subquery())
+                    || order_by
+                        .as_ref()
+                        .is_some_and(|obs| obs.iter().any(|o| o.expr.contains_subquery()))
+            }
             Expr::Case(c) => {
-                c.cases.iter().any(|w| w.result.contains_subquery())
+                c.cases
+                    .iter()
+                    .any(|w| w.condition.contains_subquery() || w.result.contains_subquery())
                     || c.default.as_ref().is_some_and(|d| d.contains_subquery())
             }
             _ => false,
@@ -500,6 +555,7 @@ pub enum WindowFrameBound {
 #[cfg(test)]
 mod predicate_tests {
     use super::*;
+    use crate::ast::conditions::Conditions;
     use crate::ast::query::QueryStmt;
 
     fn param() -> Expr {
@@ -548,6 +604,54 @@ mod predicate_tests {
             op: BinaryOp::BitwiseXor,
             right: Box::new(Expr::Value(Value::Int(1))),
         };
+        assert!(!e.contains_subquery());
+    }
+
+    #[test]
+    fn contains_unbound_param_detects_param_in_case_condition() {
+        let e = Expr::Case(CaseDef {
+            cases: vec![WhenClause {
+                condition: Conditions::eq(FieldRef::new("t", "a"), param()),
+                result: Expr::value(1),
+            }],
+            default: None,
+        });
+        assert!(e.contains_unbound_param());
+    }
+
+    #[test]
+    fn contains_unbound_param_detects_param_in_aggregate_filter() {
+        let mut agg = match Expr::sum(Expr::field("t", "a")) {
+            Expr::Aggregate(def) => def,
+            _ => unreachable!(),
+        };
+        agg.filter = Some(Conditions::eq(FieldRef::new("t", "a"), param()));
+        let e = Expr::Aggregate(agg);
+        assert!(e.contains_unbound_param());
+    }
+
+    #[test]
+    fn contains_subquery_detects_subquery_in_case_condition() {
+        let e = Expr::Case(CaseDef {
+            cases: vec![WhenClause {
+                condition: Conditions::in_subquery(FieldRef::new("t", "a"), QueryStmt::default()),
+                result: Expr::value(1),
+            }],
+            default: None,
+        });
+        assert!(e.contains_subquery());
+    }
+
+    #[test]
+    fn predicates_false_for_plain_case() {
+        let e = Expr::Case(CaseDef {
+            cases: vec![WhenClause {
+                condition: Conditions::eq(FieldRef::new("t", "a"), Expr::value(1)),
+                result: Expr::value(2),
+            }],
+            default: Some(Box::new(Expr::value(3))),
+        });
+        assert!(!e.contains_unbound_param());
         assert!(!e.contains_subquery());
     }
 }
