@@ -276,6 +276,9 @@ impl Expr {
     /// True if this expression tree contains an unbound `Expr::Param` placeholder.
     /// Used to reject double-render forms that would corrupt positional binding.
     /// Does not descend into subquery `QueryStmt`s (those are rejected separately).
+    /// Note: `Raw` and `Custom` are opaque escape hatches — a placeholder hidden inside
+    /// `Expr::Raw` SQL or a `CustomExpr`/`CustomCondition` cannot be detected here, so
+    /// callers using those in a SQLite XOR operand are responsible for double-render safety.
     pub fn contains_unbound_param(&self) -> bool {
         match self {
             Expr::Param { .. } => true,
@@ -349,6 +352,9 @@ impl Expr {
     /// True if this expression tree contains a subquery
     /// (`Exists`/`SubQuery`/`ArraySubQuery`), including nested inside other exprs.
     /// Used to reject SQLite XOR operands that would be executed twice.
+    /// Note: `Raw` and `Custom` are opaque escape hatches — a subquery hidden inside
+    /// `Expr::Raw` SQL or a `CustomExpr`/`CustomCondition` cannot be detected here, so
+    /// callers using those in a SQLite XOR operand are responsible for double-execution safety.
     pub fn contains_subquery(&self) -> bool {
         match self {
             Expr::Exists(_) | Expr::SubQuery(_) | Expr::ArraySubQuery(_) => true,
