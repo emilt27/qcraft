@@ -1273,6 +1273,106 @@ fn sqlite_power_with_grouped_left_operand() {
     assert_eq!(sql, r#"SELECT power(("t"."a" + "t"."b"), ?)"#);
 }
 
+// ---------------------------------------------------------------------------
+// BitwiseXor — composite `(((L) | (R)) - ((L) & (R)))` with guards
+// ---------------------------------------------------------------------------
+
+fn render_expr_sqlite_numbered(expr: Expr) -> (String, Vec<Value>) {
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr { expr, alias: None }],
+        from: None,
+        ..simple_query()
+    };
+    let renderer = SqliteRenderer::new().with_param_style(ParamStyle::QMarkNumbered);
+    renderer.render_query_stmt(&stmt).unwrap()
+}
+
+#[test]
+fn sqlite_xor_qmark_fields_canonical_form() {
+    let e = Expr::Binary {
+        left: Box::new(Expr::field("t", "a")),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    assert_eq!(
+        render_expr_sqlite(e),
+        r#"SELECT ((("t"."a") | ("t"."b")) - (("t"."a") & ("t"."b")))"#
+    );
+}
+
+#[test]
+fn sqlite_xor_inside_parent_expr_is_isolated() {
+    // 1 + (a ^ b) — outer parens must isolate the composite from +.
+    let xor = Expr::Binary {
+        left: Box::new(Expr::field("t", "a")),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    let e = Expr::Binary {
+        left: Box::new(Expr::Value(Value::Int(1))),
+        op: BinaryOp::Add,
+        right: Box::new(xor),
+    };
+    assert_eq!(
+        render_expr_sqlite(e),
+        r#"SELECT ? + ((("t"."a") | ("t"."b")) - (("t"."a") & ("t"."b")))"#
+    );
+}
+
+#[test]
+fn sqlite_xor_subquery_operand_rejected() {
+    let e = Expr::Binary {
+        left: Box::new(Expr::SubQuery(Box::new(simple_query()))),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    let err = render_err(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: e,
+            alias: None,
+        }],
+        ..simple_query()
+    });
+    assert!(err.contains("BitwiseXor"), "got: {err}");
+}
+
+#[test]
+fn sqlite_xor_unbound_param_rejected_in_qmark_mode() {
+    let e = Expr::Binary {
+        left: Box::new(Expr::Param { type_hint: None }),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::field("t", "b")),
+    };
+    let err = render_err(&QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: e,
+            alias: None,
+        }],
+        ..simple_query()
+    });
+    assert!(err.contains("BitwiseXor"), "got: {err}");
+}
+
+#[test]
+fn sqlite_xor_numbered_complex_operand_binds_once() {
+    // (x + y) ^ z, all unbound params, numbered mode → 3 params, reuse.
+    // Left is a raw Binary (x + y); the composite wraps each operand itself,
+    // so no caller Tuple is needed (a Tuple would add a second paren layer).
+    let left = Expr::Binary {
+        left: Box::new(Expr::Param { type_hint: None }),
+        op: BinaryOp::Add,
+        right: Box::new(Expr::Param { type_hint: None }),
+    };
+    let e = Expr::Binary {
+        left: Box::new(left),
+        op: BinaryOp::BitwiseXor,
+        right: Box::new(Expr::Param { type_hint: None }),
+    };
+    let (sql, _params) = render_expr_sqlite_numbered(e);
+    // ?1,?2 (from x+y) reused; ?3 from z. Max index 3 → 3 bound values per row.
+    assert_eq!(sql, "SELECT (((?1 + ?2) | (?3)) - ((?1 + ?2) & (?3)))");
+}
+
 // ==========================================================================
 // Range operators unsupported
 // ==========================================================================
