@@ -486,6 +486,13 @@ impl Renderer for SqliteRenderer {
                             "SQLite does not support custom binary operators.",
                         ));
                     }
+                    // TEMP (Tasks 5-6 replace): power() and composite XOR.
+                    BinaryOp::Power | BinaryOp::BitwiseXor => {
+                        return Err(RenderError::unsupported(
+                            "BinaryOp",
+                            "Power/BitwiseXor rendering not yet implemented",
+                        ));
+                    }
                     _ => {
                         ctx.keyword(match op {
                             BinaryOp::Add => "+",
@@ -498,6 +505,7 @@ impl Renderer for SqliteRenderer {
                             BinaryOp::ShiftLeft => "<<",
                             BinaryOp::ShiftRight => ">>",
                             BinaryOp::Concat => "||",
+                            BinaryOp::Power | BinaryOp::BitwiseXor => unreachable!(),
                             BinaryOp::Custom(_) => unreachable!(),
                         });
                     }
