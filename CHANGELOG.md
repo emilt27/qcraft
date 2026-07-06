@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.0
+
+### Changed
+- **BREAKING:** `CompareOp::IsNull` is now value-driven. Its `right` operand must be a boolean: `Value::Bool(true)` renders `IS NULL`, `Value::Bool(false)` renders `IS NOT NULL`. Any other `right` (including `Value::Null`) is a `RenderError`. `negate` / `negated` remain pure `NOT (...)` wrappers, orthogonal to null polarity.
+- `Conditions::is_not_null` now emits a native `IS NOT NULL` token instead of `NOT (field IS NULL)`. `Conditions::is_null` / `is_not_null` construct a boolean `right` with `negate: false`.
+
+### Migration
+- Hand-built `Comparison { op: CompareOp::IsNull, right: Expr::Value(Value::Null), .. }` must pass `Value::Bool(true)` (for `IS NULL`) or `Value::Bool(false)` (for `IS NOT NULL`). The `is_null()` / `is_not_null()` constructors already produce the correct form.
+
 ## 2.5.0
 
 ### Added
