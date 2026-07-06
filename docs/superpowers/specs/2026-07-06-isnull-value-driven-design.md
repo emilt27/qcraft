@@ -36,7 +36,8 @@ Django 1:1. Keep `negate` as a pure, generic `NOT (...)` wrapper (it already is 
 This was chosen over a dedicated `CompareOp::IsNotNull` variant (Approach B) because it
 mirrors Django's "one lookup, boolean rhs" model exactly and makes the PyO3 binding a
 pure pass-through of `right` — the strongest fix for the original bug — with a minimal,
-mostly backward-compatible code change.
+focused code change. `right` for `IsNull` is now strictly boolean: any hand-built AST
+that passed `Value::Null` will error instead of silently rendering `IS NULL`.
 
 ### AST semantics for `CompareOp::IsNull`
 
@@ -44,12 +45,14 @@ The `right` operand encodes the Django `isnull` boolean and is consumed by the r
 as a **keyword selector** — it is never emitted as a bind parameter, preserving the
 existing `IS $1 is not valid SQL` invariant.
 
+`right` **must** be a boolean literal. Anything else — including `Value::Null` — is a
+hard error; there is no legacy fallback.
+
 | `right`                    | rendered keyword |
 | -------------------------- | ---------------- |
 | `Expr::Value(Value::Bool(true))`  | `IS NULL`        |
 | `Expr::Value(Value::Bool(false))` | `IS NOT NULL`    |
-| `Expr::Value(Value::Null)` (legacy) | `IS NULL`      |
-| anything else              | `RenderError::unsupported` |
+| anything else (incl. `Value::Null`) | `RenderError::unsupported` |
 
 `Comparison.negate` and `Conditions.negated` are unchanged — they wrap the produced
 predicate in `NOT (...)`. This yields the full, orthogonal truth table:
@@ -74,8 +77,8 @@ The `CompareOp::IsNull` arm of `render_compare_op` branches on `right`:
 ```rust
 CompareOp::IsNull => {
     match right {
+        Expr::Value(Value::Bool(true)) => ctx.keyword("IS NULL"),
         Expr::Value(Value::Bool(false)) => ctx.keyword("IS NOT NULL"),
-        Expr::Value(Value::Bool(true)) | Expr::Value(Value::Null) => ctx.keyword("IS NULL"),
         _ => return Err(RenderError::unsupported(
             "IsNull",
             "IsNull right operand must be a boolean",
@@ -108,12 +111,12 @@ Exact-SQL unit tests for **both** dialects:
 - `is_not_null` → `... IS NOT NULL` (fails on current code — proves the fix)
 - `is_null().negated()` → `NOT (... IS NULL)`
 - `is_not_null().negated()` → `NOT (... IS NOT NULL)`
-- `IsNull` with a non-boolean, non-null `right` → `RenderError`
-- back-compat: raw `Comparison { op: IsNull, right: Value::Null }` → `... IS NULL`
+- `IsNull` with a non-boolean `right` (including `Value::Null`) → `RenderError`
 
-Update existing integration tests that construct `IsNull` by hand
-(`integration_dql.rs:558`, `:585`) to reflect the new constructor output where they
-assert SQL; their row-count assertions remain valid.
+Update every existing test that constructs `IsNull` by hand with `right: Value::Null`
+(`integration_dql.rs:558`, `:585`, and any others) to pass a boolean `right`
+(`Bool(true)` for `IS NULL`, `Bool(false)` for `IS NOT NULL`) — otherwise they now error.
+Row-count assertions remain valid once the operand is corrected.
 
 ### Docs
 
@@ -126,9 +129,11 @@ assert SQL; their row-count assertions remain valid.
 
 ## Versioning
 
-`is_not_null()` output changes textually (`NOT (field IS NULL)` → `field IS NOT NULL`),
-semantically identical. Treat as a **minor** bump with a CHANGELOG entry; finalize the
-version at release time.
+Two observable changes: `is_not_null()` output changes textually
+(`NOT (field IS NULL)` → `field IS NOT NULL`, semantically identical), and hand-built
+`IsNull` ASTs with a non-boolean `right` now error instead of rendering `IS NULL`. The
+latter is a breaking change for external callers, so this warrants a **major** bump.
+Finalize the version and CHANGELOG entry at release time.
 
 ## Out of scope
 
