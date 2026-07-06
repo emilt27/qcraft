@@ -62,7 +62,7 @@ In SQLite both behave identically (SQLite has a single INTEGER type).
 
 In parameterized query mode (SELECT, INSERT, UPDATE, DELETE), `Value::Null` is sent as a bind parameter (`$1` / `?`), not inlined as the `NULL` keyword. This allows drivers to handle NULL correctly via the wire protocol.
 
-The only exception is `CompareOp::IsNull` — it always renders as `IS NULL` because `IS $1` is not valid SQL syntax.
+The exception is `CompareOp::IsNull`: its boolean `right` selects the keyword (`Bool(true)` → `IS NULL`, `Bool(false)` → `IS NOT NULL`) and is never emitted as a bind parameter, since `IS $1` is not valid SQL syntax. A non-boolean `right` is a render error.
 
 ## Expr
 
@@ -171,7 +171,7 @@ IContains       ILIKE '%val%' (PG) / LOWER(col) LIKE LOWER(?) (SQLite)
 IStartsWith     ILIKE 'val%' (PG) / LOWER(col) LIKE LOWER(?) (SQLite)
 IEndsWith       ILIKE '%val' (PG) / LOWER(col) LIKE LOWER(?) (SQLite)
 Between         BETWEEN $1 AND $2 (Value::Array with 2 items)
-IsNull          IS NULL
+IsNull          IS NULL / IS NOT NULL   (selected by boolean `right`: true → IS NULL, false → IS NOT NULL)
 Similar         SIMILAR TO (PG)
 Regex           ~ (PG)
 IRegex          ~* (PG) / REGEXP '(?i)' || pattern (SQLite)
