@@ -518,7 +518,7 @@ fn where_is_null() {
             Comparison {
                 left: Expr::Field(FieldRef::new("users", "age")),
                 op: CompareOp::IsNull,
-                right: Expr::Value(Value::Null),
+                right: Expr::Value(Value::Bool(true)),
                 negate: false,
             },
         ))])),
