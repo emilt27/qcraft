@@ -66,17 +66,12 @@ impl Conditions {
 
     /// `field IS NULL`
     pub fn is_null(field: FieldRef) -> Self {
-        Self::comparison(field, CompareOp::IsNull, Expr::Value(Value::Null))
+        Self::comparison(field, CompareOp::IsNull, Expr::Value(Value::Bool(true)))
     }
 
     /// `field IS NOT NULL`
     pub fn is_not_null(field: FieldRef) -> Self {
-        Self::and(vec![ConditionNode::Comparison(Box::new(Comparison {
-            left: Expr::Field(field),
-            op: CompareOp::IsNull,
-            right: Expr::Value(Value::Null),
-            negate: true,
-        }))])
+        Self::comparison(field, CompareOp::IsNull, Expr::Value(Value::Bool(false)))
     }
 
     /// `field LIKE pattern` (raw — caller provides the full pattern with wildcards)

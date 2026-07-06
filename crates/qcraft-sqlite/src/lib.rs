@@ -968,7 +968,16 @@ impl Renderer for SqliteRenderer {
                 return Ok(());
             }
             CompareOp::IsNull => {
-                ctx.keyword("IS NULL");
+                match right {
+                    Expr::Value(Value::Bool(true)) => ctx.keyword("IS NULL"),
+                    Expr::Value(Value::Bool(false)) => ctx.keyword("IS NOT NULL"),
+                    _ => {
+                        return Err(RenderError::unsupported(
+                            "IsNull",
+                            "IsNull right operand must be a boolean",
+                        ));
+                    }
+                };
                 return Ok(());
             }
             CompareOp::Regex => ctx.keyword("REGEXP"),

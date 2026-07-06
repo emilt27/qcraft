@@ -1998,3 +1998,72 @@ fn select_with_timedelta_param() {
         }]
     );
 }
+
+// ---------------------------------------------------------------------------
+// IS NULL / IS NOT NULL (value-driven)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn where_is_null() {
+    let stmt = QueryStmt {
+        where_clause: Some(Conditions::is_null(FieldRef::new("users", "email"))),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WHERE "users"."email" IS NULL"#
+    );
+}
+
+#[test]
+fn where_is_not_null() {
+    let stmt = QueryStmt {
+        where_clause: Some(Conditions::is_not_null(FieldRef::new("users", "email"))),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WHERE "users"."email" IS NOT NULL"#
+    );
+}
+
+#[test]
+fn where_is_null_negated() {
+    let stmt = QueryStmt {
+        where_clause: Some(Conditions::is_null(FieldRef::new("users", "email")).negated()),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WHERE NOT ("users"."email" IS NULL)"#
+    );
+}
+
+#[test]
+fn where_is_not_null_negated() {
+    let stmt = QueryStmt {
+        where_clause: Some(Conditions::is_not_null(FieldRef::new("users", "email")).negated()),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WHERE NOT ("users"."email" IS NOT NULL)"#
+    );
+}
+
+#[test]
+fn is_null_non_boolean_right_errors() {
+    let stmt = QueryStmt {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison {
+                left: Expr::Field(FieldRef::new("users", "email")),
+                op: CompareOp::IsNull,
+                right: Expr::Value(Value::Null),
+                negate: false,
+            },
+        ))])),
+        ..simple_query()
+    };
+    let err = render_err(&stmt);
+    assert!(err.contains("IsNull"), "unexpected error: {err}");
+}
