@@ -56,6 +56,14 @@ FieldType::Array(Box::new(FieldType::scalar("TEXT")))
 FieldType::Vector(1536)
 ```
 
+Decimal (fixed-point, dialect-specific rendering):
+
+```rust
+ColumnDef::new("price", FieldType::decimal(10, 2))
+// PostgreSQL: "price" NUMERIC(10, 2)
+// SQLite:     "price" DECIMAL_TEXT(10, 2)   (TEXT affinity, precision preserved)
+```
+
 Full parameterized type example:
 
 ```rust

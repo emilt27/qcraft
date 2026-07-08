@@ -369,6 +369,15 @@ pub enum FieldType {
     /// Vector type (pgvector): `VECTOR(1536)`.
     Vector(i64),
 
+    /// Fixed-point decimal. Postgres renders `NUMERIC(p,s)`; SQLite renders a
+    /// TEXT-affinity `DECIMAL_TEXT(p,s)` so decimal strings are stored without
+    /// precision loss. `precision`/`scale` are optional to allow bare `NUMERIC`,
+    /// `NUMERIC(p)`, and `NUMERIC(p,s)`. Note: SQLite ignores `(p,s)` for affinity.
+    Decimal {
+        precision: Option<u32>,
+        scale: Option<u32>,
+    },
+
     /// User-defined type (extension point).
     Custom(Box<dyn CustomFieldType>),
 }
@@ -382,6 +391,14 @@ impl FieldType {
         Self::Parameterized {
             name: name.into(),
             params: params.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// `NUMERIC(precision, scale)` / `DECIMAL_TEXT(precision, scale)`.
+    pub fn decimal(precision: u32, scale: u32) -> Self {
+        Self::Decimal {
+            precision: Some(precision),
+            scale: Some(scale),
         }
     }
 }

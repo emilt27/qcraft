@@ -17,7 +17,10 @@ pub fn to_pg_params(values: &[Value]) -> Vec<Box<dyn ToSql + Sync>> {
                 Value::Str(s) => Box::new(s.clone()),
                 Value::Bytes(b) => Box::new(b.clone()),
                 Value::Date(s) | Value::DateTime(s) | Value::Time(s) => Box::new(s.clone()),
-                Value::Decimal(s) => Box::new(s.clone()),
+                Value::Decimal(s) => Box::new(
+                    s.parse::<rust_decimal::Decimal>()
+                        .expect("Value::Decimal must be a valid decimal string"),
+                ),
                 Value::Uuid(s) => Box::new(s.clone()),
                 Value::Json(s) | Value::Jsonb(s) => Box::new(s.clone()),
                 Value::IpNetwork(s) => Box::new(s.clone()),

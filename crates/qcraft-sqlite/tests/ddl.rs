@@ -1264,3 +1264,94 @@ fn drop_collation_unsupported() {
     let err = render_err(&stmt);
     assert!(err.contains("DropCollation"));
 }
+
+// ==========================================================================
+// FieldType::Decimal
+// ==========================================================================
+
+fn create_one_col(ty: FieldType) -> SchemaMutationStmt {
+    let mut schema = SchemaDef::new("t");
+    schema.columns = vec![ColumnDef::new("c", ty)];
+    SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    }
+}
+
+#[test]
+fn decimal_precision_and_scale() {
+    assert_eq!(
+        render(&create_one_col(FieldType::decimal(10, 2))),
+        r#"CREATE TABLE "t" ("c" DECIMAL_TEXT(10, 2))"#
+    );
+}
+
+#[test]
+fn decimal_precision_only() {
+    assert_eq!(
+        render(&create_one_col(FieldType::Decimal {
+            precision: Some(10),
+            scale: None
+        })),
+        r#"CREATE TABLE "t" ("c" DECIMAL_TEXT(10))"#
+    );
+}
+
+#[test]
+fn decimal_bare() {
+    assert_eq!(
+        render(&create_one_col(FieldType::Decimal {
+            precision: None,
+            scale: None
+        })),
+        r#"CREATE TABLE "t" ("c" DECIMAL_TEXT)"#
+    );
+}
+
+#[test]
+fn decimal_scale_without_precision_errors() {
+    let err = render_err(&create_one_col(FieldType::Decimal {
+        precision: None,
+        scale: Some(2),
+    }));
+    assert!(err.contains("Decimal"), "unexpected error: {err}");
+}
+
+#[test]
+fn inline_decimal_default_is_quoted() {
+    let mut schema = SchemaDef::new("t");
+    schema.columns = vec![
+        ColumnDef::new("price", FieldType::scalar("TEXT"))
+            .default(Expr::Value(Value::Decimal("10.234".into()))),
+    ];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "t" ("price" TEXT DEFAULT ('10.234'))"#
+    );
+}

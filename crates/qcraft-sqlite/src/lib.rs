@@ -354,6 +354,27 @@ impl Renderer for SqliteRenderer {
                     "SQLite does not support vector types.",
                 ));
             }
+            FieldType::Decimal { precision, scale } => match (precision, scale) {
+                (None, None) => {
+                    ctx.keyword("DECIMAL_TEXT");
+                }
+                (Some(p), None) => {
+                    ctx.keyword("DECIMAL_TEXT")
+                        .write("(")
+                        .write(&p.to_string())
+                        .paren_close();
+                }
+                (Some(p), Some(s)) => {
+                    ctx.keyword("DECIMAL_TEXT").write("(").write(&p.to_string());
+                    ctx.comma().write(&s.to_string()).paren_close();
+                }
+                (None, Some(_)) => {
+                    return Err(RenderError::unsupported(
+                        "Decimal",
+                        "decimal scale requires precision",
+                    ));
+                }
+            },
             FieldType::Custom(_) => {
                 return Err(RenderError::unsupported(
                     "CustomFieldType",
@@ -1849,7 +1870,7 @@ impl SqliteRenderer {
                 ctx.string_literal(s);
             }
             Value::Decimal(s) => {
-                ctx.keyword(s);
+                ctx.string_literal(s);
             }
             Value::Uuid(s) => {
                 ctx.string_literal(s);

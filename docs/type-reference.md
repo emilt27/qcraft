@@ -257,6 +257,25 @@ pub enum FieldType {
 
 Constructors: `FieldType::scalar("bigint")`, `FieldType::parameterized("varchar", vec!["255"])`.
 
+### `FieldType::Decimal { precision, scale }`
+
+Fixed-point decimal, rendered per dialect:
+
+| Variant | PostgreSQL | SQLite |
+| --- | --- | --- |
+| `Decimal { None, None }` | `NUMERIC` | `DECIMAL_TEXT` |
+| `Decimal { Some(p), None }` | `NUMERIC(p)` | `DECIMAL_TEXT(p)` |
+| `Decimal { Some(p), Some(s) }` | `NUMERIC(p, s)` | `DECIMAL_TEXT(p, s)` |
+| `Decimal { None, Some(s) }` | render error | render error |
+
+Convenience constructor: `FieldType::decimal(p, s)` for the `NUMERIC(p, s)` form.
+
+On SQLite the type name is deliberately `DECIMAL_TEXT` so the column gets **TEXT
+affinity** (the name contains `TEXT`), which stores decimal strings without the
+precision loss that `NUMERIC`/`DECIMAL` (NUMERIC affinity → float) would cause. SQLite
+does **not** enforce the `(p, s)` — they are documentary. Bind decimal values as
+`Value::Decimal` (carried as a string) so they store as text.
+
 ## Conditions
 
 A tree of conditions connected by AND/OR. Core type for WHERE and HAVING clauses.

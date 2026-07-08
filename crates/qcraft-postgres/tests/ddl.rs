@@ -1629,3 +1629,69 @@ fn create_gin_index_strips_direction() {
         r#"CREATE INDEX "idx_docs_content" ON "docs" USING GIN ("content" gin_trgm_ops)"#
     );
 }
+
+// ==========================================================================
+// FieldType::Decimal
+// ==========================================================================
+
+fn create_one_col(ty: FieldType) -> SchemaMutationStmt {
+    let mut schema = SchemaDef::new("t");
+    schema.columns = vec![ColumnDef::new("c", ty)];
+    SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    }
+}
+
+#[test]
+fn decimal_precision_and_scale() {
+    assert_eq!(
+        render(&create_one_col(FieldType::decimal(10, 2))),
+        r#"CREATE TABLE "t" ("c" NUMERIC(10, 2))"#
+    );
+}
+
+#[test]
+fn decimal_precision_only() {
+    assert_eq!(
+        render(&create_one_col(FieldType::Decimal {
+            precision: Some(10),
+            scale: None
+        })),
+        r#"CREATE TABLE "t" ("c" NUMERIC(10))"#
+    );
+}
+
+#[test]
+fn decimal_bare() {
+    assert_eq!(
+        render(&create_one_col(FieldType::Decimal {
+            precision: None,
+            scale: None
+        })),
+        r#"CREATE TABLE "t" ("c" NUMERIC)"#
+    );
+}
+
+#[test]
+fn decimal_scale_without_precision_errors() {
+    let err = PostgresRenderer::new()
+        .render_schema_stmt(&create_one_col(FieldType::Decimal {
+            precision: None,
+            scale: Some(2),
+        }))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Decimal"), "unexpected error: {err}");
+}
