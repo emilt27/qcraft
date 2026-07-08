@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.1.0
+
+### Added
+- `FieldType::Decimal { precision: Option<u32>, scale: Option<u32> }` and the `FieldType::decimal(precision, scale)` constructor. Renders `NUMERIC` / `NUMERIC(p)` / `NUMERIC(p, s)` on PostgreSQL and `DECIMAL_TEXT` / `DECIMAL_TEXT(p)` / `DECIMAL_TEXT(p, s)` on SQLite. The SQLite name is deliberately TEXT-affinity so decimal strings are stored without the precision loss that `NUMERIC`/`DECIMAL` (NUMERIC affinity → float) would cause; SQLite does not enforce `(p, s)`. A `Decimal` with `scale` but no `precision` is a `RenderError`.
+
+### Changed
+- SQLite now renders an inline (non-parameterized) `Value::Decimal` as a quoted string literal (e.g. a column `DEFAULT ('10.234')`) instead of a bare numeric literal (`10.234`), so inlined decimals land in TEXT storage and preserve precision. Parameterized rendering and PostgreSQL are unchanged.
+
 ## 3.0.0
 
 ### Changed
