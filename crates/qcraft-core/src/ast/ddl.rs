@@ -373,7 +373,10 @@ pub enum FieldType {
     /// TEXT-affinity `DECIMAL_TEXT(p,s)` so decimal strings are stored without
     /// precision loss. `precision`/`scale` are optional to allow bare `NUMERIC`,
     /// `NUMERIC(p)`, and `NUMERIC(p,s)`. Note: SQLite ignores `(p,s)` for affinity.
-    Decimal { precision: Option<u32>, scale: Option<u32> },
+    Decimal {
+        precision: Option<u32>,
+        scale: Option<u32>,
+    },
 
     /// User-defined type (extension point).
     Custom(Box<dyn CustomFieldType>),
@@ -393,7 +396,10 @@ impl FieldType {
 
     /// `NUMERIC(precision, scale)` / `DECIMAL_TEXT(precision, scale)`.
     pub fn decimal(precision: u32, scale: u32) -> Self {
-        Self::Decimal { precision: Some(precision), scale: Some(scale) }
+        Self::Decimal {
+            precision: Some(precision),
+            scale: Some(scale),
+        }
     }
 }
 

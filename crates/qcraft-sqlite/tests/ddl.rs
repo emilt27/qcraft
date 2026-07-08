@@ -1300,7 +1300,10 @@ fn decimal_precision_and_scale() {
 #[test]
 fn decimal_precision_only() {
     assert_eq!(
-        render(&create_one_col(FieldType::Decimal { precision: Some(10), scale: None })),
+        render(&create_one_col(FieldType::Decimal {
+            precision: Some(10),
+            scale: None
+        })),
         r#"CREATE TABLE "t" ("c" DECIMAL_TEXT(10))"#
     );
 }
@@ -1308,13 +1311,19 @@ fn decimal_precision_only() {
 #[test]
 fn decimal_bare() {
     assert_eq!(
-        render(&create_one_col(FieldType::Decimal { precision: None, scale: None })),
+        render(&create_one_col(FieldType::Decimal {
+            precision: None,
+            scale: None
+        })),
         r#"CREATE TABLE "t" ("c" DECIMAL_TEXT)"#
     );
 }
 
 #[test]
 fn decimal_scale_without_precision_errors() {
-    let err = render_err(&create_one_col(FieldType::Decimal { precision: None, scale: Some(2) }));
+    let err = render_err(&create_one_col(FieldType::Decimal {
+        precision: None,
+        scale: Some(2),
+    }));
     assert!(err.contains("Decimal"), "unexpected error: {err}");
 }

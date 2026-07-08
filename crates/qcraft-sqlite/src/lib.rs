@@ -359,7 +359,10 @@ impl Renderer for SqliteRenderer {
                     ctx.keyword("DECIMAL_TEXT");
                 }
                 (Some(p), None) => {
-                    ctx.keyword("DECIMAL_TEXT").write("(").write(&p.to_string()).paren_close();
+                    ctx.keyword("DECIMAL_TEXT")
+                        .write("(")
+                        .write(&p.to_string())
+                        .paren_close();
                 }
                 (Some(p), Some(s)) => {
                     ctx.keyword("DECIMAL_TEXT").write("(").write(&p.to_string());

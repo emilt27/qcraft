@@ -718,7 +718,10 @@ impl Renderer for PostgresRenderer {
                     ctx.keyword("NUMERIC");
                 }
                 (Some(p), None) => {
-                    ctx.keyword("NUMERIC").write("(").write(&p.to_string()).paren_close();
+                    ctx.keyword("NUMERIC")
+                        .write("(")
+                        .write(&p.to_string())
+                        .paren_close();
                 }
                 (Some(p), Some(s)) => {
                     ctx.keyword("NUMERIC").write("(").write(&p.to_string());
