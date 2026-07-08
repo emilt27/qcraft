@@ -25,7 +25,9 @@ fn create_table_sql(col: ColumnDef) -> String {
         without_rowid: false,
         strict: false,
     };
-    SqliteRenderer::new().render_schema_stmt(&stmt).unwrap()[0].0.clone()
+    SqliteRenderer::new().render_schema_stmt(&stmt).unwrap()[0]
+        .0
+        .clone()
 }
 
 #[test]
