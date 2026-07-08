@@ -15,6 +15,7 @@ mod common;
 mod integration {
     pub mod ddl;
     pub mod ddl_ignored_features;
+    pub mod decimal;
     pub mod dml;
     pub mod dml_ignored_features;
     pub mod dml_unsupported_features;
