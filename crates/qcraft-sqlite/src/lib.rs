@@ -1870,7 +1870,7 @@ impl SqliteRenderer {
                 ctx.string_literal(s);
             }
             Value::Decimal(s) => {
-                ctx.keyword(s);
+                ctx.string_literal(s);
             }
             Value::Uuid(s) => {
                 ctx.string_literal(s);

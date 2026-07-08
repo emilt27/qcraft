@@ -1327,3 +1327,31 @@ fn decimal_scale_without_precision_errors() {
     }));
     assert!(err.contains("Decimal"), "unexpected error: {err}");
 }
+
+#[test]
+fn inline_decimal_default_is_quoted() {
+    let mut schema = SchemaDef::new("t");
+    schema.columns = vec![
+        ColumnDef::new("price", FieldType::scalar("TEXT"))
+            .default(Expr::Value(Value::Decimal("10.234".into()))),
+    ];
+    let stmt = SchemaMutationStmt::CreateTable {
+        schema,
+        if_not_exists: false,
+        temporary: false,
+        unlogged: false,
+        tablespace: None,
+        partition_by: None,
+        inherits: None,
+        using_method: None,
+        with_options: None,
+        on_commit: None,
+        table_options: None,
+        without_rowid: false,
+        strict: false,
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"CREATE TABLE "t" ("price" TEXT DEFAULT ('10.234'))"#
+    );
+}
