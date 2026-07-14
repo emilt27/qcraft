@@ -50,6 +50,13 @@ pub enum Expr {
     /// Collation override: `expr COLLATE "name"`.
     Collate { expr: Box<Expr>, collation: String },
 
+    /// Explicit grouping: `(expr)`.
+    ///
+    /// Operator operands are bracketed automatically (see [`Expr::needs_operand_parens`]),
+    /// so this is only needed to group an opaque `Raw`/`Custom` expression or to force
+    /// brackets for readability.
+    Paren(Box<Expr>),
+
     /// Build a JSON array: PG `jsonb_build_array(...)`, SQLite `json_array(...)`.
     JsonArray(Vec<Expr>),
 
@@ -273,6 +280,37 @@ impl Expr {
         Expr::Now
     }
 
+    /// Explicit grouping: `(expr)`.
+    pub fn paren(expr: Expr) -> Self {
+        Expr::Paren(Box::new(expr))
+    }
+
+    /// True if this expression must be parenthesized when it appears as the operand
+    /// of an operator (`+`, `::`, `COLLATE`, `->>`, a comparison, …).
+    ///
+    /// An operator expression carries its grouping in the tree, but SQL text carries
+    /// it in brackets: printed flat, `Binary(Binary(1, +, 2), *, 3)` becomes
+    /// `1 + 2 * 3`, which every engine reads back as `Binary(1, +, Binary(2, *, 3))`
+    /// — 7 instead of 9. Bracketing is structural rather than driven by a precedence
+    /// table because precedence is dialect-specific: SQLite binds `||` tighter than
+    /// `*`, PostgreSQL binds it looser than `+`.
+    ///
+    /// Self-delimiting forms (literals, identifiers, function calls, `CAST(…)`,
+    /// `CASE … END`, subqueries, tuples, [`Expr::Paren`]) carry their own boundaries
+    /// and render bare. `Raw` and `Custom` are opaque escape hatches whose contents
+    /// need not be an expression at all, so they are never bracketed automatically —
+    /// wrap them in [`Expr::Paren`] when they need grouping.
+    pub fn needs_operand_parens(&self) -> bool {
+        matches!(
+            self,
+            Expr::Binary { .. }
+                | Expr::Unary { .. }
+                | Expr::Collate { .. }
+                | Expr::JsonPathText { .. }
+                | Expr::Window(_)
+        )
+    }
+
     /// True if this expression tree contains an unbound `Expr::Param` placeholder.
     /// Used to reject double-render forms that would corrupt positional binding.
     /// Does not descend into subquery `QueryStmt`s (those are rejected separately).
@@ -289,6 +327,7 @@ impl Expr {
             | Expr::Cast { expr, .. }
             | Expr::Collate { expr, .. }
             | Expr::JsonPathText { expr, .. } => expr.contains_unbound_param(),
+            Expr::Paren(expr) => expr.contains_unbound_param(),
             Expr::Func { args, .. } | Expr::Tuple(args) | Expr::JsonArray(args) => {
                 args.iter().any(|a| a.contains_unbound_param())
             }
@@ -365,6 +404,7 @@ impl Expr {
             | Expr::Cast { expr, .. }
             | Expr::Collate { expr, .. }
             | Expr::JsonPathText { expr, .. } => expr.contains_subquery(),
+            Expr::Paren(expr) => expr.contains_subquery(),
             Expr::Func { args, .. } | Expr::Tuple(args) | Expr::JsonArray(args) => {
                 args.iter().any(|a| a.contains_subquery())
             }

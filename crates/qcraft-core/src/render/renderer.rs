@@ -41,6 +41,24 @@ pub trait Renderer {
     // ── Expressions ──
 
     fn render_expr(&self, expr: &Expr, ctx: &mut RenderCtx) -> RenderResult<()>;
+
+    /// Render `expr` where it is the operand of an operator (`+`, `::`, `COLLATE`,
+    /// `->>`, a comparison, …), bracketing it when its own structure would otherwise
+    /// be re-associated by the engine's operator precedence.
+    ///
+    /// See [`Expr::needs_operand_parens`] for which forms are bracketed and why this
+    /// is structural rather than precedence-driven.
+    fn render_operand(&self, expr: &Expr, ctx: &mut RenderCtx) -> RenderResult<()> {
+        if expr.needs_operand_parens() {
+            ctx.paren_open();
+            self.render_expr(expr, ctx)?;
+            ctx.paren_close();
+            Ok(())
+        } else {
+            self.render_expr(expr, ctx)
+        }
+    }
+
     fn render_aggregate(&self, agg: &AggregationDef, ctx: &mut RenderCtx) -> RenderResult<()>;
     fn render_window(&self, win: &WindowDef, ctx: &mut RenderCtx) -> RenderResult<()>;
     fn render_case(&self, case: &CaseDef, ctx: &mut RenderCtx) -> RenderResult<()>;

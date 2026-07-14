@@ -2351,3 +2351,156 @@ fn collate_in_where_comparison() {
     // 'A'(65) 'B'(66) 'C'(67) < 'D'(68) — Alice, Bob, Charlie match
     assert_eq!(names, vec!["Alice", "Bob", "Charlie"]);
 }
+
+// ==========================================================================
+// CAST over a compound operand — `::` binds tighter than `->>` and than the
+// arithmetic operators, so an unparenthesized operand casts the wrong node.
+// ==========================================================================
+
+#[test]
+fn cast_over_json_path_text_executes() {
+    let mut client = crate::test_client("template0");
+    client
+        .execute(
+            r#"CREATE TABLE "people" ("id" INTEGER PRIMARY KEY, "data" JSONB NOT NULL)"#,
+            &[],
+        )
+        .unwrap();
+    client
+        .execute(
+            r#"INSERT INTO "people" VALUES (1, '{"age": 36}'::jsonb)"#,
+            &[],
+        )
+        .unwrap();
+
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::cast(
+                Expr::JsonPathText {
+                    expr: Box::new(Expr::Field(FieldRef::new("people", "data"))),
+                    path: "age".into(),
+                },
+                "bigint",
+            ),
+            alias: Some("age".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("people"))]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get::<_, i64>(0), 36);
+}
+
+#[test]
+fn cast_over_binary_executes() {
+    let mut client = crate::test_client("template_dql");
+    // "id" + "age" for Alice is 1 + 30; a bare `::text` would cast only "age",
+    // leaving `1 + '30'` — an int + text mismatch that PostgreSQL rejects.
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::cast(
+                Expr::Binary {
+                    left: Box::new(Expr::Field(FieldRef::new("users", "id"))),
+                    op: BinaryOp::Add,
+                    right: Box::new(Expr::Field(FieldRef::new("users", "age"))),
+                },
+                "text",
+            ),
+            alias: Some("sum_text".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(simple_cond_eq(
+            Expr::Field(FieldRef::new("users", "id")),
+            Expr::Value(Value::Int(1)),
+        )),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get::<_, String>(0), "31");
+}
+
+// ==========================================================================
+// Operator precedence — executed against PostgreSQL, asserting the VALUE.
+// Without parens these queries succeed but compute the wrong number.
+// ==========================================================================
+
+fn lit(n: i64) -> Expr {
+    Expr::raw(n.to_string())
+}
+
+fn bin(left: Expr, op: BinaryOp, right: Expr) -> Expr {
+    Expr::Binary {
+        left: Box::new(left),
+        op,
+        right: Box::new(right),
+    }
+}
+
+fn scalar_i64(expr: Expr) -> i64 {
+    let mut client = crate::test_client("template_dql");
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr { expr, alias: None }],
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
+    rows[0].get::<_, i64>(0)
+}
+
+#[test]
+fn precedence_nested_binary_executes() {
+    // (1 + 2) * 3 = 9; flat `1 + 2 * 3` silently yields 7.
+    let expr = bin(bin(lit(1), BinaryOp::Add, lit(2)), BinaryOp::Mul, lit(3));
+    assert_eq!(scalar_i64(Expr::cast(expr, "bigint")), 9);
+}
+
+#[test]
+fn precedence_right_operand_associativity_executes() {
+    // 10 - (5 - 2) = 7; flat `10 - 5 - 2` is left-associative and yields 3.
+    let expr = bin(lit(10), BinaryOp::Sub, bin(lit(5), BinaryOp::Sub, lit(2)));
+    assert_eq!(scalar_i64(Expr::cast(expr, "bigint")), 7);
+}
+
+#[test]
+fn precedence_unary_over_binary_executes() {
+    // -(2 + 3) = -5; flat `- 2 + 3` binds the minus to 2 and yields 1.
+    let expr = Expr::Unary {
+        op: UnaryOp::Neg,
+        expr: Box::new(bin(lit(2), BinaryOp::Add, lit(3))),
+    };
+    assert_eq!(scalar_i64(Expr::cast(expr, "bigint")), -5);
+}
+
+#[test]
+fn precedence_collate_over_binary_executes() {
+    // COLLATE binds tighter than ||, so a flat operand collates the integer 5
+    // and PostgreSQL errors with "collations are not supported by type integer".
+    let mut client = crate::test_client("template_dql");
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Collate {
+                expr: Box::new(bin(Expr::raw("'x'"), BinaryOp::Concat, Expr::raw("5"))),
+                collation: "C".into(),
+            },
+            alias: None,
+        }],
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows[0].get::<_, String>(0), "x5");
+}

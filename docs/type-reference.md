@@ -83,6 +83,7 @@ pub enum Expr {
     SubQuery(Box<QueryStmt>),
     ArraySubQuery(Box<QueryStmt>),
     Collate { expr: Box<Expr>, collation: String },
+    Paren(Box<Expr>),
     Raw { sql: String, params: Vec<Value> },
     JsonArray(Vec<Expr>),
     JsonObject(Vec<(String, Expr)>),
@@ -111,6 +112,7 @@ pub enum Expr {
 | `Expr::exists(query)` | `Expr::Exists(Box::new(query))` |
 | `Expr::subquery(query)` | `Expr::SubQuery(Box::new(query))` |
 | `expr.collate("C")` | `Expr::Collate { expr, collation: "C" }` |
+| `Expr::paren(expr)` | `Expr::Paren(Box::new(expr))` — explicit grouping |
 | `Expr::json_array(vec![...])` | `Expr::JsonArray(...)` — PG: `jsonb_build_array`, SQLite: `json_array` |
 | `Expr::json_object(vec![...])` | `Expr::JsonObject(...)` — PG: `jsonb_build_object`, SQLite: `json_object` |
 | `Expr::json_agg(expr)` | `Expr::JsonAgg { ... }` — PG: `jsonb_agg`, SQLite: `json_group_array` |
@@ -126,6 +128,35 @@ pub enum Expr {
 |---|---|
 | `Value` | `Expr::Value(v)` |
 | `FieldRef` | `Expr::Field(f)` |
+
+### Parenthesization
+
+The tree carries the grouping, so the renderer brackets an operand whenever its own
+structure would otherwise be re-associated by the engine's operator precedence:
+
+```rust
+// (1 + 2) * 3 — flat `1 + 2 * 3` would evaluate to 7
+Expr::Binary {
+    left: Box::new(Expr::Binary { left: one, op: BinaryOp::Add, right: two }),
+    op: BinaryOp::Mul,
+    right: three,
+}
+// PG and SQLite: (1 + 2) * 3
+```
+
+Operands that are `Binary`, `Unary`, `Collate`, `JsonPathText` or `Window` get brackets;
+self-delimiting forms (literals, fields, function calls, `CAST(…)`, `CASE … END`,
+subqueries, tuples, `Paren`) render bare. Bracketing is structural rather than driven by a
+precedence table, because precedence differs per dialect — SQLite binds `||` tighter than
+`*`, PostgreSQL binds it looser than `+`.
+
+`Raw` and `Custom` are **never** bracketed automatically: their contents are opaque and
+need not be an expression at all. Wrap them yourself when they need grouping:
+
+```rust
+Expr::cast(Expr::raw("a + b"), "text")               // a + b::text     ← cast binds to b
+Expr::cast(Expr::paren(Expr::raw("a + b")), "text")  // (a + b)::text
+```
 
 ## FieldRef / FieldDef
 

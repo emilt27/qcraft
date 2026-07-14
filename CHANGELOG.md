@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.2.0
+
+### Fixed
+- **Operator operands are now parenthesized when their own structure requires it.** Renderers emitted no grouping, so an operand that was itself an operator expression got re-associated by the engine's precedence rules — two different ASTs rendered to the same SQL. `Cast(JsonPathText(data, 'age'), "bigint")` produced `data->>'age'::bigint`, which PostgreSQL reads as `data ->> ('age'::bigint)` and rejects with `invalid input syntax for type bigint`. Worse, `Binary(Binary(1, +, 2), *, 3)` produced `1 + 2 * 3` and silently evaluated to 7 instead of 9, with no error from the database. Operands of `Binary`, `Unary`, `Cast`, `Collate`, `JsonPathText` and of both sides of a comparison are now bracketed when they are themselves `Binary`, `Unary`, `Collate`, `JsonPathText` or `Window`.
+
+  Bracketing is structural rather than driven by a precedence table, because precedence is dialect-specific: SQLite binds `||` tighter than `*`, PostgreSQL binds it looser than `+`, so the same AST needs different brackets per dialect.
+
+### Added
+- `Expr::Paren(Box<Expr>)` and the `Expr::paren(expr)` constructor — explicit grouping. Operator operands are bracketed automatically, so this is only needed to group an opaque `Raw` / `Custom` expression or to force brackets for readability.
+- `Expr::needs_operand_parens()` and the `Renderer::render_operand()` default method, which together implement the rule above.
+
+### Changed
+- Generated SQL now carries brackets where operand structure demands them (values are unchanged; only the SQL text differs). Snapshot tests that compare rendered SQL byte-for-byte may need updating — for example a `COLLATE` operand in a comparison now renders as `("users"."name" COLLATE "C") = $1`.
+- Unary operators render via `keyword()` instead of `write()`, so `SELECT- x` is now `SELECT - x`.
+
+### Notes
+- `Expr::Raw` and `Expr::Custom` are **never** bracketed automatically: their contents are opaque and need not be an expression at all. Wrap them in `Expr::Paren` when they need grouping — e.g. `Expr::cast(Expr::paren(Expr::raw("a + b")), "text")` renders `(a + b)::text`, while the unwrapped form renders `a + b::text`.
+- Adding the `Expr::Paren` variant is source-breaking for exhaustive `match` over `Expr`.
+
 ## 3.1.0
 
 ### Added

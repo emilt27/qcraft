@@ -1179,7 +1179,7 @@ fn collate_in_where() {
     });
     assert_eq!(
         sql,
-        r#"SELECT * FROM "users" WHERE "users"."name" COLLATE NOCASE = ?"#
+        r#"SELECT * FROM "users" WHERE ("users"."name" COLLATE NOCASE) = ?"#
     );
     assert_eq!(params, vec![Value::Str("alice".into())]);
 }
@@ -2066,4 +2066,174 @@ fn is_null_non_boolean_right_errors() {
     };
     let err = render_err(&stmt);
     assert!(err.contains("IsNull"), "unexpected error: {err}");
+}
+
+// ==========================================================================
+// Operator precedence — a compound operand must be parenthesized, otherwise
+// SQLite re-associates the expression by its own precedence rules (which,
+// for `||` vs `* /`, differ from PostgreSQL's).
+// ==========================================================================
+
+fn sq_expr_sql(expr: Expr) -> String {
+    render(&QueryStmt {
+        columns: vec![SelectColumn::Expr { expr, alias: None }],
+        ..simple_query()
+    })
+}
+
+fn sq_bin(left: Expr, op: BinaryOp, right: Expr) -> Expr {
+    Expr::Binary {
+        left: Box::new(left),
+        op,
+        right: Box::new(right),
+    }
+}
+
+fn sq_int(n: i64) -> Expr {
+    Expr::raw(n.to_string())
+}
+
+#[test]
+fn nested_binary_left_operand_is_parenthesized() {
+    // (1 + 2) * 3 — bare `1 + 2 * 3` would be 7, not 9.
+    assert_eq!(
+        sq_expr_sql(sq_bin(
+            sq_bin(sq_int(1), BinaryOp::Add, sq_int(2)),
+            BinaryOp::Mul,
+            sq_int(3),
+        )),
+        r#"SELECT (1 + 2) * 3 FROM "users""#
+    );
+}
+
+#[test]
+fn nested_binary_right_operand_is_parenthesized() {
+    // 10 - (5 - 2) — bare `10 - 5 - 2` is left-associative, giving 3, not 7.
+    assert_eq!(
+        sq_expr_sql(sq_bin(
+            sq_int(10),
+            BinaryOp::Sub,
+            sq_bin(sq_int(5), BinaryOp::Sub, sq_int(2)),
+        )),
+        r#"SELECT 10 - (5 - 2) FROM "users""#
+    );
+}
+
+#[test]
+fn unary_over_binary_is_parenthesized() {
+    // -(2 + 3) — bare `- 2 + 3` binds the minus to 2, giving 1, not -5.
+    assert_eq!(
+        sq_expr_sql(Expr::Unary {
+            op: UnaryOp::Neg,
+            expr: Box::new(sq_bin(sq_int(2), BinaryOp::Add, sq_int(3))),
+        }),
+        r#"SELECT - (2 + 3) FROM "users""#
+    );
+}
+
+#[test]
+fn collate_over_binary_is_parenthesized() {
+    assert_eq!(
+        sq_expr_sql(Expr::Collate {
+            expr: Box::new(sq_bin(
+                Expr::Field(FieldRef::new("users", "name")),
+                BinaryOp::Concat,
+                Expr::Field(FieldRef::new("users", "department")),
+            )),
+            collation: "NOCASE".into(),
+        }),
+        r#"SELECT ("users"."name" || "users"."department") COLLATE NOCASE FROM "users""#
+    );
+}
+
+#[test]
+fn json_path_text_over_unary_not_is_parenthesized() {
+    assert_eq!(
+        sq_expr_sql(Expr::JsonPathText {
+            expr: Box::new(Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(Expr::Field(FieldRef::new("users", "data"))),
+            }),
+            path: "k".into(),
+        }),
+        r#"SELECT (NOT "users"."data")->>'k' FROM "users""#
+    );
+}
+
+#[test]
+fn cast_over_nested_binary_keeps_inner_parens() {
+    // CAST(...) is self-delimiting, but the inner sum still needs its own parens.
+    assert_eq!(
+        sq_expr_sql(Expr::cast(
+            sq_bin(
+                sq_bin(sq_int(1), BinaryOp::Add, sq_int(2)),
+                BinaryOp::Mul,
+                sq_int(3),
+            ),
+            "INTEGER",
+        )),
+        r#"SELECT CAST((1 + 2) * 3 AS INTEGER) FROM "users""#
+    );
+}
+
+#[test]
+fn atomic_binary_operands_stay_bare() {
+    assert_eq!(
+        sq_expr_sql(sq_bin(
+            Expr::Field(FieldRef::new("users", "id")),
+            BinaryOp::Add,
+            Expr::func("abs", vec![Expr::Field(FieldRef::new("users", "age"))]),
+        )),
+        r#"SELECT "users"."id" + abs("users"."age") FROM "users""#
+    );
+}
+
+#[test]
+fn comparison_with_not_operand_is_parenthesized() {
+    let stmt = QueryStmt {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(Expr::Field(FieldRef::new("users", "active"))),
+                },
+                CompareOp::Eq,
+                Expr::Value(Value::Bool(true)),
+            ),
+        ))])),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WHERE (NOT "users"."active") = ?"#
+    );
+}
+
+#[test]
+fn cast_over_raw_stays_bare() {
+    // Raw is an opaque escape hatch — never bracketed automatically.
+    assert_eq!(
+        sq_expr_sql(Expr::cast(Expr::raw("a + b"), "INTEGER")),
+        r#"SELECT CAST(a + b AS INTEGER) FROM "users""#
+    );
+}
+
+#[test]
+fn paren_operand_is_not_double_wrapped() {
+    assert_eq!(
+        sq_expr_sql(sq_bin(
+            Expr::paren(sq_bin(sq_int(1), BinaryOp::Add, sq_int(2))),
+            BinaryOp::Mul,
+            sq_int(3),
+        )),
+        r#"SELECT (1 + 2) * 3 FROM "users""#
+    );
+}
+
+#[test]
+fn paren_wraps_any_expression() {
+    assert_eq!(
+        sq_expr_sql(Expr::paren(Expr::Field(FieldRef::new("users", "age")))),
+        r#"SELECT ("users"."age") FROM "users""#
+    );
 }

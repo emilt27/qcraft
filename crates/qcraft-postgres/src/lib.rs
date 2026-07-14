@@ -913,7 +913,7 @@ impl Renderer for PostgresRenderer {
             }
 
             Expr::Binary { left, op, right } => {
-                self.render_expr(left, ctx)?;
+                self.render_operand(left, ctx)?;
                 // When using %s placeholders (psycopg), literal '%' must be
                 // escaped as '%%' so the driver doesn't treat it as a placeholder.
                 let mod_op = if self.param_style == ParamStyle::Percent {
@@ -943,16 +943,16 @@ impl Renderer for PostgresRenderer {
                         });
                     }
                 };
-                self.render_expr(right, ctx)
+                self.render_operand(right, ctx)
             }
 
             Expr::Unary { op, expr: inner } => {
                 match op {
-                    UnaryOp::Neg => ctx.write("-"),
+                    UnaryOp::Neg => ctx.keyword("-"),
                     UnaryOp::Not => ctx.keyword("NOT"),
-                    UnaryOp::BitwiseNot => ctx.write("~"),
+                    UnaryOp::BitwiseNot => ctx.keyword("~"),
                 };
-                self.render_expr(inner, ctx)
+                self.render_operand(inner, ctx)
             }
 
             Expr::Func { name, args } => {
@@ -973,7 +973,7 @@ impl Renderer for PostgresRenderer {
                 expr: inner,
                 to_type,
             } => {
-                self.render_expr(inner, ctx)?;
+                self.render_operand(inner, ctx)?;
                 ctx.operator("::");
                 ctx.write(to_type);
                 Ok(())
@@ -1005,8 +1005,15 @@ impl Renderer for PostgresRenderer {
             }
 
             Expr::Collate { expr, collation } => {
-                self.render_expr(expr, ctx)?;
+                self.render_operand(expr, ctx)?;
                 ctx.keyword("COLLATE").ident(collation);
+                Ok(())
+            }
+
+            Expr::Paren(inner) => {
+                ctx.paren_open();
+                self.render_expr(inner, ctx)?;
+                ctx.paren_close();
                 Ok(())
             }
 
@@ -1104,7 +1111,7 @@ impl Renderer for PostgresRenderer {
             }
 
             Expr::JsonPathText { expr, path } => {
-                self.render_expr(expr, ctx)?;
+                self.render_operand(expr, ctx)?;
                 ctx.operator("->>'")
                     .write(&path.replace('\'', "''"))
                     .write("'");
@@ -1284,7 +1291,7 @@ impl Renderer for PostgresRenderer {
         right: &Expr,
         ctx: &mut RenderCtx,
     ) -> RenderResult<()> {
-        self.render_expr(left, ctx)?;
+        self.render_operand(left, ctx)?;
         match op {
             CompareOp::Eq => ctx.write(" = "),
             CompareOp::Neq => ctx.write(" <> "),
@@ -1406,7 +1413,7 @@ impl Renderer for PostgresRenderer {
                 ));
             }
         };
-        self.render_expr(right, ctx)
+        self.render_operand(right, ctx)
     }
 
     // ── Query (stub) ─────────────────────────────────────────────────────
