@@ -51,28 +51,21 @@ impl CustomBinaryOp for PgVectorOp {
     fn clone_box(&self) -> Box<dyn CustomBinaryOp> {
         Box::new(*self)
     }
-}
 
-impl From<PgVectorOp> for BinaryOp {
-    fn from(op: PgVectorOp) -> Self {
-        BinaryOp::Custom(Box::new(op))
-    }
-}
-
-fn render_custom_binary_op(custom: &dyn CustomBinaryOp, ctx: &mut RenderCtx) -> RenderResult<()> {
-    if let Some(op) = custom.as_any().downcast_ref::<PgVectorOp>() {
-        ctx.write(match op {
+    fn render(&self, _renderer: &dyn Renderer, ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.write(match self {
             PgVectorOp::L2Distance => " <-> ",
             PgVectorOp::InnerProduct => " <#> ",
             PgVectorOp::CosineDistance => " <=> ",
             PgVectorOp::L1Distance => " <+> ",
         });
         Ok(())
-    } else {
-        Err(RenderError::unsupported(
-            "CustomBinaryOp",
-            "unknown custom binary operator; use a wrapping renderer to handle it",
-        ))
+    }
+}
+
+impl From<PgVectorOp> for BinaryOp {
+    fn from(op: PgVectorOp) -> Self {
+        BinaryOp::Custom(Box::new(op))
     }
 }
 
@@ -923,7 +916,7 @@ impl Renderer for PostgresRenderer {
                 };
                 match op {
                     BinaryOp::Custom(custom) => {
-                        render_custom_binary_op(custom.as_ref(), ctx)?;
+                        custom.render(self, ctx)?;
                     }
                     _ => {
                         ctx.keyword(match op {
@@ -1141,10 +1134,7 @@ impl Renderer for PostgresRenderer {
                 Ok(())
             }
 
-            Expr::Custom(_) => Err(RenderError::unsupported(
-                "CustomExpr",
-                "custom expression must be handled by a wrapping renderer",
-            )),
+            Expr::Custom(custom) => custom.render(self, ctx),
         }
     }
 
@@ -1263,11 +1253,8 @@ impl Renderer for PostgresRenderer {
                     self.render_query(query, ctx)?;
                     ctx.paren_close();
                 }
-                ConditionNode::Custom(_) => {
-                    return Err(RenderError::unsupported(
-                        "CustomCondition",
-                        "custom condition must be handled by a wrapping renderer",
-                    ));
+                ConditionNode::Custom(custom) => {
+                    custom.render(self, ctx)?;
                 }
             }
         }

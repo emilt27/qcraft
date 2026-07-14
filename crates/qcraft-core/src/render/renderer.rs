@@ -98,14 +98,25 @@ pub trait Renderer {
     fn render_index_def(&self, idx: &IndexDef, ctx: &mut RenderCtx) -> RenderResult<()>;
 }
 
-/// Macro to delegate all Renderer methods to an inner renderer.
+/// Delegates every [`Renderer`] method to an inner renderer.
 ///
-/// Usage:
+/// The macro emits **all** methods, so it cannot be combined with overriding one —
+/// that is a duplicate definition (`error[E0201]`). It is for wrapping a dialect
+/// wholesale, not for extending it.
+///
+/// To teach the renderer a syntax it does not know, do **not** wrap the renderer:
+/// implement [`CustomExpr::render`](crate::ast::custom::CustomExpr::render) on the node
+/// itself. The node is handed the renderer and recurses back through it, so nested
+/// expressions, quoting and parameter numbering stay consistent:
+///
 /// ```ignore
-/// struct MyRenderer { inner: PostgresRenderer }
-/// impl Renderer for MyRenderer {
-///     fn render_cast(&self, ...) { /* custom */ }
-///     delegate_renderer!(self.inner);
+/// impl CustomExpr for AtTimeZone {
+///     fn render(&self, renderer: &dyn Renderer, ctx: &mut RenderCtx) -> RenderResult<()> {
+///         renderer.render_operand(&self.expr, ctx)?;   // brackets the operand if needed
+///         ctx.keyword("AT TIME ZONE").string_literal(&self.zone);
+///         Ok(())
+///     }
+///     fn needs_operand_parens(&self) -> bool { true }  // infix — bracket me as an operand
 /// }
 /// ```
 #[macro_export]

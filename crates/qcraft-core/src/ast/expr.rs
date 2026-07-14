@@ -303,6 +303,8 @@ impl Expr {
             | Expr::JsonPathText { .. }
             | Expr::Window(_) => true,
             Expr::Field(field_ref) => field_ref.field.child.is_some(),
+            // Only the node's author knows the shape it renders.
+            Expr::Custom(custom) => custom.needs_operand_parens(),
             _ => false,
         }
     }

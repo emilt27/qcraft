@@ -2589,3 +2589,85 @@ fn jsonb_has_any_key_with_compound_operand_executes() {
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows.len(), 1, "row has key 'phone', so ?| must match");
 }
+
+// ==========================================================================
+// Extensibility — a user-defined expression must not just render, it must run.
+// ==========================================================================
+
+#[derive(Clone)]
+struct AtTimeZone {
+    expr: Expr,
+    zone: String,
+}
+
+impl std::fmt::Debug for AtTimeZone {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AtTimeZone")
+    }
+}
+
+impl qcraft_core::ast::custom::CustomExpr for AtTimeZone {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn clone_box(&self) -> Box<dyn qcraft_core::ast::custom::CustomExpr> {
+        Box::new(self.clone())
+    }
+    fn render(
+        &self,
+        renderer: &dyn qcraft_core::render::renderer::Renderer,
+        ctx: &mut qcraft_core::render::ctx::RenderCtx,
+    ) -> qcraft_core::error::RenderResult<()> {
+        renderer.render_operand(&self.expr, ctx)?;
+        ctx.keyword("AT TIME ZONE").string_literal(&self.zone);
+        Ok(())
+    }
+}
+
+#[test]
+fn user_defined_expression_executes_against_postgres() {
+    let mut client = crate::test_client("template0");
+    client
+        .execute(
+            r#"CREATE TABLE "events" ("id" INTEGER PRIMARY KEY, "created_at" TIMESTAMPTZ NOT NULL)"#,
+            &[],
+        )
+        .unwrap();
+    client
+        .execute(
+            r#"INSERT INTO "events" VALUES (1, '2024-03-01 12:00:00+00')"#,
+            &[],
+        )
+        .unwrap();
+
+    // AT TIME ZONE is syntax qcraft does not know. The user teaches it, and it must
+    // survive a cast — `::` binds tighter than AT TIME ZONE, so without brackets PG
+    // reads `created_at AT TIME ZONE ('UTC'::text)` and rejects the statement.
+    let expr = Expr::cast(
+        Expr::Custom(Box::new(AtTimeZone {
+            expr: Expr::field("events", "created_at"),
+            zone: "UTC".into(),
+        })),
+        "text",
+    );
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr,
+            alias: Some("day".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    assert!(sql.contains("AT TIME ZONE"), "sql: {sql}");
+
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(
+        rows[0].get::<_, String>(0).starts_with("2024-03-01"),
+        "got: {}",
+        rows[0].get::<_, String>(0)
+    );
+}

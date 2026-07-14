@@ -499,10 +499,11 @@ impl Renderer for SqliteRenderer {
             }
 
             Expr::Binary { left, op, right } => match op {
-                BinaryOp::Custom(_) => Err(RenderError::unsupported(
-                    "CustomBinaryOp",
-                    "SQLite does not support custom binary operators.",
-                )),
+                BinaryOp::Custom(custom) => {
+                    self.render_operand(left, ctx)?;
+                    custom.render(self, ctx)?;
+                    self.render_operand(right, ctx)
+                }
 
                 // power(l, r) — operands rendered once; works in any param mode.
                 BinaryOp::Power => {
@@ -781,10 +782,7 @@ impl Renderer for SqliteRenderer {
                 Ok(())
             }
 
-            Expr::Custom(_) => Err(RenderError::unsupported(
-                "CustomExpr",
-                "custom expression must be handled by a wrapping renderer",
-            )),
+            Expr::Custom(custom) => custom.render(self, ctx),
         }
     }
 
@@ -900,11 +898,8 @@ impl Renderer for SqliteRenderer {
                     self.render_query(query, ctx)?;
                     ctx.paren_close();
                 }
-                ConditionNode::Custom(_) => {
-                    return Err(RenderError::unsupported(
-                        "CustomCondition",
-                        "custom condition must be handled by a wrapping renderer",
-                    ));
+                ConditionNode::Custom(custom) => {
+                    custom.render(self, ctx)?;
                 }
             }
         }
