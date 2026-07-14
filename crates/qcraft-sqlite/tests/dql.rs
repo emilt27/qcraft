@@ -4,7 +4,7 @@ use qcraft_core::ast::custom::CustomBinaryOp;
 use qcraft_core::ast::expr::*;
 use qcraft_core::ast::query::*;
 use qcraft_core::ast::value::Value;
-use qcraft_core::render::ctx::ParamStyle;
+use qcraft_core::render::ctx::{ParamStyle, RenderCtx};
 use qcraft_sqlite::SqliteRenderer;
 
 fn render(stmt: &QueryStmt) -> String {
@@ -2074,14 +2074,7 @@ fn is_null_non_boolean_right_errors() {
 // for `||` vs `* /`, differ from PostgreSQL's).
 // ==========================================================================
 
-fn sq_expr_sql(expr: Expr) -> String {
-    render(&QueryStmt {
-        columns: vec![SelectColumn::Expr { expr, alias: None }],
-        ..simple_query()
-    })
-}
-
-fn sq_bin(left: Expr, op: BinaryOp, right: Expr) -> Expr {
+fn bin(left: Expr, op: BinaryOp, right: Expr) -> Expr {
     Expr::Binary {
         left: Box::new(left),
         op,
@@ -2089,7 +2082,7 @@ fn sq_bin(left: Expr, op: BinaryOp, right: Expr) -> Expr {
     }
 }
 
-fn sq_int(n: i64) -> Expr {
+fn int(n: i64) -> Expr {
     Expr::raw(n.to_string())
 }
 
@@ -2097,12 +2090,12 @@ fn sq_int(n: i64) -> Expr {
 fn nested_binary_left_operand_is_parenthesized() {
     // (1 + 2) * 3 — bare `1 + 2 * 3` would be 7, not 9.
     assert_eq!(
-        sq_expr_sql(sq_bin(
-            sq_bin(sq_int(1), BinaryOp::Add, sq_int(2)),
+        render_expr_sqlite(bin(
+            bin(int(1), BinaryOp::Add, int(2)),
             BinaryOp::Mul,
-            sq_int(3),
+            int(3),
         )),
-        r#"SELECT (1 + 2) * 3 FROM "users""#
+        r#"SELECT (1 + 2) * 3"#
     );
 }
 
@@ -2110,12 +2103,12 @@ fn nested_binary_left_operand_is_parenthesized() {
 fn nested_binary_right_operand_is_parenthesized() {
     // 10 - (5 - 2) — bare `10 - 5 - 2` is left-associative, giving 3, not 7.
     assert_eq!(
-        sq_expr_sql(sq_bin(
-            sq_int(10),
+        render_expr_sqlite(bin(
+            int(10),
             BinaryOp::Sub,
-            sq_bin(sq_int(5), BinaryOp::Sub, sq_int(2)),
+            bin(int(5), BinaryOp::Sub, int(2)),
         )),
-        r#"SELECT 10 - (5 - 2) FROM "users""#
+        r#"SELECT 10 - (5 - 2)"#
     );
 }
 
@@ -2123,40 +2116,40 @@ fn nested_binary_right_operand_is_parenthesized() {
 fn unary_over_binary_is_parenthesized() {
     // -(2 + 3) — bare `- 2 + 3` binds the minus to 2, giving 1, not -5.
     assert_eq!(
-        sq_expr_sql(Expr::Unary {
+        render_expr_sqlite(Expr::Unary {
             op: UnaryOp::Neg,
-            expr: Box::new(sq_bin(sq_int(2), BinaryOp::Add, sq_int(3))),
+            expr: Box::new(bin(int(2), BinaryOp::Add, int(3))),
         }),
-        r#"SELECT - (2 + 3) FROM "users""#
+        r#"SELECT - (2 + 3)"#
     );
 }
 
 #[test]
 fn collate_over_binary_is_parenthesized() {
     assert_eq!(
-        sq_expr_sql(Expr::Collate {
-            expr: Box::new(sq_bin(
+        render_expr_sqlite(Expr::Collate {
+            expr: Box::new(bin(
                 Expr::Field(FieldRef::new("users", "name")),
                 BinaryOp::Concat,
                 Expr::Field(FieldRef::new("users", "department")),
             )),
             collation: "NOCASE".into(),
         }),
-        r#"SELECT ("users"."name" || "users"."department") COLLATE NOCASE FROM "users""#
+        r#"SELECT ("users"."name" || "users"."department") COLLATE NOCASE"#
     );
 }
 
 #[test]
 fn json_path_text_over_unary_not_is_parenthesized() {
     assert_eq!(
-        sq_expr_sql(Expr::JsonPathText {
+        render_expr_sqlite(Expr::JsonPathText {
             expr: Box::new(Expr::Unary {
                 op: UnaryOp::Not,
                 expr: Box::new(Expr::Field(FieldRef::new("users", "data"))),
             }),
             path: "k".into(),
         }),
-        r#"SELECT (NOT "users"."data")->>'k' FROM "users""#
+        r#"SELECT (NOT "users"."data")->>'k'"#
     );
 }
 
@@ -2164,27 +2157,23 @@ fn json_path_text_over_unary_not_is_parenthesized() {
 fn cast_over_nested_binary_keeps_inner_parens() {
     // CAST(...) is self-delimiting, but the inner sum still needs its own parens.
     assert_eq!(
-        sq_expr_sql(Expr::cast(
-            sq_bin(
-                sq_bin(sq_int(1), BinaryOp::Add, sq_int(2)),
-                BinaryOp::Mul,
-                sq_int(3),
-            ),
+        render_expr_sqlite(Expr::cast(
+            bin(bin(int(1), BinaryOp::Add, int(2)), BinaryOp::Mul, int(3),),
             "INTEGER",
         )),
-        r#"SELECT CAST((1 + 2) * 3 AS INTEGER) FROM "users""#
+        r#"SELECT CAST((1 + 2) * 3 AS INTEGER)"#
     );
 }
 
 #[test]
 fn atomic_binary_operands_stay_bare() {
     assert_eq!(
-        sq_expr_sql(sq_bin(
+        render_expr_sqlite(bin(
             Expr::Field(FieldRef::new("users", "id")),
             BinaryOp::Add,
             Expr::func("abs", vec![Expr::Field(FieldRef::new("users", "age"))]),
         )),
-        r#"SELECT "users"."id" + abs("users"."age") FROM "users""#
+        r#"SELECT "users"."id" + abs("users"."age")"#
     );
 }
 
@@ -2213,27 +2202,128 @@ fn comparison_with_not_operand_is_parenthesized() {
 fn cast_over_raw_stays_bare() {
     // Raw is an opaque escape hatch — never bracketed automatically.
     assert_eq!(
-        sq_expr_sql(Expr::cast(Expr::raw("a + b"), "INTEGER")),
-        r#"SELECT CAST(a + b AS INTEGER) FROM "users""#
+        render_expr_sqlite(Expr::cast(Expr::raw("a + b"), "INTEGER")),
+        r#"SELECT CAST(a + b AS INTEGER)"#
     );
 }
 
 #[test]
 fn paren_operand_is_not_double_wrapped() {
     assert_eq!(
-        sq_expr_sql(sq_bin(
-            Expr::paren(sq_bin(sq_int(1), BinaryOp::Add, sq_int(2))),
+        render_expr_sqlite(bin(
+            Expr::paren(bin(int(1), BinaryOp::Add, int(2))),
             BinaryOp::Mul,
-            sq_int(3),
+            int(3),
         )),
-        r#"SELECT (1 + 2) * 3 FROM "users""#
+        r#"SELECT (1 + 2) * 3"#
     );
 }
 
 #[test]
 fn paren_wraps_any_expression() {
     assert_eq!(
-        sq_expr_sql(Expr::paren(Expr::Field(FieldRef::new("users", "age")))),
-        r#"SELECT ("users"."age") FROM "users""#
+        render_expr_sqlite(Expr::paren(Expr::Field(FieldRef::new("users", "age")))),
+        r#"SELECT ("users"."age")"#
     );
+}
+
+// ==========================================================================
+// Operand positions missed by the first pass — a FieldRef with a JSON child
+// renders an operator chain (`"data"->'name'`) just like Expr::JsonPathText,
+// and IRegex feeds its right operand into a `||` concatenation.
+// ==========================================================================
+
+fn json_field(table: &str, name: &str, child: &str) -> FieldRef {
+    let mut field = FieldDef::new(name);
+    field.child = Some(Box::new(FieldDef::new(child)));
+    FieldRef {
+        field,
+        table_name: table.into(),
+        namespace: None,
+    }
+}
+
+#[test]
+fn collate_over_field_with_json_child_is_parenthesized() {
+    // COLLATE binds tighter than `->`, so a bare operand collates the key literal.
+    assert_eq!(
+        render_expr_sqlite(Expr::Collate {
+            expr: Box::new(Expr::Field(json_field("users", "data", "name"))),
+            collation: "NOCASE".into(),
+        }),
+        r#"SELECT ("users"."data"->'name') COLLATE NOCASE"#
+    );
+}
+
+#[test]
+fn collate_over_field_without_json_child_stays_bare() {
+    assert_eq!(
+        render_expr_sqlite(Expr::Collate {
+            expr: Box::new(Expr::Field(FieldRef::new("users", "name"))),
+            collation: "NOCASE".into(),
+        }),
+        r#"SELECT "users"."name" COLLATE NOCASE"#
+    );
+}
+
+#[test]
+fn iregex_parenthesizes_compound_right_operand() {
+    // right is the RHS of `'(?i)' || right`.
+    let stmt = QueryStmt {
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("users", "name")),
+                CompareOp::IRegex,
+                Expr::Collate {
+                    expr: Box::new(Expr::Field(FieldRef::new("users", "pattern"))),
+                    collation: "NOCASE".into(),
+                },
+            ),
+        ))])),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WHERE "users"."name" REGEXP '(?i)' || ("users"."pattern" COLLATE NOCASE)"#
+    );
+}
+
+// ==========================================================================
+// delegate_renderer! must forward render_operand / needs_operand_parens, or a
+// wrapping renderer silently falls back to the trait default and loses the
+// dialect's own rule (SQLite exempts power()/XOR, which delimit themselves).
+// ==========================================================================
+
+struct WrappingRenderer {
+    inner: SqliteRenderer,
+}
+
+impl qcraft_core::render::renderer::Renderer for WrappingRenderer {
+    qcraft_core::delegate_renderer!(self.inner);
+}
+
+#[test]
+fn wrapping_renderer_delegates_render_operand() {
+    use qcraft_core::render::renderer::Renderer;
+
+    let expr = bin(
+        Expr::Field(FieldRef::new("t", "a")),
+        BinaryOp::Power,
+        Expr::Field(FieldRef::new("t", "b")),
+    );
+
+    let mut wrapped = RenderCtx::new(ParamStyle::QMark);
+    WrappingRenderer {
+        inner: SqliteRenderer::new(),
+    }
+    .render_operand(&expr, &mut wrapped)
+    .unwrap();
+
+    let mut direct = RenderCtx::new(ParamStyle::QMark);
+    SqliteRenderer::new()
+        .render_operand(&expr, &mut direct)
+        .unwrap();
+
+    assert_eq!(wrapped.sql(), direct.sql());
+    assert_eq!(wrapped.sql(), r#"power("t"."a", "t"."b")"#);
 }

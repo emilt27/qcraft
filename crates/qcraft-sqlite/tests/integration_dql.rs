@@ -2259,8 +2259,8 @@ fn bin(left: Expr, op: BinaryOp, right: Expr) -> Expr {
 }
 
 fn scalar<T: rusqlite::types::FromSql>(expr: Expr) -> T {
+    // These queries are `SELECT <expr>` with no FROM — no seeded tables needed.
     let conn = Connection::open_in_memory().unwrap();
-    setup_db(&conn);
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Expr { expr, alias: None }],
         from: None,

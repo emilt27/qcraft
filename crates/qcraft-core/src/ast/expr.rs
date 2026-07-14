@@ -295,20 +295,26 @@ impl Expr {
     /// table because precedence is dialect-specific: SQLite binds `||` tighter than
     /// `*`, PostgreSQL binds it looser than `+`.
     ///
+    /// A [`Expr::Field`] whose [`FieldDef`](crate::ast::common::FieldDef) carries a
+    /// `child` renders as a JSON path chain (`"data"->'age'`) — an operator expression
+    /// like [`Expr::JsonPathText`], and bracketed for the same reason. A plain field
+    /// is a bare identifier and is not.
+    ///
     /// Self-delimiting forms (literals, identifiers, function calls, `CAST(…)`,
     /// `CASE … END`, subqueries, tuples, [`Expr::Paren`]) carry their own boundaries
     /// and render bare. `Raw` and `Custom` are opaque escape hatches whose contents
     /// need not be an expression at all, so they are never bracketed automatically —
     /// wrap them in [`Expr::Paren`] when they need grouping.
     pub fn needs_operand_parens(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Expr::Binary { .. }
-                | Expr::Unary { .. }
-                | Expr::Collate { .. }
-                | Expr::JsonPathText { .. }
-                | Expr::Window(_)
-        )
+            | Expr::Unary { .. }
+            | Expr::Collate { .. }
+            | Expr::JsonPathText { .. }
+            | Expr::Window(_) => true,
+            Expr::Field(field_ref) => field_ref.field.child.is_some(),
+            _ => false,
+        }
     }
 
     /// True if this expression tree contains an unbound `Expr::Param` placeholder.

@@ -2446,48 +2446,48 @@ fn bin(left: Expr, op: BinaryOp, right: Expr) -> Expr {
     }
 }
 
-fn scalar_i64(expr: Expr) -> i64 {
-    let mut client = crate::test_client("template_dql");
-    let stmt = QueryStmt {
-        columns: vec![SelectColumn::Expr { expr, alias: None }],
-        ..simple_query()
+/// One database for the whole group: these are `SELECT <expr>` with no FROM, so
+/// they read no table and need no isolation — cloning a template per assertion
+/// (what a per-test client would do) buys nothing.
+#[test]
+fn precedence_is_preserved_when_executed() {
+    let mut client = crate::test_client("template0");
+
+    let scalar_i64 = |client: &mut postgres::Client, expr: Expr| -> i64 {
+        let stmt = QueryStmt {
+            columns: vec![SelectColumn::Expr {
+                expr: Expr::cast(expr, "bigint"),
+                alias: None,
+            }],
+            ..simple_query()
+        };
+        let (sql, values) = render(&stmt);
+        let boxed = crate::common::to_pg_params(&values);
+        let params = crate::common::as_pg_params(&boxed);
+        client.query(&sql, &params).unwrap()[0].get::<_, i64>(0)
     };
-    let (sql, values) = render(&stmt);
-    let boxed = crate::common::to_pg_params(&values);
-    let params = crate::common::as_pg_params(&boxed);
-    let rows = client.query(&sql, &params).unwrap();
-    rows[0].get::<_, i64>(0)
-}
 
-#[test]
-fn precedence_nested_binary_executes() {
     // (1 + 2) * 3 = 9; flat `1 + 2 * 3` silently yields 7.
-    let expr = bin(bin(lit(1), BinaryOp::Add, lit(2)), BinaryOp::Mul, lit(3));
-    assert_eq!(scalar_i64(Expr::cast(expr, "bigint")), 9);
-}
+    let nested = bin(bin(lit(1), BinaryOp::Add, lit(2)), BinaryOp::Mul, lit(3));
+    assert_eq!(scalar_i64(&mut client, nested), 9, "nested binary");
 
-#[test]
-fn precedence_right_operand_associativity_executes() {
     // 10 - (5 - 2) = 7; flat `10 - 5 - 2` is left-associative and yields 3.
-    let expr = bin(lit(10), BinaryOp::Sub, bin(lit(5), BinaryOp::Sub, lit(2)));
-    assert_eq!(scalar_i64(Expr::cast(expr, "bigint")), 7);
-}
+    let assoc = bin(lit(10), BinaryOp::Sub, bin(lit(5), BinaryOp::Sub, lit(2)));
+    assert_eq!(
+        scalar_i64(&mut client, assoc),
+        7,
+        "right-operand associativity"
+    );
 
-#[test]
-fn precedence_unary_over_binary_executes() {
     // -(2 + 3) = -5; flat `- 2 + 3` binds the minus to 2 and yields 1.
-    let expr = Expr::Unary {
+    let unary = Expr::Unary {
         op: UnaryOp::Neg,
         expr: Box::new(bin(lit(2), BinaryOp::Add, lit(3))),
     };
-    assert_eq!(scalar_i64(Expr::cast(expr, "bigint")), -5);
-}
+    assert_eq!(scalar_i64(&mut client, unary), -5, "unary over binary");
 
-#[test]
-fn precedence_collate_over_binary_executes() {
-    // COLLATE binds tighter than ||, so a flat operand collates the integer 5
-    // and PostgreSQL errors with "collations are not supported by type integer".
-    let mut client = crate::test_client("template_dql");
+    // COLLATE binds tighter than ||, so a flat operand collates the integer 5 and
+    // PostgreSQL errors with "collations are not supported by type integer".
     let stmt = QueryStmt {
         columns: vec![SelectColumn::Expr {
             expr: Expr::Collate {
@@ -2502,5 +2502,48 @@ fn precedence_collate_over_binary_executes() {
     let boxed = crate::common::to_pg_params(&values);
     let params = crate::common::as_pg_params(&boxed);
     let rows = client.query(&sql, &params).unwrap();
-    assert_eq!(rows[0].get::<_, String>(0), "x5");
+    assert_eq!(rows[0].get::<_, String>(0), "x5", "collate over binary");
+}
+
+#[test]
+fn cast_over_field_with_json_child_executes() {
+    // Same defect as cast-over-JsonPathText, reached through a FieldRef whose
+    // FieldDef carries a child: bare `"people"."data"->'age'::bigint` makes
+    // PostgreSQL cast the key literal and fail on `invalid input syntax`.
+    let mut client = crate::test_client("template0");
+    client
+        .execute(
+            r#"CREATE TABLE "people" ("id" INTEGER PRIMARY KEY, "data" JSONB NOT NULL)"#,
+            &[],
+        )
+        .unwrap();
+    client
+        .execute(
+            r#"INSERT INTO "people" VALUES (1, '{"age": 36}'::jsonb)"#,
+            &[],
+        )
+        .unwrap();
+
+    let mut field = FieldDef::new("data");
+    field.child = Some(Box::new(FieldDef::new("age")));
+    let field_ref = FieldRef {
+        field,
+        table_name: "people".into(),
+        namespace: None,
+    };
+
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::cast(Expr::Field(field_ref), "bigint"),
+            alias: Some("age".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("people"))]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows[0].get::<_, i64>(0), 36);
 }

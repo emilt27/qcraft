@@ -7,9 +7,17 @@
 
   Bracketing is structural rather than driven by a precedence table, because precedence is dialect-specific: SQLite binds `||` tighter than `*`, PostgreSQL binds it looser than `+`, so the same AST needs different brackets per dialect.
 
+  The same defect reached through `Expr::Field`: a `FieldDef` carrying a `child` renders a JSON path chain (`"data"->'age'`), so `Cast(Field(data->age), "bigint")` produced `"data"->'age'::bigint` — bracketed now as well. Plain fields are bare identifiers and stay unbracketed.
+
+  Two further operand positions were missed on the first pass and are now covered: the right operand of PostgreSQL's `?|` / `?&` (which also feeds a trailing `::text[]`), and the right operand of SQLite's `IRegex` (the RHS of a `||` concatenation).
+
 ### Added
 - `Expr::Paren(Box<Expr>)` and the `Expr::paren(expr)` constructor — explicit grouping. Operator operands are bracketed automatically, so this is only needed to group an opaque `Raw` / `Custom` expression or to force brackets for readability.
 - `Expr::needs_operand_parens()` and the `Renderer::render_operand()` default method, which together implement the rule above.
+- `Renderer::needs_operand_parens()` — the extension point a dialect overrides when its own rendering of a node already delimits it (SQLite renders `Power` as `power(l, r)` and `BitwiseXor` as a bracketed composite, so neither takes a second pair of brackets). Overriding the predicate rather than `render_operand` keeps the bracketing logic single-sourced.
+
+### Fixed (internal)
+- `delegate_renderer!` now forwards `render_operand` and `needs_operand_parens`. Without those arms a wrapping renderer silently fell back to the trait default and lost the inner dialect's rule.
 
 ### Changed
 - Generated SQL now carries brackets where operand structure demands them (values are unchanged; only the SQL text differs). Snapshot tests that compare rendered SQL byte-for-byte may need updating — for example a `COLLATE` operand in a comparison now renders as `("users"."name" COLLATE "C") = $1`.

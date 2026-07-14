@@ -1366,13 +1366,13 @@ impl Renderer for PostgresRenderer {
             CompareOp::JsonbHasKey => ctx.write(" ? "),
             CompareOp::JsonbHasAnyKey => {
                 ctx.write(" ?| ");
-                self.render_expr(right, ctx)?;
+                self.render_operand(right, ctx)?;
                 ctx.write("::text[]");
                 return Ok(());
             }
             CompareOp::JsonbHasAllKeys => {
                 ctx.write(" ?& ");
-                self.render_expr(right, ctx)?;
+                self.render_operand(right, ctx)?;
                 ctx.write("::text[]");
                 return Ok(());
             }

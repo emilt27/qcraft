@@ -42,6 +42,14 @@ pub trait Renderer {
 
     fn render_expr(&self, expr: &Expr, ctx: &mut RenderCtx) -> RenderResult<()>;
 
+    /// Whether `expr` needs brackets in an operand position. Defaults to
+    /// [`Expr::needs_operand_parens`]; a dialect overrides this — not
+    /// [`Renderer::render_operand`] — when its own rendering of a node already
+    /// delimits it (SQLite renders `Power` as `power(l, r)`, for instance).
+    fn needs_operand_parens(&self, expr: &Expr) -> bool {
+        expr.needs_operand_parens()
+    }
+
     /// Render `expr` where it is the operand of an operator (`+`, `::`, `COLLATE`,
     /// `->>`, a comparison, …), bracketing it when its own structure would otherwise
     /// be re-associated by the engine's operator precedence.
@@ -49,7 +57,7 @@ pub trait Renderer {
     /// See [`Expr::needs_operand_parens`] for which forms are bracketed and why this
     /// is structural rather than precedence-driven.
     fn render_operand(&self, expr: &Expr, ctx: &mut RenderCtx) -> RenderResult<()> {
-        if expr.needs_operand_parens() {
+        if self.needs_operand_parens(expr) {
             ctx.paren_open();
             self.render_expr(expr, ctx)?;
             ctx.paren_close();
@@ -193,6 +201,16 @@ macro_rules! delegate_renderer {
             ctx: &mut $crate::render::ctx::RenderCtx,
         ) -> $crate::error::RenderResult<()> {
             $self.$inner.render_expr(expr, ctx)
+        }
+        fn needs_operand_parens(&$self, expr: &$crate::ast::expr::Expr) -> bool {
+            $self.$inner.needs_operand_parens(expr)
+        }
+        fn render_operand(
+            &$self,
+            expr: &$crate::ast::expr::Expr,
+            ctx: &mut $crate::render::ctx::RenderCtx,
+        ) -> $crate::error::RenderResult<()> {
+            $self.$inner.render_operand(expr, ctx)
         }
         fn render_aggregate(
             &$self,

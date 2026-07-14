@@ -922,9 +922,9 @@ impl Renderer for SqliteRenderer {
     }
 
     /// SQLite renders `Power` as `power(l, r)` and `BitwiseXor` as a bracketed
-    /// composite, so those two are already self-delimiting and must not collect a
+    /// composite, so those two already delimit themselves and must not collect a
     /// second pair of brackets. Every other operand follows the shared rule.
-    fn render_operand(&self, expr: &Expr, ctx: &mut RenderCtx) -> RenderResult<()> {
+    fn needs_operand_parens(&self, expr: &Expr) -> bool {
         if matches!(
             expr,
             Expr::Binary {
@@ -932,15 +932,9 @@ impl Renderer for SqliteRenderer {
                 ..
             }
         ) {
-            return self.render_expr(expr, ctx);
+            return false;
         }
-        if expr.needs_operand_parens() {
-            ctx.paren_open();
-            self.render_expr(expr, ctx)?;
-            ctx.paren_close();
-            return Ok(());
-        }
-        self.render_expr(expr, ctx)
+        expr.needs_operand_parens()
     }
 
     fn render_compare_op(
@@ -1033,7 +1027,7 @@ impl Renderer for SqliteRenderer {
             CompareOp::Regex => ctx.keyword("REGEXP"),
             CompareOp::IRegex => {
                 ctx.keyword("REGEXP").string_literal("(?i)").keyword("||");
-                self.render_expr(right, ctx)?;
+                self.render_operand(right, ctx)?;
                 return Ok(());
             }
             CompareOp::ILike => {

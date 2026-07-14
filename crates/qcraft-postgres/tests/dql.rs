@@ -2765,14 +2765,7 @@ fn is_null_non_boolean_right_errors() {
 // ==========================================================================
 
 fn cast_sql(inner: Expr, to_type: &str) -> String {
-    render(&QueryStmt {
-        columns: vec![SelectColumn::Expr {
-            expr: Expr::cast(inner, to_type),
-            alias: None,
-        }],
-        from: Some(users_from()),
-        ..simple_query()
-    })
+    expr_sql(Expr::cast(inner, to_type))
 }
 
 #[test]
@@ -2785,7 +2778,7 @@ fn cast_over_json_path_text_is_parenthesized() {
             },
             "bigint",
         ),
-        r#"SELECT ("users"."data"->>'age')::bigint FROM "users""#
+        r#"SELECT ("users"."data"->>'age')::bigint"#
     );
 }
 
@@ -2800,7 +2793,7 @@ fn cast_over_binary_is_parenthesized() {
             },
             "text",
         ),
-        r#"SELECT ("users"."id" + "users"."age")::text FROM "users""#
+        r#"SELECT ("users"."id" + "users"."age")::text"#
     );
 }
 
@@ -2814,7 +2807,7 @@ fn cast_over_unary_is_parenthesized() {
             },
             "text",
         ),
-        r#"SELECT (- "users"."age")::text FROM "users""#
+        r#"SELECT (- "users"."age")::text"#
     );
 }
 
@@ -2828,7 +2821,7 @@ fn cast_over_collate_is_parenthesized() {
             },
             "text",
         ),
-        r#"SELECT ("users"."name" COLLATE "C")::text FROM "users""#
+        r#"SELECT ("users"."name" COLLATE "C")::text"#
     );
 }
 
@@ -2839,7 +2832,7 @@ fn cast_over_raw_stays_bare() {
     // Expr::Paren themselves.
     assert_eq!(
         cast_sql(Expr::raw("a + b"), "text"),
-        r#"SELECT a + b::text FROM "users""#
+        r#"SELECT a + b::text"#
     );
 }
 
@@ -2847,7 +2840,7 @@ fn cast_over_raw_stays_bare() {
 fn cast_over_parenthesized_raw_is_grouped() {
     assert_eq!(
         cast_sql(Expr::paren(Expr::raw("a + b")), "text"),
-        r#"SELECT (a + b)::text FROM "users""#
+        r#"SELECT (a + b)::text"#
     );
 }
 
@@ -2855,7 +2848,7 @@ fn cast_over_parenthesized_raw_is_grouped() {
 fn paren_wraps_any_expression() {
     assert_eq!(
         expr_sql(Expr::paren(Expr::Field(FieldRef::new("users", "age")))),
-        r#"SELECT ("users"."age") FROM "users""#
+        r#"SELECT ("users"."age")"#
     );
 }
 
@@ -2869,7 +2862,7 @@ fn paren_operand_is_not_double_wrapped() {
             BinaryOp::Mul,
             int(3),
         )),
-        r#"SELECT (1 + 2) * 3 FROM "users""#
+        r#"SELECT (1 + 2) * 3"#
     );
 }
 
@@ -2877,7 +2870,7 @@ fn paren_operand_is_not_double_wrapped() {
 fn cast_over_field_stays_bare() {
     assert_eq!(
         cast_sql(Expr::Field(FieldRef::new("users", "age")), "text"),
-        r#"SELECT "users"."age"::text FROM "users""#
+        r#"SELECT "users"."age"::text"#
     );
 }
 
@@ -2888,7 +2881,7 @@ fn cast_over_func_stays_bare() {
             Expr::func("lower", vec![Expr::Field(FieldRef::new("users", "name"))]),
             "text",
         ),
-        r#"SELECT lower("users"."name")::text FROM "users""#
+        r#"SELECT lower("users"."name")::text"#
     );
 }
 
@@ -2899,7 +2892,7 @@ fn cast_over_cast_stays_bare() {
             Expr::cast(Expr::Field(FieldRef::new("users", "age")), "text"),
             "integer",
         ),
-        r#"SELECT "users"."age"::text::integer FROM "users""#
+        r#"SELECT "users"."age"::text::integer"#
     );
 }
 
@@ -2913,7 +2906,7 @@ fn cast_over_tuple_stays_bare() {
             ]),
             "text",
         ),
-        r#"SELECT ("users"."id", "users"."name")::text FROM "users""#
+        r#"SELECT ("users"."id", "users"."name")::text"#
     );
 }
 
@@ -2923,11 +2916,7 @@ fn cast_over_tuple_stays_bare() {
 // ==========================================================================
 
 fn expr_sql(expr: Expr) -> String {
-    render(&QueryStmt {
-        columns: vec![SelectColumn::Expr { expr, alias: None }],
-        from: Some(users_from()),
-        ..simple_query()
-    })
+    render_expr_pg(expr).0
 }
 
 fn bin(left: Expr, op: qcraft_core::ast::expr::BinaryOp, right: Expr) -> Expr {
@@ -2952,7 +2941,7 @@ fn nested_binary_left_operand_is_parenthesized() {
             BinaryOp::Mul,
             int(3)
         )),
-        r#"SELECT (1 + 2) * 3 FROM "users""#
+        r#"SELECT (1 + 2) * 3"#
     );
 }
 
@@ -2966,7 +2955,7 @@ fn nested_binary_right_operand_is_parenthesized() {
             BinaryOp::Sub,
             bin(int(5), BinaryOp::Sub, int(2))
         )),
-        r#"SELECT 10 - (5 - 2) FROM "users""#
+        r#"SELECT 10 - (5 - 2)"#
     );
 }
 
@@ -2979,7 +2968,7 @@ fn unary_over_binary_is_parenthesized() {
             op: UnaryOp::Neg,
             expr: Box::new(bin(int(2), BinaryOp::Add, int(3))),
         }),
-        r#"SELECT - (2 + 3) FROM "users""#
+        r#"SELECT - (2 + 3)"#
     );
 }
 
@@ -2996,7 +2985,7 @@ fn collate_over_binary_is_parenthesized() {
             )),
             collation: "C".into(),
         }),
-        r#"SELECT ("users"."name" || "users"."department") COLLATE "C" FROM "users""#
+        r#"SELECT ("users"."name" || "users"."department") COLLATE "C""#
     );
 }
 
@@ -3012,7 +3001,7 @@ fn json_path_text_over_unary_not_is_parenthesized() {
             }),
             path: "k".into(),
         }),
-        r#"SELECT (NOT "users"."data")->>'k' FROM "users""#
+        r#"SELECT (NOT "users"."data")->>'k'"#
     );
 }
 
@@ -3026,7 +3015,7 @@ fn cast_over_nested_binary_parenthesizes_both_levels() {
             bin(bin(int(1), BinaryOp::Add, int(2)), BinaryOp::Mul, int(3)),
             "bigint",
         )),
-        r#"SELECT ((1 + 2) * 3)::bigint FROM "users""#
+        r#"SELECT ((1 + 2) * 3)::bigint"#
     );
 }
 
@@ -3040,7 +3029,7 @@ fn atomic_binary_operands_stay_bare() {
             BinaryOp::Add,
             Expr::func("abs", vec![Expr::Field(FieldRef::new("users", "age"))]),
         )),
-        r#"SELECT "users"."id" + abs("users"."age") FROM "users""#
+        r#"SELECT "users"."id" + abs("users"."age")"#
     );
 }
 
@@ -3066,5 +3055,65 @@ fn comparison_with_not_operand_is_parenthesized() {
     assert_eq!(
         render(&stmt),
         r#"SELECT * FROM "users" WHERE (NOT "users"."active") = $1"#
+    );
+}
+
+// ==========================================================================
+// Operand positions missed by the first pass — a FieldRef with a JSON child
+// renders an operator chain (`"data"->'age'`) just like Expr::JsonPathText,
+// and the JSONB key operators feed their right operand into `?|` and `::text[]`.
+// ==========================================================================
+
+fn json_field(table: &str, name: &str, child: &str) -> FieldRef {
+    let mut field = FieldDef::new(name);
+    field.child = Some(Box::new(FieldDef::new(child)));
+    FieldRef {
+        field,
+        table_name: table.into(),
+        namespace: None,
+    }
+}
+
+#[test]
+fn cast_over_field_with_json_child_is_parenthesized() {
+    // Bare `"users"."data"->'age'::bigint` is read as `"users"."data" -> ('age'::bigint)`
+    // — the same defect as Cast over JsonPathText, reached through a FieldRef.
+    assert_eq!(
+        cast_sql(Expr::Field(json_field("users", "data", "age")), "bigint"),
+        r#"SELECT ("users"."data"->'age')::bigint"#
+    );
+}
+
+#[test]
+fn cast_over_field_without_json_child_stays_bare() {
+    assert_eq!(
+        cast_sql(Expr::Field(FieldRef::new("users", "age")), "bigint"),
+        r#"SELECT "users"."age"::bigint"#
+    );
+}
+
+#[test]
+fn jsonb_has_any_key_parenthesizes_compound_right_operand() {
+    use qcraft_core::ast::expr::BinaryOp;
+    // `right` is the operand of both `?|` and the trailing `::text[]`.
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(users_from()),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("users", "data")),
+                CompareOp::JsonbHasAnyKey,
+                bin(
+                    Expr::Field(FieldRef::new("users", "a")),
+                    BinaryOp::Concat,
+                    Expr::Field(FieldRef::new("users", "b")),
+                ),
+            ),
+        ))])),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WHERE "users"."data" ?| ("users"."a" || "users"."b")::text[]"#
     );
 }
