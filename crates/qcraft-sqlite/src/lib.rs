@@ -651,13 +651,6 @@ impl Renderer for SqliteRenderer {
                 Ok(())
             }
 
-            Expr::Paren(inner) => {
-                ctx.paren_open();
-                self.render_expr(inner, ctx)?;
-                ctx.paren_close();
-                Ok(())
-            }
-
             Expr::JsonArray(items) => {
                 ctx.keyword("json_array").write("(");
                 for (i, item) in items.iter().enumerate() {

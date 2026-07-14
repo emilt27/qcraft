@@ -83,7 +83,6 @@ pub enum Expr {
     SubQuery(Box<QueryStmt>),
     ArraySubQuery(Box<QueryStmt>),
     Collate { expr: Box<Expr>, collation: String },
-    Paren(Box<Expr>),
     Raw { sql: String, params: Vec<Value> },
     JsonArray(Vec<Expr>),
     JsonObject(Vec<(String, Expr)>),
@@ -112,7 +111,6 @@ pub enum Expr {
 | `Expr::exists(query)` | `Expr::Exists(Box::new(query))` |
 | `Expr::subquery(query)` | `Expr::SubQuery(Box::new(query))` |
 | `expr.collate("C")` | `Expr::Collate { expr, collation: "C" }` |
-| `Expr::paren(expr)` | `Expr::Paren(Box::new(expr))` — explicit grouping |
 | `Expr::json_array(vec![...])` | `Expr::JsonArray(...)` — PG: `jsonb_build_array`, SQLite: `json_array` |
 | `Expr::json_object(vec![...])` | `Expr::JsonObject(...)` — PG: `jsonb_build_object`, SQLite: `json_object` |
 | `Expr::json_agg(expr)` | `Expr::JsonAgg { ... }` — PG: `jsonb_agg`, SQLite: `json_group_array` |
@@ -144,18 +142,19 @@ Expr::Binary {
 // PG and SQLite: (1 + 2) * 3
 ```
 
-Operands that are `Binary`, `Unary`, `Collate`, `JsonPathText` or `Window` get brackets;
-self-delimiting forms (literals, fields, function calls, `CAST(…)`, `CASE … END`,
-subqueries, tuples, `Paren`) render bare. Bracketing is structural rather than driven by a
-precedence table, because precedence differs per dialect — SQLite binds `||` tighter than
-`*`, PostgreSQL binds it looser than `+`.
+Operands that are `Binary`, `Unary`, `Collate`, `JsonPathText`, `Window`, or a `Field`
+whose `FieldDef` carries a JSON child get brackets; self-delimiting forms (literals,
+fields, function calls, `CAST(…)`, `CASE … END`, subqueries, tuples) render bare.
+Bracketing is structural rather than driven by a precedence table, because precedence
+differs per dialect — SQLite binds `||` tighter than `*`, PostgreSQL binds it looser
+than `+`.
 
 `Raw` and `Custom` are **never** bracketed automatically: their contents are opaque and
-need not be an expression at all. Wrap them yourself when they need grouping:
+need not be an expression at all. Write the grouping into the fragment itself:
 
 ```rust
-Expr::cast(Expr::raw("a + b"), "text")               // a + b::text     ← cast binds to b
-Expr::cast(Expr::paren(Expr::raw("a + b")), "text")  // (a + b)::text
+Expr::cast(Expr::raw("price * qty"), "numeric")     // price * qty::numeric  ← cast binds to qty
+Expr::cast(Expr::raw("(price * qty)"), "numeric")   // (price * qty)::numeric
 ```
 
 ## FieldRef / FieldDef

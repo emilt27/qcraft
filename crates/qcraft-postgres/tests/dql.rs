@@ -2827,42 +2827,12 @@ fn cast_over_collate_is_parenthesized() {
 
 #[test]
 fn cast_over_raw_stays_bare() {
-    // Raw is an opaque escape hatch: its contents may not even be an expression,
-    // so the renderer never brackets it. Callers who need grouping wrap it in
-    // Expr::Paren themselves.
+    // Raw is an opaque escape hatch: its contents may not even be an expression, so the
+    // renderer never brackets it. A caller who needs grouping writes it into the
+    // fragment: Expr::raw("(a + b)").
     assert_eq!(
         cast_sql(Expr::raw("a + b"), "text"),
         r#"SELECT a + b::text"#
-    );
-}
-
-#[test]
-fn cast_over_parenthesized_raw_is_grouped() {
-    assert_eq!(
-        cast_sql(Expr::paren(Expr::raw("a + b")), "text"),
-        r#"SELECT (a + b)::text"#
-    );
-}
-
-#[test]
-fn paren_wraps_any_expression() {
-    assert_eq!(
-        expr_sql(Expr::paren(Expr::Field(FieldRef::new("users", "age")))),
-        r#"SELECT ("users"."age")"#
-    );
-}
-
-#[test]
-fn paren_operand_is_not_double_wrapped() {
-    use qcraft_core::ast::expr::BinaryOp;
-    // Paren is self-delimiting: it must not attract a second pair of brackets.
-    assert_eq!(
-        expr_sql(bin(
-            Expr::paren(bin(int(1), BinaryOp::Add, int(2))),
-            BinaryOp::Mul,
-            int(3),
-        )),
-        r#"SELECT (1 + 2) * 3"#
     );
 }
 
@@ -3095,7 +3065,9 @@ fn cast_over_field_without_json_child_stays_bare() {
 #[test]
 fn jsonb_has_any_key_parenthesizes_compound_right_operand() {
     use qcraft_core::ast::expr::BinaryOp;
-    // `right` is the operand of both `?|` and the trailing `::text[]`.
+    // `right` is the operand of both `?|` and the trailing `::text[]`, so a compound
+    // operand must be bracketed. `||` on two arrays concatenates them, which is the
+    // only compound shape that is meaningful here (a text concat cannot cast to text[]).
     let stmt = QueryStmt {
         columns: vec![SelectColumn::all()],
         from: Some(users_from()),
@@ -3104,9 +3076,9 @@ fn jsonb_has_any_key_parenthesizes_compound_right_operand() {
                 Expr::Field(FieldRef::new("users", "data")),
                 CompareOp::JsonbHasAnyKey,
                 bin(
-                    Expr::Field(FieldRef::new("users", "a")),
+                    Expr::raw("ARRAY['email']"),
                     BinaryOp::Concat,
-                    Expr::Field(FieldRef::new("users", "b")),
+                    Expr::raw("ARRAY['phone']"),
                 ),
             ),
         ))])),
@@ -3114,6 +3086,6 @@ fn jsonb_has_any_key_parenthesizes_compound_right_operand() {
     };
     assert_eq!(
         render(&stmt),
-        r#"SELECT * FROM "users" WHERE "users"."data" ?| ("users"."a" || "users"."b")::text[]"#
+        r#"SELECT * FROM "users" WHERE "users"."data" ?| (ARRAY['email'] || ARRAY['phone'])::text[]"#
     );
 }

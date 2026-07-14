@@ -1010,13 +1010,6 @@ impl Renderer for PostgresRenderer {
                 Ok(())
             }
 
-            Expr::Paren(inner) => {
-                ctx.paren_open();
-                self.render_expr(inner, ctx)?;
-                ctx.paren_close();
-                Ok(())
-            }
-
             Expr::JsonArray(items) => {
                 ctx.keyword("jsonb_build_array").write("(");
                 for (i, item) in items.iter().enumerate() {

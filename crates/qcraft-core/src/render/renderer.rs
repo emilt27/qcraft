@@ -205,13 +205,6 @@ macro_rules! delegate_renderer {
         fn needs_operand_parens(&$self, expr: &$crate::ast::expr::Expr) -> bool {
             $self.$inner.needs_operand_parens(expr)
         }
-        fn render_operand(
-            &$self,
-            expr: &$crate::ast::expr::Expr,
-            ctx: &mut $crate::render::ctx::RenderCtx,
-        ) -> $crate::error::RenderResult<()> {
-            $self.$inner.render_operand(expr, ctx)
-        }
         fn render_aggregate(
             &$self,
             agg: &$crate::ast::expr::AggregationDef,

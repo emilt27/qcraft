@@ -2207,26 +2207,6 @@ fn cast_over_raw_stays_bare() {
     );
 }
 
-#[test]
-fn paren_operand_is_not_double_wrapped() {
-    assert_eq!(
-        render_expr_sqlite(bin(
-            Expr::paren(bin(int(1), BinaryOp::Add, int(2))),
-            BinaryOp::Mul,
-            int(3),
-        )),
-        r#"SELECT (1 + 2) * 3"#
-    );
-}
-
-#[test]
-fn paren_wraps_any_expression() {
-    assert_eq!(
-        render_expr_sqlite(Expr::paren(Expr::Field(FieldRef::new("users", "age")))),
-        r#"SELECT ("users"."age")"#
-    );
-}
-
 // ==========================================================================
 // Operand positions missed by the first pass — a FieldRef with a JSON child
 // renders an operator chain (`"data"->'name'`) just like Expr::JsonPathText,

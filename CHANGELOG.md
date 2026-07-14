@@ -12,20 +12,17 @@
   Two further operand positions were missed on the first pass and are now covered: the right operand of PostgreSQL's `?|` / `?&` (which also feeds a trailing `::text[]`), and the right operand of SQLite's `IRegex` (the RHS of a `||` concatenation).
 
 ### Added
-- `Expr::Paren(Box<Expr>)` and the `Expr::paren(expr)` constructor — explicit grouping. Operator operands are bracketed automatically, so this is only needed to group an opaque `Raw` / `Custom` expression or to force brackets for readability.
 - `Expr::needs_operand_parens()` and the `Renderer::render_operand()` default method, which together implement the rule above.
 - `Renderer::needs_operand_parens()` — the extension point a dialect overrides when its own rendering of a node already delimits it (SQLite renders `Power` as `power(l, r)` and `BitwiseXor` as a bracketed composite, so neither takes a second pair of brackets). Overriding the predicate rather than `render_operand` keeps the bracketing logic single-sourced.
-
-### Fixed (internal)
-- `delegate_renderer!` now forwards `render_operand` and `needs_operand_parens`. Without those arms a wrapping renderer silently fell back to the trait default and lost the inner dialect's rule.
+- `delegate_renderer!` forwards `needs_operand_parens`, so a wrapping renderer keeps the inner dialect's rule instead of falling back to the core default.
 
 ### Changed
 - Generated SQL now carries brackets where operand structure demands them (values are unchanged; only the SQL text differs). Snapshot tests that compare rendered SQL byte-for-byte may need updating — for example a `COLLATE` operand in a comparison now renders as `("users"."name" COLLATE "C") = $1`.
 - Unary operators render via `keyword()` instead of `write()`, so `SELECT- x` is now `SELECT - x`.
 
 ### Notes
-- `Expr::Raw` and `Expr::Custom` are **never** bracketed automatically: their contents are opaque and need not be an expression at all. Wrap them in `Expr::Paren` when they need grouping — e.g. `Expr::cast(Expr::paren(Expr::raw("a + b")), "text")` renders `(a + b)::text`, while the unwrapped form renders `a + b::text`.
-- Adding the `Expr::Paren` variant is source-breaking for exhaustive `match` over `Expr`.
+- `Expr::Raw` and `Expr::Custom` are **never** bracketed automatically: their contents are opaque and need not be an expression at all. A caller who needs grouping writes it into the fragment itself — `Expr::cast(Expr::raw("(price * qty)"), "numeric")` renders `(price * qty)::numeric`, while `Expr::raw("price * qty")` renders `price * qty::numeric` (the cast lands on `qty`).
+- No new `Expr` variant is added, so exhaustive `match` over `Expr` still compiles.
 
 ## 3.1.0
 

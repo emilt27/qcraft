@@ -2547,3 +2547,45 @@ fn cast_over_field_with_json_child_executes() {
     let rows = client.query(&sql, &params).unwrap();
     assert_eq!(rows[0].get::<_, i64>(0), 36);
 }
+
+#[test]
+fn jsonb_has_any_key_with_compound_operand_executes() {
+    // The `?|` right operand carries a renderer-owned `::text[]`, so a compound operand
+    // must be bracketed or the cast lands on the wrong sub-expression.
+    let mut client = crate::test_client("template0");
+    client
+        .execute(
+            r#"CREATE TABLE "docs" ("id" INTEGER PRIMARY KEY, "data" JSONB NOT NULL)"#,
+            &[],
+        )
+        .unwrap();
+    client
+        .execute(
+            r#"INSERT INTO "docs" VALUES (1, '{"phone": "555"}'::jsonb)"#,
+            &[],
+        )
+        .unwrap();
+
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("docs"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("docs", "data")),
+                CompareOp::JsonbHasAnyKey,
+                bin(
+                    Expr::raw("ARRAY['email']"),
+                    BinaryOp::Concat,
+                    Expr::raw("ARRAY['phone']"),
+                ),
+            ),
+        ))])),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows.len(), 1, "row has key 'phone', so ?| must match");
+}

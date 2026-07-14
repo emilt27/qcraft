@@ -50,13 +50,6 @@ pub enum Expr {
     /// Collation override: `expr COLLATE "name"`.
     Collate { expr: Box<Expr>, collation: String },
 
-    /// Explicit grouping: `(expr)`.
-    ///
-    /// Operator operands are bracketed automatically (see [`Expr::needs_operand_parens`]),
-    /// so this is only needed to group an opaque `Raw`/`Custom` expression or to force
-    /// brackets for readability.
-    Paren(Box<Expr>),
-
     /// Build a JSON array: PG `jsonb_build_array(...)`, SQLite `json_array(...)`.
     JsonArray(Vec<Expr>),
 
@@ -280,11 +273,6 @@ impl Expr {
         Expr::Now
     }
 
-    /// Explicit grouping: `(expr)`.
-    pub fn paren(expr: Expr) -> Self {
-        Expr::Paren(Box::new(expr))
-    }
-
     /// True if this expression must be parenthesized when it appears as the operand
     /// of an operator (`+`, `::`, `COLLATE`, `->>`, a comparison, …).
     ///
@@ -301,10 +289,12 @@ impl Expr {
     /// is a bare identifier and is not.
     ///
     /// Self-delimiting forms (literals, identifiers, function calls, `CAST(…)`,
-    /// `CASE … END`, subqueries, tuples, [`Expr::Paren`]) carry their own boundaries
-    /// and render bare. `Raw` and `Custom` are opaque escape hatches whose contents
-    /// need not be an expression at all, so they are never bracketed automatically —
-    /// wrap them in [`Expr::Paren`] when they need grouping.
+    /// `CASE … END`, subqueries, tuples) carry their own boundaries and render bare.
+    ///
+    /// `Raw` and `Custom` are opaque escape hatches whose contents need not be an
+    /// expression at all, so they are never bracketed automatically. A caller who needs
+    /// grouping writes it into the fragment itself — `Expr::raw("(price * qty)")` — and
+    /// a `CustomExpr` author controls their own rendering.
     pub fn needs_operand_parens(&self) -> bool {
         match self {
             Expr::Binary { .. }
@@ -333,7 +323,6 @@ impl Expr {
             | Expr::Cast { expr, .. }
             | Expr::Collate { expr, .. }
             | Expr::JsonPathText { expr, .. } => expr.contains_unbound_param(),
-            Expr::Paren(expr) => expr.contains_unbound_param(),
             Expr::Func { args, .. } | Expr::Tuple(args) | Expr::JsonArray(args) => {
                 args.iter().any(|a| a.contains_unbound_param())
             }
@@ -410,7 +399,6 @@ impl Expr {
             | Expr::Cast { expr, .. }
             | Expr::Collate { expr, .. }
             | Expr::JsonPathText { expr, .. } => expr.contains_subquery(),
-            Expr::Paren(expr) => expr.contains_subquery(),
             Expr::Func { args, .. } | Expr::Tuple(args) | Expr::JsonArray(args) => {
                 args.iter().any(|a| a.contains_subquery())
             }
