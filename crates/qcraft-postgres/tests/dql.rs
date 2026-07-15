@@ -1802,7 +1802,7 @@ fn collate_in_where() {
     });
     assert_eq!(
         sql,
-        r#"SELECT * FROM "users" WHERE "users"."name" COLLATE "und-x-icu" = $1"#
+        r#"SELECT * FROM "users" WHERE ("users"."name" COLLATE "und-x-icu") = $1"#
     );
     assert_eq!(params, vec![Value::Str("alice".into())]);
 }
@@ -2757,4 +2757,335 @@ fn is_null_non_boolean_right_errors() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("IsNull"), "unexpected error: {err}");
+}
+
+// ==========================================================================
+// CAST operand parenthesization — `::` binds tighter than every operator,
+// so a compound operand must be wrapped or the cast lands on a sub-part.
+// ==========================================================================
+
+fn cast_sql(inner: Expr, to_type: &str) -> String {
+    expr_sql(Expr::cast(inner, to_type))
+}
+
+#[test]
+fn cast_over_json_path_text_is_parenthesized() {
+    assert_eq!(
+        cast_sql(
+            Expr::JsonPathText {
+                expr: Box::new(Expr::Field(FieldRef::new("users", "data"))),
+                path: "age".into(),
+            },
+            "bigint",
+        ),
+        r#"SELECT ("users"."data"->>'age')::bigint"#
+    );
+}
+
+#[test]
+fn cast_over_binary_is_parenthesized() {
+    assert_eq!(
+        cast_sql(
+            Expr::Binary {
+                left: Box::new(Expr::Field(FieldRef::new("users", "id"))),
+                op: qcraft_core::ast::expr::BinaryOp::Add,
+                right: Box::new(Expr::Field(FieldRef::new("users", "age"))),
+            },
+            "text",
+        ),
+        r#"SELECT ("users"."id" + "users"."age")::text"#
+    );
+}
+
+#[test]
+fn cast_over_unary_is_parenthesized() {
+    assert_eq!(
+        cast_sql(
+            Expr::Unary {
+                op: qcraft_core::ast::expr::UnaryOp::Neg,
+                expr: Box::new(Expr::Field(FieldRef::new("users", "age"))),
+            },
+            "text",
+        ),
+        r#"SELECT (- "users"."age")::text"#
+    );
+}
+
+#[test]
+fn cast_over_collate_is_parenthesized() {
+    assert_eq!(
+        cast_sql(
+            Expr::Collate {
+                expr: Box::new(Expr::Field(FieldRef::new("users", "name"))),
+                collation: "C".into(),
+            },
+            "text",
+        ),
+        r#"SELECT ("users"."name" COLLATE "C")::text"#
+    );
+}
+
+#[test]
+fn cast_over_raw_stays_bare() {
+    // Raw is an opaque escape hatch: its contents may not even be an expression, so the
+    // renderer never brackets it. A caller who needs grouping writes it into the
+    // fragment: Expr::raw("(a + b)").
+    assert_eq!(
+        cast_sql(Expr::raw("a + b"), "text"),
+        r#"SELECT a + b::text"#
+    );
+}
+
+#[test]
+fn cast_over_field_stays_bare() {
+    assert_eq!(
+        cast_sql(Expr::Field(FieldRef::new("users", "age")), "text"),
+        r#"SELECT "users"."age"::text"#
+    );
+}
+
+#[test]
+fn cast_over_func_stays_bare() {
+    assert_eq!(
+        cast_sql(
+            Expr::func("lower", vec![Expr::Field(FieldRef::new("users", "name"))]),
+            "text",
+        ),
+        r#"SELECT lower("users"."name")::text"#
+    );
+}
+
+#[test]
+fn cast_over_cast_stays_bare() {
+    assert_eq!(
+        cast_sql(
+            Expr::cast(Expr::Field(FieldRef::new("users", "age")), "text"),
+            "integer",
+        ),
+        r#"SELECT "users"."age"::text::integer"#
+    );
+}
+
+#[test]
+fn cast_over_tuple_stays_bare() {
+    assert_eq!(
+        cast_sql(
+            Expr::Tuple(vec![
+                Expr::Field(FieldRef::new("users", "id")),
+                Expr::Field(FieldRef::new("users", "name")),
+            ]),
+            "text",
+        ),
+        r#"SELECT ("users"."id", "users"."name")::text"#
+    );
+}
+
+// ==========================================================================
+// Operator precedence — a compound operand must be parenthesized, otherwise
+// PostgreSQL re-associates the expression by its own precedence rules.
+// ==========================================================================
+
+fn expr_sql(expr: Expr) -> String {
+    render_expr_pg(expr).0
+}
+
+fn bin(left: Expr, op: qcraft_core::ast::expr::BinaryOp, right: Expr) -> Expr {
+    Expr::Binary {
+        left: Box::new(left),
+        op,
+        right: Box::new(right),
+    }
+}
+
+fn int(n: i64) -> Expr {
+    Expr::raw(n.to_string())
+}
+
+#[test]
+fn nested_binary_left_operand_is_parenthesized() {
+    use qcraft_core::ast::expr::BinaryOp;
+    // (1 + 2) * 3 — bare `1 + 2 * 3` would be 7, not 9.
+    assert_eq!(
+        expr_sql(bin(
+            bin(int(1), BinaryOp::Add, int(2)),
+            BinaryOp::Mul,
+            int(3)
+        )),
+        r#"SELECT (1 + 2) * 3"#
+    );
+}
+
+#[test]
+fn nested_binary_right_operand_is_parenthesized() {
+    use qcraft_core::ast::expr::BinaryOp;
+    // 10 - (5 - 2) — bare `10 - 5 - 2` is left-associative, giving 3, not 7.
+    assert_eq!(
+        expr_sql(bin(
+            int(10),
+            BinaryOp::Sub,
+            bin(int(5), BinaryOp::Sub, int(2))
+        )),
+        r#"SELECT 10 - (5 - 2)"#
+    );
+}
+
+#[test]
+fn unary_over_binary_is_parenthesized() {
+    use qcraft_core::ast::expr::{BinaryOp, UnaryOp};
+    // -(2 + 3) — bare `- 2 + 3` binds the minus to 2, giving 1, not -5.
+    assert_eq!(
+        expr_sql(Expr::Unary {
+            op: UnaryOp::Neg,
+            expr: Box::new(bin(int(2), BinaryOp::Add, int(3))),
+        }),
+        r#"SELECT - (2 + 3)"#
+    );
+}
+
+#[test]
+fn collate_over_binary_is_parenthesized() {
+    use qcraft_core::ast::expr::BinaryOp;
+    // COLLATE binds tighter than ||, so a bare operand collates only the right side.
+    assert_eq!(
+        expr_sql(Expr::Collate {
+            expr: Box::new(bin(
+                Expr::Field(FieldRef::new("users", "name")),
+                BinaryOp::Concat,
+                Expr::Field(FieldRef::new("users", "department")),
+            )),
+            collation: "C".into(),
+        }),
+        r#"SELECT ("users"."name" || "users"."department") COLLATE "C""#
+    );
+}
+
+#[test]
+fn json_path_text_over_unary_not_is_parenthesized() {
+    use qcraft_core::ast::expr::UnaryOp;
+    // NOT is weaker than ->>, so a bare operand negates the extraction instead.
+    assert_eq!(
+        expr_sql(Expr::JsonPathText {
+            expr: Box::new(Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(Expr::Field(FieldRef::new("users", "data"))),
+            }),
+            path: "k".into(),
+        }),
+        r#"SELECT (NOT "users"."data")->>'k'"#
+    );
+}
+
+#[test]
+fn cast_over_nested_binary_parenthesizes_both_levels() {
+    use qcraft_core::ast::expr::BinaryOp;
+    // ((1 + 2) * 3)::bigint — the cast wraps the whole operand AND the inner
+    // sum keeps its own parens, otherwise the value is 7 instead of 9.
+    assert_eq!(
+        expr_sql(Expr::cast(
+            bin(bin(int(1), BinaryOp::Add, int(2)), BinaryOp::Mul, int(3)),
+            "bigint",
+        )),
+        r#"SELECT ((1 + 2) * 3)::bigint"#
+    );
+}
+
+#[test]
+fn atomic_binary_operands_stay_bare() {
+    use qcraft_core::ast::expr::BinaryOp;
+    // Fields, literals, calls and casts are self-delimiting — no parens added.
+    assert_eq!(
+        expr_sql(bin(
+            Expr::Field(FieldRef::new("users", "id")),
+            BinaryOp::Add,
+            Expr::func("abs", vec![Expr::Field(FieldRef::new("users", "age"))]),
+        )),
+        r#"SELECT "users"."id" + abs("users"."age")"#
+    );
+}
+
+#[test]
+fn comparison_with_not_operand_is_parenthesized() {
+    use qcraft_core::ast::expr::UnaryOp;
+    // NOT is weaker than `=`, so `NOT x = y` parses as NOT (x = y).
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(users_from()),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(Expr::Field(FieldRef::new("users", "active"))),
+                },
+                CompareOp::Eq,
+                Expr::Value(Value::Bool(true)),
+            ),
+        ))])),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WHERE (NOT "users"."active") = $1"#
+    );
+}
+
+// ==========================================================================
+// Operand positions missed by the first pass — a FieldRef with a JSON child
+// renders an operator chain (`"data"->'age'`) just like Expr::JsonPathText,
+// and the JSONB key operators feed their right operand into `?|` and `::text[]`.
+// ==========================================================================
+
+fn json_field(table: &str, name: &str, child: &str) -> FieldRef {
+    let mut field = FieldDef::new(name);
+    field.child = Some(Box::new(FieldDef::new(child)));
+    FieldRef {
+        field,
+        table_name: table.into(),
+        namespace: None,
+    }
+}
+
+#[test]
+fn cast_over_field_with_json_child_is_parenthesized() {
+    // Bare `"users"."data"->'age'::bigint` is read as `"users"."data" -> ('age'::bigint)`
+    // — the same defect as Cast over JsonPathText, reached through a FieldRef.
+    assert_eq!(
+        cast_sql(Expr::Field(json_field("users", "data", "age")), "bigint"),
+        r#"SELECT ("users"."data"->'age')::bigint"#
+    );
+}
+
+#[test]
+fn cast_over_field_without_json_child_stays_bare() {
+    assert_eq!(
+        cast_sql(Expr::Field(FieldRef::new("users", "age")), "bigint"),
+        r#"SELECT "users"."age"::bigint"#
+    );
+}
+
+#[test]
+fn jsonb_has_any_key_parenthesizes_compound_right_operand() {
+    use qcraft_core::ast::expr::BinaryOp;
+    // `right` is the operand of both `?|` and the trailing `::text[]`, so a compound
+    // operand must be bracketed. `||` on two arrays concatenates them, which is the
+    // only compound shape that is meaningful here (a text concat cannot cast to text[]).
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(users_from()),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("users", "data")),
+                CompareOp::JsonbHasAnyKey,
+                bin(
+                    Expr::raw("ARRAY['email']"),
+                    BinaryOp::Concat,
+                    Expr::raw("ARRAY['phone']"),
+                ),
+            ),
+        ))])),
+        ..simple_query()
+    };
+    assert_eq!(
+        render(&stmt),
+        r#"SELECT * FROM "users" WHERE "users"."data" ?| (ARRAY['email'] || ARRAY['phone'])::text[]"#
+    );
 }

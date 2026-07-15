@@ -2239,3 +2239,70 @@ fn sqlite_xor_computes_real_xor_via_rusqlite() {
         assert_eq!(got, a ^ b, "sql={sql}");
     }
 }
+
+// ==========================================================================
+// Operator precedence — executed against SQLite, asserting the VALUE.
+// SQLite's precedence differs from PostgreSQL's (`||` binds tighter than
+// `* /` here), which is exactly why operands must carry their own parens.
+// ==========================================================================
+
+fn lit(n: i64) -> Expr {
+    Expr::raw(n.to_string())
+}
+
+fn bin(left: Expr, op: BinaryOp, right: Expr) -> Expr {
+    Expr::Binary {
+        left: Box::new(left),
+        op,
+        right: Box::new(right),
+    }
+}
+
+fn scalar<T: rusqlite::types::FromSql>(expr: Expr) -> T {
+    // These queries are `SELECT <expr>` with no FROM — no seeded tables needed.
+    let conn = Connection::open_in_memory().unwrap();
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr { expr, alias: None }],
+        from: None,
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = common::to_sqlite_params(&values);
+    let params = common::as_sqlite_params(&boxed);
+    conn.query_row(&sql, params.as_slice(), |row| row.get(0))
+        .unwrap()
+}
+
+#[test]
+fn precedence_nested_binary_executes() {
+    // (1 + 2) * 3 = 9; flat `1 + 2 * 3` silently yields 7.
+    let expr = bin(bin(lit(1), BinaryOp::Add, lit(2)), BinaryOp::Mul, lit(3));
+    assert_eq!(scalar::<i64>(expr), 9);
+}
+
+#[test]
+fn precedence_right_operand_associativity_executes() {
+    // 10 - (5 - 2) = 7; flat `10 - 5 - 2` is left-associative and yields 3.
+    let expr = bin(lit(10), BinaryOp::Sub, bin(lit(5), BinaryOp::Sub, lit(2)));
+    assert_eq!(scalar::<i64>(expr), 7);
+}
+
+#[test]
+fn precedence_unary_over_binary_executes() {
+    // -(2 + 3) = -5; flat `- 2 + 3` binds the minus to 2 and yields 1.
+    let expr = Expr::Unary {
+        op: UnaryOp::Neg,
+        expr: Box::new(bin(lit(2), BinaryOp::Add, lit(3))),
+    };
+    assert_eq!(scalar::<i64>(expr), -5);
+}
+
+#[test]
+fn precedence_concat_over_sum_executes() {
+    // (1 + 2) || 3 = '33'. In SQLite `||` binds TIGHTER than `+`, so the flat
+    // form `1 + 2 || 3` parses as 1 + ('2' || '3') = 24 — the same AST that
+    // PostgreSQL would render correctly without parens. Dialect-specific
+    // precedence is why operands must be parenthesized structurally.
+    let expr = bin(bin(lit(1), BinaryOp::Add, lit(2)), BinaryOp::Concat, lit(3));
+    assert_eq!(scalar::<String>(expr), "33");
+}

@@ -499,10 +499,11 @@ impl Renderer for SqliteRenderer {
             }
 
             Expr::Binary { left, op, right } => match op {
-                BinaryOp::Custom(_) => Err(RenderError::unsupported(
-                    "CustomBinaryOp",
-                    "SQLite does not support custom binary operators.",
-                )),
+                BinaryOp::Custom(custom) => {
+                    self.render_operand(left, ctx)?;
+                    custom.render(self, ctx)?;
+                    self.render_operand(right, ctx)
+                }
 
                 // power(l, r) — operands rendered once; works in any param mode.
                 BinaryOp::Power => {
@@ -571,7 +572,7 @@ impl Renderer for SqliteRenderer {
 
                 // Everything else stays infix.
                 _ => {
-                    self.render_expr(left, ctx)?;
+                    self.render_operand(left, ctx)?;
                     ctx.keyword(match op {
                         BinaryOp::Add => "+",
                         BinaryOp::Sub => "-",
@@ -586,17 +587,17 @@ impl Renderer for SqliteRenderer {
                         BinaryOp::Power | BinaryOp::BitwiseXor => unreachable!(),
                         BinaryOp::Custom(_) => unreachable!(),
                     });
-                    self.render_expr(right, ctx)
+                    self.render_operand(right, ctx)
                 }
             },
 
             Expr::Unary { op, expr: inner } => {
                 match op {
-                    UnaryOp::Neg => ctx.write("-"),
+                    UnaryOp::Neg => ctx.keyword("-"),
                     UnaryOp::Not => ctx.keyword("NOT"),
-                    UnaryOp::BitwiseNot => ctx.write("~"),
+                    UnaryOp::BitwiseNot => ctx.keyword("~"),
                 };
-                self.render_expr(inner, ctx)
+                self.render_operand(inner, ctx)
             }
 
             Expr::Func { name, args } => {
@@ -646,7 +647,7 @@ impl Renderer for SqliteRenderer {
             )),
 
             Expr::Collate { expr, collation } => {
-                self.render_expr(expr, ctx)?;
+                self.render_operand(expr, ctx)?;
                 ctx.keyword("COLLATE").keyword(collation);
                 Ok(())
             }
@@ -748,7 +749,7 @@ impl Renderer for SqliteRenderer {
             }
 
             Expr::JsonPathText { expr, path } => {
-                self.render_expr(expr, ctx)?;
+                self.render_operand(expr, ctx)?;
                 ctx.operator("->>'")
                     .write(&path.replace('\'', "''"))
                     .write("'");
@@ -781,10 +782,7 @@ impl Renderer for SqliteRenderer {
                 Ok(())
             }
 
-            Expr::Custom(_) => Err(RenderError::unsupported(
-                "CustomExpr",
-                "custom expression must be handled by a wrapping renderer",
-            )),
+            Expr::Custom(custom) => custom.render(self, ctx),
         }
     }
 
@@ -900,11 +898,8 @@ impl Renderer for SqliteRenderer {
                     self.render_query(query, ctx)?;
                     ctx.paren_close();
                 }
-                ConditionNode::Custom(_) => {
-                    return Err(RenderError::unsupported(
-                        "CustomCondition",
-                        "custom condition must be handled by a wrapping renderer",
-                    ));
+                ConditionNode::Custom(custom) => {
+                    custom.render(self, ctx)?;
                 }
             }
         }
@@ -912,6 +907,22 @@ impl Renderer for SqliteRenderer {
             ctx.paren_close();
         }
         Ok(())
+    }
+
+    /// SQLite renders `Power` as `power(l, r)` and `BitwiseXor` as a bracketed
+    /// composite, so those two already delimit themselves and must not collect a
+    /// second pair of brackets. Every other operand follows the shared rule.
+    fn needs_operand_parens(&self, expr: &Expr) -> bool {
+        if matches!(
+            expr,
+            Expr::Binary {
+                op: BinaryOp::Power | BinaryOp::BitwiseXor,
+                ..
+            }
+        ) {
+            return false;
+        }
+        expr.needs_operand_parens()
     }
 
     fn render_compare_op(
@@ -928,7 +939,7 @@ impl Renderer for SqliteRenderer {
         if needs_lower {
             ctx.keyword("LOWER").write("(");
         }
-        self.render_expr(left, ctx)?;
+        self.render_operand(left, ctx)?;
         if needs_lower {
             ctx.paren_close();
         }
@@ -1004,7 +1015,7 @@ impl Renderer for SqliteRenderer {
             CompareOp::Regex => ctx.keyword("REGEXP"),
             CompareOp::IRegex => {
                 ctx.keyword("REGEXP").string_literal("(?i)").keyword("||");
-                self.render_expr(right, ctx)?;
+                self.render_operand(right, ctx)?;
                 return Ok(());
             }
             CompareOp::ILike => {
@@ -1049,7 +1060,7 @@ impl Renderer for SqliteRenderer {
                 ));
             }
         };
-        self.render_expr(right, ctx)
+        self.render_operand(right, ctx)
     }
 
     // ── Query (stub) ─────────────────────────────────────────────────────

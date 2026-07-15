@@ -51,28 +51,21 @@ impl CustomBinaryOp for PgVectorOp {
     fn clone_box(&self) -> Box<dyn CustomBinaryOp> {
         Box::new(*self)
     }
-}
 
-impl From<PgVectorOp> for BinaryOp {
-    fn from(op: PgVectorOp) -> Self {
-        BinaryOp::Custom(Box::new(op))
-    }
-}
-
-fn render_custom_binary_op(custom: &dyn CustomBinaryOp, ctx: &mut RenderCtx) -> RenderResult<()> {
-    if let Some(op) = custom.as_any().downcast_ref::<PgVectorOp>() {
-        ctx.write(match op {
+    fn render(&self, _renderer: &dyn Renderer, ctx: &mut RenderCtx) -> RenderResult<()> {
+        ctx.write(match self {
             PgVectorOp::L2Distance => " <-> ",
             PgVectorOp::InnerProduct => " <#> ",
             PgVectorOp::CosineDistance => " <=> ",
             PgVectorOp::L1Distance => " <+> ",
         });
         Ok(())
-    } else {
-        Err(RenderError::unsupported(
-            "CustomBinaryOp",
-            "unknown custom binary operator; use a wrapping renderer to handle it",
-        ))
+    }
+}
+
+impl From<PgVectorOp> for BinaryOp {
+    fn from(op: PgVectorOp) -> Self {
+        BinaryOp::Custom(Box::new(op))
     }
 }
 
@@ -913,7 +906,7 @@ impl Renderer for PostgresRenderer {
             }
 
             Expr::Binary { left, op, right } => {
-                self.render_expr(left, ctx)?;
+                self.render_operand(left, ctx)?;
                 // When using %s placeholders (psycopg), literal '%' must be
                 // escaped as '%%' so the driver doesn't treat it as a placeholder.
                 let mod_op = if self.param_style == ParamStyle::Percent {
@@ -923,7 +916,7 @@ impl Renderer for PostgresRenderer {
                 };
                 match op {
                     BinaryOp::Custom(custom) => {
-                        render_custom_binary_op(custom.as_ref(), ctx)?;
+                        custom.render(self, ctx)?;
                     }
                     _ => {
                         ctx.keyword(match op {
@@ -943,16 +936,16 @@ impl Renderer for PostgresRenderer {
                         });
                     }
                 };
-                self.render_expr(right, ctx)
+                self.render_operand(right, ctx)
             }
 
             Expr::Unary { op, expr: inner } => {
                 match op {
-                    UnaryOp::Neg => ctx.write("-"),
+                    UnaryOp::Neg => ctx.keyword("-"),
                     UnaryOp::Not => ctx.keyword("NOT"),
-                    UnaryOp::BitwiseNot => ctx.write("~"),
+                    UnaryOp::BitwiseNot => ctx.keyword("~"),
                 };
-                self.render_expr(inner, ctx)
+                self.render_operand(inner, ctx)
             }
 
             Expr::Func { name, args } => {
@@ -973,7 +966,7 @@ impl Renderer for PostgresRenderer {
                 expr: inner,
                 to_type,
             } => {
-                self.render_expr(inner, ctx)?;
+                self.render_operand(inner, ctx)?;
                 ctx.operator("::");
                 ctx.write(to_type);
                 Ok(())
@@ -1005,7 +998,7 @@ impl Renderer for PostgresRenderer {
             }
 
             Expr::Collate { expr, collation } => {
-                self.render_expr(expr, ctx)?;
+                self.render_operand(expr, ctx)?;
                 ctx.keyword("COLLATE").ident(collation);
                 Ok(())
             }
@@ -1104,7 +1097,7 @@ impl Renderer for PostgresRenderer {
             }
 
             Expr::JsonPathText { expr, path } => {
-                self.render_expr(expr, ctx)?;
+                self.render_operand(expr, ctx)?;
                 ctx.operator("->>'")
                     .write(&path.replace('\'', "''"))
                     .write("'");
@@ -1141,10 +1134,7 @@ impl Renderer for PostgresRenderer {
                 Ok(())
             }
 
-            Expr::Custom(_) => Err(RenderError::unsupported(
-                "CustomExpr",
-                "custom expression must be handled by a wrapping renderer",
-            )),
+            Expr::Custom(custom) => custom.render(self, ctx),
         }
     }
 
@@ -1263,11 +1253,8 @@ impl Renderer for PostgresRenderer {
                     self.render_query(query, ctx)?;
                     ctx.paren_close();
                 }
-                ConditionNode::Custom(_) => {
-                    return Err(RenderError::unsupported(
-                        "CustomCondition",
-                        "custom condition must be handled by a wrapping renderer",
-                    ));
+                ConditionNode::Custom(custom) => {
+                    custom.render(self, ctx)?;
                 }
             }
         }
@@ -1284,7 +1271,7 @@ impl Renderer for PostgresRenderer {
         right: &Expr,
         ctx: &mut RenderCtx,
     ) -> RenderResult<()> {
-        self.render_expr(left, ctx)?;
+        self.render_operand(left, ctx)?;
         match op {
             CompareOp::Eq => ctx.write(" = "),
             CompareOp::Neq => ctx.write(" <> "),
@@ -1359,13 +1346,13 @@ impl Renderer for PostgresRenderer {
             CompareOp::JsonbHasKey => ctx.write(" ? "),
             CompareOp::JsonbHasAnyKey => {
                 ctx.write(" ?| ");
-                self.render_expr(right, ctx)?;
+                self.render_operand(right, ctx)?;
                 ctx.write("::text[]");
                 return Ok(());
             }
             CompareOp::JsonbHasAllKeys => {
                 ctx.write(" ?& ");
-                self.render_expr(right, ctx)?;
+                self.render_operand(right, ctx)?;
                 ctx.write("::text[]");
                 return Ok(());
             }
@@ -1406,7 +1393,7 @@ impl Renderer for PostgresRenderer {
                 ));
             }
         };
-        self.render_expr(right, ctx)
+        self.render_operand(right, ctx)
     }
 
     // ── Query (stub) ─────────────────────────────────────────────────────

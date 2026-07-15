@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.2.0
+
+### Fixed
+- **Operator operands are now parenthesized when their own structure requires it.** Renderers emitted no grouping, so an operand that was itself an operator expression got re-associated by the engine's precedence rules — two different ASTs rendered to the same SQL. `Cast(JsonPathText(data, 'age'), "bigint")` produced `data->>'age'::bigint`, which PostgreSQL reads as `data ->> ('age'::bigint)` and rejects with `invalid input syntax for type bigint`. Worse, `Binary(Binary(1, +, 2), *, 3)` produced `1 + 2 * 3` and silently evaluated to 7 instead of 9, with no error from the database. Operands of `Binary`, `Unary`, `Cast`, `Collate`, `JsonPathText` and of both sides of a comparison are now bracketed when they are themselves `Binary`, `Unary`, `Collate`, `JsonPathText` or `Window`.
+
+  Bracketing is structural rather than driven by a precedence table, because precedence is dialect-specific: SQLite binds `||` tighter than `*`, PostgreSQL binds it looser than `+`, so the same AST needs different brackets per dialect.
+
+  The same defect reached through `Expr::Field`: a `FieldDef` carrying a `child` renders a JSON path chain (`"data"->'age'`), so `Cast(Field(data->age), "bigint")` produced `"data"->'age'::bigint` — bracketed now as well. Plain fields are bare identifiers and stay unbracketed.
+
+  Two further operand positions were missed on the first pass and are now covered: the right operand of PostgreSQL's `?|` / `?&` (which also feeds a trailing `::text[]`), and the right operand of SQLite's `IRegex` (the RHS of a `||` concatenation).
+
+### Added
+- **`Custom*` nodes now render themselves.** Every `Custom*` trait gained `render(&self, renderer: &dyn Renderer, ctx: &mut RenderCtx)`, and `CustomExpr` also gained `needs_operand_parens()`. The node is handed the renderer, so it recurses back through it for its own sub-expressions — nested expressions, identifier quoting and parameter numbering all go through the same dialect and the same `RenderCtx`. Both default to an error / `true`, so nothing existing breaks and an unrenderable node still fails loudly.
+
+  This makes the extension story actually work. Previously `Expr::Custom` and `ConditionNode::Custom` returned "must be handled by a wrapping renderer", but such a wrapper could not be written: `delegate_renderer!` emits every trait method, so combining it with an override is a duplicate definition (`E0201`), and even a hand-written wrapper never saw the call — a dialect's `render_query` recurses through its own concrete `self`, never back out to the wrapper. Teaching qcraft a new syntax now needs no wrapper at all: implement `render` on the node. qcraft's own `PgVectorOp` (`<->`, `<#>`, …) is now implemented exactly this way, through the same public mechanism users get.
+
+- `Expr::needs_operand_parens()` and the `Renderer::render_operand()` default method, which together implement the rule above. A `CustomExpr` author calls `renderer.render_operand()` for its own operands and answers `needs_operand_parens()` for itself, so a user-defined infix node (`x AT TIME ZONE 'UTC'`) is bracketed correctly under a cast.
+- `Renderer::needs_operand_parens()` — the extension point a dialect overrides when its own rendering of a node already delimits it (SQLite renders `Power` as `power(l, r)` and `BitwiseXor` as a bracketed composite, so neither takes a second pair of brackets). Overriding the predicate rather than `render_operand` keeps the bracketing logic single-sourced.
+- `delegate_renderer!` forwards `needs_operand_parens`, so a wrapping renderer keeps the inner dialect's rule instead of falling back to the core default.
+
+### Changed
+- Generated SQL now carries brackets where operand structure demands them (values are unchanged; only the SQL text differs). Snapshot tests that compare rendered SQL byte-for-byte may need updating — for example a `COLLATE` operand in a comparison now renders as `("users"."name" COLLATE "C") = $1`.
+- Unary operators render via `keyword()` instead of `write()`, so `SELECT- x` is now `SELECT - x`.
+
+### Notes
+- `Expr::Raw` and `Expr::Custom` are **never** bracketed automatically: their contents are opaque and need not be an expression at all. A caller who needs grouping writes it into the fragment itself — `Expr::cast(Expr::raw("(price * qty)"), "numeric")` renders `(price * qty)::numeric`, while `Expr::raw("price * qty")` renders `price * qty::numeric` (the cast lands on `qty`).
+- No new `Expr` variant is added, so exhaustive `match` over `Expr` still compiles.
+
 ## 3.1.0
 
 ### Added

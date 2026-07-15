@@ -65,51 +65,29 @@ impl CustomExpr for AtTimeZone {
     fn clone_box(&self) -> Box<dyn CustomExpr> {
         Box::new(self.clone())
     }
+
+    // The node renders itself. It is handed the renderer, so it recurses back through
+    // it for any sub-expression it holds — nested expressions, identifier quoting and
+    // parameter numbering all go through the same dialect and the same RenderCtx.
+    fn render(&self, renderer: &dyn Renderer, ctx: &mut RenderCtx) -> RenderResult<()> {
+        // AT TIME ZONE is an operator, so its left-hand side is an operand:
+        // `a + b AT TIME ZONE 'UTC'` would bind the zone to `b`. render_operand adds
+        // brackets when the sub-expression's own structure needs them.
+        renderer.render_operand(&self.expr, ctx)?;
+        ctx.keyword("AT TIME ZONE").string_literal(&self.zone);
+        Ok(())
+    }
+
+    // This node renders an infix operator, so it is not self-delimiting: as the operand
+    // of `::` it must be bracketed, or `x AT TIME ZONE 'UTC'::date` casts the zone
+    // literal instead. A node rendering `my_func(x)` would return false here.
+    fn needs_operand_parens(&self) -> bool {
+        true
+    }
 }
 ```
 
-**Step 2: Wrap the renderer and override `render_expr`.**
-
-```rust
-use qcraft_core::render::renderer::Renderer;
-use qcraft_core::render::ctx::RenderCtx;
-use qcraft_core::ast::expr::Expr;
-use qcraft_core::error::RenderResult;
-use qcraft_core::delegate_renderer;
-use qcraft_postgres::PostgresRenderer;
-
-pub struct MyRenderer {
-    inner: PostgresRenderer,
-}
-
-impl MyRenderer {
-    pub fn new() -> Self {
-        Self {
-            inner: PostgresRenderer::new(),
-        }
-    }
-}
-
-impl Renderer for MyRenderer {
-    fn render_expr(&self, expr: &Expr, ctx: &mut RenderCtx) -> RenderResult<()> {
-        if let Expr::Custom(custom) = expr {
-            if let Some(atz) = custom.as_any().downcast_ref::<AtTimeZone>() {
-                self.inner.render_expr(&atz.expr, ctx)?;
-                ctx.keyword("AT TIME ZONE");
-                ctx.string_literal(&atz.zone);
-                return Ok(());
-            }
-        }
-        // Fall through to the default renderer for all other expressions
-        self.inner.render_expr(expr, ctx)
-    }
-
-    // Delegate every other Renderer method to self.inner
-    delegate_renderer!(self.inner);
-}
-```
-
-**Step 3: Use it in a query.**
+**Step 2: Use it in a query — no renderer wrapping needed.**
 
 ```rust
 let expr = Expr::Custom(Box::new(AtTimeZone {
@@ -117,9 +95,33 @@ let expr = Expr::Custom(Box::new(AtTimeZone {
     zone: "UTC".to_string(),
 }));
 
-// Use in a SelectColumn, WHERE clause, etc.
-let col = SelectColumn::aliased(expr, "created_utc");
+let stmt = QueryStmt {
+    columns: vec![SelectColumn::Expr {
+        expr: Expr::cast(expr, "date"),   // brackets are added for you
+        alias: Some("day".into()),
+    }],
+    from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+    ..Default::default()
+};
+
+let (sql, params) = PostgresRenderer::new().render_query_stmt(&stmt).unwrap();
+// SELECT ("events"."created_at" AT TIME ZONE 'UTC')::date AS "day" FROM "events"
 ```
+
+The stock renderer handles it — the knowledge lives in the node, not in a renderer
+wrapped around the dialect. The same applies to `CustomCondition`, `CustomBinaryOp` and
+the other `Custom*` traits: each has a `render` method with the same contract. qcraft's
+own `PgVectorOp` (`<->`, `<#>`, …) is implemented exactly this way, as a `CustomBinaryOp`.
+
+A `Custom*` node that does not implement `render` is a `RenderError`, never silently
+dropped SQL.
+
+### Wrapping a renderer (`delegate_renderer!`)
+
+`delegate_renderer!(self.inner)` forwards **every** `Renderer` method to an inner
+renderer. Because it emits all of them, it **cannot be combined with overriding one** —
+that is a duplicate definition (`error[E0201]`). Use it to wrap a dialect wholesale; to
+add a node the renderer does not know, implement `CustomExpr::render` as above instead.
 
 ### The `as_any()` + `downcast_ref` pattern
 

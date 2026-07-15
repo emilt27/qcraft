@@ -41,6 +41,32 @@ pub trait Renderer {
     // ── Expressions ──
 
     fn render_expr(&self, expr: &Expr, ctx: &mut RenderCtx) -> RenderResult<()>;
+
+    /// Whether `expr` needs brackets in an operand position. Defaults to
+    /// [`Expr::needs_operand_parens`]; a dialect overrides this — not
+    /// [`Renderer::render_operand`] — when its own rendering of a node already
+    /// delimits it (SQLite renders `Power` as `power(l, r)`, for instance).
+    fn needs_operand_parens(&self, expr: &Expr) -> bool {
+        expr.needs_operand_parens()
+    }
+
+    /// Render `expr` where it is the operand of an operator (`+`, `::`, `COLLATE`,
+    /// `->>`, a comparison, …), bracketing it when its own structure would otherwise
+    /// be re-associated by the engine's operator precedence.
+    ///
+    /// See [`Expr::needs_operand_parens`] for which forms are bracketed and why this
+    /// is structural rather than precedence-driven.
+    fn render_operand(&self, expr: &Expr, ctx: &mut RenderCtx) -> RenderResult<()> {
+        if self.needs_operand_parens(expr) {
+            ctx.paren_open();
+            self.render_expr(expr, ctx)?;
+            ctx.paren_close();
+            Ok(())
+        } else {
+            self.render_expr(expr, ctx)
+        }
+    }
+
     fn render_aggregate(&self, agg: &AggregationDef, ctx: &mut RenderCtx) -> RenderResult<()>;
     fn render_window(&self, win: &WindowDef, ctx: &mut RenderCtx) -> RenderResult<()>;
     fn render_case(&self, case: &CaseDef, ctx: &mut RenderCtx) -> RenderResult<()>;
@@ -72,14 +98,25 @@ pub trait Renderer {
     fn render_index_def(&self, idx: &IndexDef, ctx: &mut RenderCtx) -> RenderResult<()>;
 }
 
-/// Macro to delegate all Renderer methods to an inner renderer.
+/// Delegates every [`Renderer`] method to an inner renderer.
 ///
-/// Usage:
+/// The macro emits **all** methods, so it cannot be combined with overriding one —
+/// that is a duplicate definition (`error[E0201]`). It is for wrapping a dialect
+/// wholesale, not for extending it.
+///
+/// To teach the renderer a syntax it does not know, do **not** wrap the renderer:
+/// implement [`CustomExpr::render`](crate::ast::custom::CustomExpr::render) on the node
+/// itself. The node is handed the renderer and recurses back through it, so nested
+/// expressions, quoting and parameter numbering stay consistent:
+///
 /// ```ignore
-/// struct MyRenderer { inner: PostgresRenderer }
-/// impl Renderer for MyRenderer {
-///     fn render_cast(&self, ...) { /* custom */ }
-///     delegate_renderer!(self.inner);
+/// impl CustomExpr for AtTimeZone {
+///     fn render(&self, renderer: &dyn Renderer, ctx: &mut RenderCtx) -> RenderResult<()> {
+///         renderer.render_operand(&self.expr, ctx)?;   // brackets the operand if needed
+///         ctx.keyword("AT TIME ZONE").string_literal(&self.zone);
+///         Ok(())
+///     }
+///     fn needs_operand_parens(&self) -> bool { true }  // infix — bracket me as an operand
 /// }
 /// ```
 #[macro_export]
@@ -175,6 +212,9 @@ macro_rules! delegate_renderer {
             ctx: &mut $crate::render::ctx::RenderCtx,
         ) -> $crate::error::RenderResult<()> {
             $self.$inner.render_expr(expr, ctx)
+        }
+        fn needs_operand_parens(&$self, expr: &$crate::ast::expr::Expr) -> bool {
+            $self.$inner.needs_operand_parens(expr)
         }
         fn render_aggregate(
             &$self,

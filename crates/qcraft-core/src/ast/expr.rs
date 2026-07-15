@@ -273,6 +273,42 @@ impl Expr {
         Expr::Now
     }
 
+    /// True if this expression must be parenthesized when it appears as the operand
+    /// of an operator (`+`, `::`, `COLLATE`, `->>`, a comparison, …).
+    ///
+    /// An operator expression carries its grouping in the tree, but SQL text carries
+    /// it in brackets: printed flat, `Binary(Binary(1, +, 2), *, 3)` becomes
+    /// `1 + 2 * 3`, which every engine reads back as `Binary(1, +, Binary(2, *, 3))`
+    /// — 7 instead of 9. Bracketing is structural rather than driven by a precedence
+    /// table because precedence is dialect-specific: SQLite binds `||` tighter than
+    /// `*`, PostgreSQL binds it looser than `+`.
+    ///
+    /// A [`Expr::Field`] whose [`FieldDef`](crate::ast::common::FieldDef) carries a
+    /// `child` renders as a JSON path chain (`"data"->'age'`) — an operator expression
+    /// like [`Expr::JsonPathText`], and bracketed for the same reason. A plain field
+    /// is a bare identifier and is not.
+    ///
+    /// Self-delimiting forms (literals, identifiers, function calls, `CAST(…)`,
+    /// `CASE … END`, subqueries, tuples) carry their own boundaries and render bare.
+    ///
+    /// `Raw` and `Custom` are opaque escape hatches whose contents need not be an
+    /// expression at all, so they are never bracketed automatically. A caller who needs
+    /// grouping writes it into the fragment itself — `Expr::raw("(price * qty)")` — and
+    /// a `CustomExpr` author controls their own rendering.
+    pub fn needs_operand_parens(&self) -> bool {
+        match self {
+            Expr::Binary { .. }
+            | Expr::Unary { .. }
+            | Expr::Collate { .. }
+            | Expr::JsonPathText { .. }
+            | Expr::Window(_) => true,
+            Expr::Field(field_ref) => field_ref.field.child.is_some(),
+            // Only the node's author knows the shape it renders.
+            Expr::Custom(custom) => custom.needs_operand_parens(),
+            _ => false,
+        }
+    }
+
     /// True if this expression tree contains an unbound `Expr::Param` placeholder.
     /// Used to reject double-render forms that would corrupt positional binding.
     /// Does not descend into subquery `QueryStmt`s (those are rejected separately).

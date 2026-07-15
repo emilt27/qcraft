@@ -2351,3 +2351,323 @@ fn collate_in_where_comparison() {
     // 'A'(65) 'B'(66) 'C'(67) < 'D'(68) — Alice, Bob, Charlie match
     assert_eq!(names, vec!["Alice", "Bob", "Charlie"]);
 }
+
+// ==========================================================================
+// CAST over a compound operand — `::` binds tighter than `->>` and than the
+// arithmetic operators, so an unparenthesized operand casts the wrong node.
+// ==========================================================================
+
+#[test]
+fn cast_over_json_path_text_executes() {
+    let mut client = crate::test_client("template0");
+    client
+        .execute(
+            r#"CREATE TABLE "people" ("id" INTEGER PRIMARY KEY, "data" JSONB NOT NULL)"#,
+            &[],
+        )
+        .unwrap();
+    client
+        .execute(
+            r#"INSERT INTO "people" VALUES (1, '{"age": 36}'::jsonb)"#,
+            &[],
+        )
+        .unwrap();
+
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::cast(
+                Expr::JsonPathText {
+                    expr: Box::new(Expr::Field(FieldRef::new("people", "data"))),
+                    path: "age".into(),
+                },
+                "bigint",
+            ),
+            alias: Some("age".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("people"))]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get::<_, i64>(0), 36);
+}
+
+#[test]
+fn cast_over_binary_executes() {
+    let mut client = crate::test_client("template_dql");
+    // "id" + "age" for Alice is 1 + 30; a bare `::text` would cast only "age",
+    // leaving `1 + '30'` — an int + text mismatch that PostgreSQL rejects.
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::cast(
+                Expr::Binary {
+                    left: Box::new(Expr::Field(FieldRef::new("users", "id"))),
+                    op: BinaryOp::Add,
+                    right: Box::new(Expr::Field(FieldRef::new("users", "age"))),
+                },
+                "text",
+            ),
+            alias: Some("sum_text".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("users"))]),
+        where_clause: Some(simple_cond_eq(
+            Expr::Field(FieldRef::new("users", "id")),
+            Expr::Value(Value::Int(1)),
+        )),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get::<_, String>(0), "31");
+}
+
+// ==========================================================================
+// Operator precedence — executed against PostgreSQL, asserting the VALUE.
+// Without parens these queries succeed but compute the wrong number.
+// ==========================================================================
+
+fn lit(n: i64) -> Expr {
+    Expr::raw(n.to_string())
+}
+
+fn bin(left: Expr, op: BinaryOp, right: Expr) -> Expr {
+    Expr::Binary {
+        left: Box::new(left),
+        op,
+        right: Box::new(right),
+    }
+}
+
+/// One database for the whole group: these are `SELECT <expr>` with no FROM, so
+/// they read no table and need no isolation — cloning a template per assertion
+/// (what a per-test client would do) buys nothing.
+#[test]
+fn precedence_is_preserved_when_executed() {
+    let mut client = crate::test_client("template0");
+
+    let scalar_i64 = |client: &mut postgres::Client, expr: Expr| -> i64 {
+        let stmt = QueryStmt {
+            columns: vec![SelectColumn::Expr {
+                expr: Expr::cast(expr, "bigint"),
+                alias: None,
+            }],
+            ..simple_query()
+        };
+        let (sql, values) = render(&stmt);
+        let boxed = crate::common::to_pg_params(&values);
+        let params = crate::common::as_pg_params(&boxed);
+        client.query(&sql, &params).unwrap()[0].get::<_, i64>(0)
+    };
+
+    // (1 + 2) * 3 = 9; flat `1 + 2 * 3` silently yields 7.
+    let nested = bin(bin(lit(1), BinaryOp::Add, lit(2)), BinaryOp::Mul, lit(3));
+    assert_eq!(scalar_i64(&mut client, nested), 9, "nested binary");
+
+    // 10 - (5 - 2) = 7; flat `10 - 5 - 2` is left-associative and yields 3.
+    let assoc = bin(lit(10), BinaryOp::Sub, bin(lit(5), BinaryOp::Sub, lit(2)));
+    assert_eq!(
+        scalar_i64(&mut client, assoc),
+        7,
+        "right-operand associativity"
+    );
+
+    // -(2 + 3) = -5; flat `- 2 + 3` binds the minus to 2 and yields 1.
+    let unary = Expr::Unary {
+        op: UnaryOp::Neg,
+        expr: Box::new(bin(lit(2), BinaryOp::Add, lit(3))),
+    };
+    assert_eq!(scalar_i64(&mut client, unary), -5, "unary over binary");
+
+    // COLLATE binds tighter than ||, so a flat operand collates the integer 5 and
+    // PostgreSQL errors with "collations are not supported by type integer".
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::Collate {
+                expr: Box::new(bin(Expr::raw("'x'"), BinaryOp::Concat, Expr::raw("5"))),
+                collation: "C".into(),
+            },
+            alias: None,
+        }],
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows[0].get::<_, String>(0), "x5", "collate over binary");
+}
+
+#[test]
+fn cast_over_field_with_json_child_executes() {
+    // Same defect as cast-over-JsonPathText, reached through a FieldRef whose
+    // FieldDef carries a child: bare `"people"."data"->'age'::bigint` makes
+    // PostgreSQL cast the key literal and fail on `invalid input syntax`.
+    let mut client = crate::test_client("template0");
+    client
+        .execute(
+            r#"CREATE TABLE "people" ("id" INTEGER PRIMARY KEY, "data" JSONB NOT NULL)"#,
+            &[],
+        )
+        .unwrap();
+    client
+        .execute(
+            r#"INSERT INTO "people" VALUES (1, '{"age": 36}'::jsonb)"#,
+            &[],
+        )
+        .unwrap();
+
+    let mut field = FieldDef::new("data");
+    field.child = Some(Box::new(FieldDef::new("age")));
+    let field_ref = FieldRef {
+        field,
+        table_name: "people".into(),
+        namespace: None,
+    };
+
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr: Expr::cast(Expr::Field(field_ref), "bigint"),
+            alias: Some("age".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("people"))]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows[0].get::<_, i64>(0), 36);
+}
+
+#[test]
+fn jsonb_has_any_key_with_compound_operand_executes() {
+    // The `?|` right operand carries a renderer-owned `::text[]`, so a compound operand
+    // must be bracketed or the cast lands on the wrong sub-expression.
+    let mut client = crate::test_client("template0");
+    client
+        .execute(
+            r#"CREATE TABLE "docs" ("id" INTEGER PRIMARY KEY, "data" JSONB NOT NULL)"#,
+            &[],
+        )
+        .unwrap();
+    client
+        .execute(
+            r#"INSERT INTO "docs" VALUES (1, '{"phone": "555"}'::jsonb)"#,
+            &[],
+        )
+        .unwrap();
+
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::all()],
+        from: Some(vec![FromItem::table(SchemaRef::new("docs"))]),
+        where_clause: Some(Conditions::and(vec![ConditionNode::Comparison(Box::new(
+            Comparison::new(
+                Expr::Field(FieldRef::new("docs", "data")),
+                CompareOp::JsonbHasAnyKey,
+                bin(
+                    Expr::raw("ARRAY['email']"),
+                    BinaryOp::Concat,
+                    Expr::raw("ARRAY['phone']"),
+                ),
+            ),
+        ))])),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows.len(), 1, "row has key 'phone', so ?| must match");
+}
+
+// ==========================================================================
+// Extensibility — a user-defined expression must not just render, it must run.
+// ==========================================================================
+
+#[derive(Clone)]
+struct AtTimeZone {
+    expr: Expr,
+    zone: String,
+}
+
+impl std::fmt::Debug for AtTimeZone {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AtTimeZone")
+    }
+}
+
+impl qcraft_core::ast::custom::CustomExpr for AtTimeZone {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn clone_box(&self) -> Box<dyn qcraft_core::ast::custom::CustomExpr> {
+        Box::new(self.clone())
+    }
+    fn render(
+        &self,
+        renderer: &dyn qcraft_core::render::renderer::Renderer,
+        ctx: &mut qcraft_core::render::ctx::RenderCtx,
+    ) -> qcraft_core::error::RenderResult<()> {
+        renderer.render_operand(&self.expr, ctx)?;
+        ctx.keyword("AT TIME ZONE").string_literal(&self.zone);
+        Ok(())
+    }
+}
+
+#[test]
+fn user_defined_expression_executes_against_postgres() {
+    let mut client = crate::test_client("template0");
+    client
+        .execute(
+            r#"CREATE TABLE "events" ("id" INTEGER PRIMARY KEY, "created_at" TIMESTAMPTZ NOT NULL)"#,
+            &[],
+        )
+        .unwrap();
+    client
+        .execute(
+            r#"INSERT INTO "events" VALUES (1, '2024-03-01 12:00:00+00')"#,
+            &[],
+        )
+        .unwrap();
+
+    // AT TIME ZONE is syntax qcraft does not know. The user teaches it, and it must
+    // survive a cast — `::` binds tighter than AT TIME ZONE, so without brackets PG
+    // reads `created_at AT TIME ZONE ('UTC'::text)` and rejects the statement.
+    let expr = Expr::cast(
+        Expr::Custom(Box::new(AtTimeZone {
+            expr: Expr::field("events", "created_at"),
+            zone: "UTC".into(),
+        })),
+        "text",
+    );
+    let stmt = QueryStmt {
+        columns: vec![SelectColumn::Expr {
+            expr,
+            alias: Some("day".into()),
+        }],
+        from: Some(vec![FromItem::table(SchemaRef::new("events"))]),
+        ..simple_query()
+    };
+    let (sql, values) = render(&stmt);
+    assert!(sql.contains("AT TIME ZONE"), "sql: {sql}");
+
+    let boxed = crate::common::to_pg_params(&values);
+    let params = crate::common::as_pg_params(&boxed);
+    let rows = client.query(&sql, &params).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(
+        rows[0].get::<_, String>(0).starts_with("2024-03-01"),
+        "got: {}",
+        rows[0].get::<_, String>(0)
+    );
+}

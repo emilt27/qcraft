@@ -127,6 +127,36 @@ pub enum Expr {
 | `Value` | `Expr::Value(v)` |
 | `FieldRef` | `Expr::Field(f)` |
 
+### Parenthesization
+
+The tree carries the grouping, so the renderer brackets an operand whenever its own
+structure would otherwise be re-associated by the engine's operator precedence:
+
+```rust
+// (1 + 2) * 3 — flat `1 + 2 * 3` would evaluate to 7
+Expr::Binary {
+    left: Box::new(Expr::Binary { left: one, op: BinaryOp::Add, right: two }),
+    op: BinaryOp::Mul,
+    right: three,
+}
+// PG and SQLite: (1 + 2) * 3
+```
+
+Operands that are `Binary`, `Unary`, `Collate`, `JsonPathText`, `Window`, or a `Field`
+whose `FieldDef` carries a JSON child get brackets; self-delimiting forms (literals,
+fields, function calls, `CAST(…)`, `CASE … END`, subqueries, tuples) render bare.
+Bracketing is structural rather than driven by a precedence table, because precedence
+differs per dialect — SQLite binds `||` tighter than `*`, PostgreSQL binds it looser
+than `+`.
+
+`Raw` and `Custom` are **never** bracketed automatically: their contents are opaque and
+need not be an expression at all. Write the grouping into the fragment itself:
+
+```rust
+Expr::cast(Expr::raw("price * qty"), "numeric")     // price * qty::numeric  ← cast binds to qty
+Expr::cast(Expr::raw("(price * qty)"), "numeric")   // (price * qty)::numeric
+```
+
 ## FieldRef / FieldDef
 
 A field reference with optional schema namespace and JSON child path.
